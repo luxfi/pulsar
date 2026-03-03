@@ -1,0 +1,702 @@
+---
+title: Implementation Guide
+description: Detailed implementation architecture and code structure of Ringtail
+---
+
+# Implementation Guide
+
+## Architecture Overview
+
+Ringtail is structured as a modular cryptographic library with clear separation of concerns:
+
+```
+ringtail/
+├── primitives/     # Core cryptographic primitives
+├── sign/           # Signature generation and verification
+├── utils/          # Utility functions and helpers
+├── networking/     # Network communication layer
+└── docs/           # Documentation
+```
+
+## Core Components
+
+### Primitives Package
+
+The `primitives` package provides fundamental cryptographic operations:
+
+```go
+// primitives/shamir.go
+package primitives
+
+import (
+    "github.com/luxfi/lattice/v6/ring"
+    "github.com/luxfi/lattice/v6/utils/structs"
+)
+
+// ShamirSecretSharing implements (t,n) threshold secret sharing
+func ShamirSecretSharing(
+    r *ring.Ring,
+    secret structs.Vector[ring.Poly],
+    threshold int,
+    lagrangeCoeffs structs.Vector[ring.Poly],
+) map[int]structs.Vector[ring.Poly] {
+    // Generate random polynomial of degree threshold-1
+    // Evaluate at n points to create shares
+    // Return map of party ID to share
+}
+```
+
+#### Hash Functions
+
+Secure hash operations for ring signatures:
+
+```go
+// primitives/hash.go
+func HashToPoint(data []byte) *Point {
+    // Hash arbitrary data to elliptic curve point
+    // Used for key image generation
+    h := sha256.Sum256(data)
+    // Map hash to curve point deterministically
+    return mapToCurve(h[:])
+}
+
+func ChallengeHash(components ...[]byte) *big.Int {
+    // Generate challenge for ring signature
+    h := sha256.New()
+    for _, c := range components {
+        h.Write(c)
+    }
+    return new(big.Int).SetBytes(h.Sum(nil))
+}
+```
+
+### Signature Package
+
+The `sign` package implements the ring signature protocol:
+
+```go
+// sign/sign.go
+package sign
+
+type Party struct {
+    ID             int
+    Ring           *ring.Ring         // Polynomial ring
+    RingXi         *ring.Ring         // Rounding ring
+    RingNu         *ring.Ring         // Verification ring
+    UniformSampler *ring.UniformSampler
+    SkShare        structs.Vector[ring.Poly] // Secret key share
+    Seed           map[int][][]byte   // PRG seeds
+    R              structs.Matrix[ring.Poly]
+    C              ring.Poly          // Challenge
+    H              structs.Vector[ring.Poly]
+    Lambda         ring.Poly          // Lagrange coefficient
+    D              structs.Matrix[ring.Poly]
+    MACKeys        map[int][]byte     // MAC keys for parties
+    MACs           map[int][]byte     // Message auth codes
+}
+```
+
+#### Signature Generation Phases
+
+**Phase 1: Setup**
+```go
+func (party *Party) SignRound1(
+    A structs.Matrix[ring.Poly],
+    sid int,
+    PRFKey []byte,
+    T []int,
+) (structs.Matrix[ring.Poly], map[int][]byte) {
+    // Generate randomness using PRF
+    // Compute first round messages
+    // Create MAC tags for other parties
+}
+```
+
+**Phase 2: Challenge Computation**
+```go
+func (party *Party) SignRound2(
+    hintShares map[int]structs.Vector[uint8],
+) (structs.Vector[uint8], []byte) {
+    // Aggregate hint shares
+    // Compute ring signature challenge
+    // Prepare response
+}
+```
+
+**Phase 3: Response Generation**
+```go
+func (party *Party) SignRound3(
+    dShares map[int]structs.Matrix[ring.Poly],
+) structs.Matrix[ring.Poly] {
+    // Combine shares from all parties
+    // Generate final signature response
+    // Clean up sensitive data
+}
+```
+
+### Utilities Package
+
+Helper functions for efficient operations:
+
+```go
+// utils/utils.go
+package utils
+
+// Matrix-vector multiplication in polynomial ring
+func MatrixVectorMul(
+    r *ring.Ring,
+    M structs.Matrix[ring.Poly],
+    v structs.Vector[ring.Poly],
+    result structs.Vector[ring.Poly],
+) {
+    for i := 0; i < len(M); i++ {
+        r.MulCoeffsMontgomery(M[i][0], v[0], result[i])
+        for j := 1; j < len(v); j++ {
+            r.MulCoeffsMontgomeryThenAdd(M[i][j], v[j], result[i])
+        }
+    }
+}
+
+// NTT conversions for efficiency
+func ConvertVectorToNTT(r *ring.Ring, v structs.Vector[ring.Poly]) {
+    for i := range v {
+        r.NTT(v[i], v[i])
+    }
+}
+```
+
+## Ring Signature Implementation
+
+### Key Generation
+
+```go
+type RingMember struct {
+    PublicKey  *PublicKey
+    PrivateKey *PrivateKey  // nil for decoy members
+    Index      int          // position in ring
+}
+
+func GenerateKeyPair() (*PublicKey, *PrivateKey, error) {
+    // Generate random private key
+    priv, err := rand.Int(rand.Reader, curve.N)
+    if err != nil {
+        return nil, nil, err
+    }
+
+    // Compute public key: P = x*G
+    pub := new(PublicKey)
+    pub.X, pub.Y = curve.ScalarBaseMult(priv.Bytes())
+
+    return pub, (*PrivateKey)(priv), nil
+}
+```
+
+### Key Image Generation
+
+```go
+func GenerateKeyImage(privKey *PrivateKey) *KeyImage {
+    // Compute I = x * H(P)
+    pubKey := privKey.PublicKey()
+    hashPoint := HashToPoint(pubKey.Bytes())
+
+    keyImage := new(KeyImage)
+    keyImage.X, keyImage.Y = curve.ScalarMult(
+        hashPoint.X, hashPoint.Y,
+        privKey.Bytes(),
+    )
+
+    return keyImage
+}
+```
+
+### Ring Construction
+
+```go
+func ConstructRing(
+    signerIndex int,
+    signerPubKey *PublicKey,
+    decoyKeys []*PublicKey,
+) []*PublicKey {
+    ringSize := len(decoyKeys) + 1
+    ring := make([]*PublicKey, ringSize)
+
+    // Place signer at specified index
+    ring[signerIndex] = signerPubKey
+
+    // Fill remaining positions with decoys
+    decoyIdx := 0
+    for i := 0; i < ringSize; i++ {
+        if i != signerIndex {
+            ring[i] = decoyKeys[decoyIdx]
+            decoyIdx++
+        }
+    }
+
+    return ring
+}
+```
+
+### Signature Algorithm
+
+```go
+func SignRing(
+    message []byte,
+    ring []*PublicKey,
+    signerIndex int,
+    privKey *PrivateKey,
+) (*RingSignature, error) {
+    n := len(ring)
+    sig := &RingSignature{
+        KeyImage:    GenerateKeyImage(privKey),
+        RingPubKeys: ring,
+        S:           make([]*big.Int, n),
+    }
+
+    // Generate random responses for non-signers
+    c := make([]*big.Int, n)
+    for i := 0; i < n; i++ {
+        if i != signerIndex {
+            sig.S[i], _ = rand.Int(rand.Reader, curve.N)
+            c[i], _ = rand.Int(rand.Reader, curve.N)
+        }
+    }
+
+    // Generate commitment
+    alpha, _ := rand.Int(rand.Reader, curve.N)
+    L := make([]*Point, n)
+    R := make([]*Point, n)
+
+    // Compute L_i, R_i for signer
+    L[signerIndex] = new(Point)
+    L[signerIndex].X, L[signerIndex].Y = curve.ScalarBaseMult(alpha.Bytes())
+
+    R[signerIndex] = new(Point)
+    hP := HashToPoint(ring[signerIndex].Bytes())
+    R[signerIndex].X, R[signerIndex].Y = curve.ScalarMult(
+        hP.X, hP.Y, alpha.Bytes(),
+    )
+
+    // Compute L_j, R_j for non-signers
+    for i := (signerIndex + 1) % n; i != signerIndex; i = (i + 1) % n {
+        // L_j = s_j*G + c_j*P_j
+        L[i] = computeL(sig.S[i], c[i], ring[i])
+        // R_j = s_j*H(P_j) + c_j*I
+        R[i] = computeR(sig.S[i], c[i], ring[i], sig.KeyImage)
+    }
+
+    // Compute challenge
+    sig.C0 = ChallengeHash(message, L, R)
+
+    // Close the ring
+    cSum := new(big.Int)
+    for i := 0; i < n; i++ {
+        if i != signerIndex {
+            cSum.Add(cSum, c[i])
+        }
+    }
+    c[signerIndex] = new(big.Int).Sub(sig.C0, cSum)
+    c[signerIndex].Mod(c[signerIndex], curve.N)
+
+    // Compute signer's response
+    sig.S[signerIndex] = new(big.Int).Mul(c[signerIndex], privKey.Big())
+    sig.S[signerIndex].Sub(alpha, sig.S[signerIndex])
+    sig.S[signerIndex].Mod(sig.S[signerIndex], curve.N)
+
+    return sig, nil
+}
+```
+
+### Verification Algorithm
+
+```go
+func VerifyRing(
+    message []byte,
+    sig *RingSignature,
+) bool {
+    n := len(sig.RingPubKeys)
+    L := make([]*Point, n)
+    R := make([]*Point, n)
+
+    c := make([]*big.Int, n)
+    c[0] = sig.C0
+
+    for i := 0; i < n; i++ {
+        // Compute L_i = s_i*G + c_i*P_i
+        L[i] = computeL(sig.S[i], c[i], sig.RingPubKeys[i])
+
+        // Compute R_i = s_i*H(P_i) + c_i*I
+        R[i] = computeR(sig.S[i], c[i], sig.RingPubKeys[i], sig.KeyImage)
+
+        // Compute next challenge
+        if i < n-1 {
+            c[i+1] = ChallengeHash(message, L[i], R[i])
+        }
+    }
+
+    // Verify ring closure
+    finalChallenge := ChallengeHash(message, L, R)
+    return finalChallenge.Cmp(sig.C0) == 0
+}
+```
+
+## Lattice Integration
+
+### Polynomial Operations
+
+```go
+// Efficient polynomial multiplication using NTT
+func PolyMul(r *ring.Ring, a, b, c ring.Poly) {
+    // Convert to NTT domain
+    r.NTT(a, a)
+    r.NTT(b, b)
+
+    // Component-wise multiplication
+    r.MulCoeffsMontgomery(a, b, c)
+
+    // Convert back from NTT
+    r.INTT(c, c)
+}
+
+// Gaussian sampling for error polynomials
+func SampleGaussianPoly(r *ring.Ring, sigma float64) ring.Poly {
+    sampler := ring.NewGaussianSampler(
+        prng, r,
+        ring.DiscreteGaussian{Sigma: sigma},
+        false,
+    )
+
+    poly := r.NewPoly()
+    sampler.Read(poly)
+    return poly
+}
+```
+
+### Threshold Signatures
+
+```go
+// Distributed signature generation
+type ThresholdSigner struct {
+    Parties    []*Party
+    Threshold  int
+    PublicKey  structs.Vector[ring.Poly]
+}
+
+func (ts *ThresholdSigner) Sign(
+    message []byte,
+    signers []int,
+) (*ThresholdSignature, error) {
+    if len(signers) < ts.Threshold {
+        return nil, ErrInsufficientSigners
+    }
+
+    // Round 1: Generate partial signatures
+    round1Data := make(map[int]Round1Message)
+    for _, id := range signers {
+        data := ts.Parties[id].SignRound1(...)
+        round1Data[id] = data
+    }
+
+    // Round 2: Aggregate and compute challenge
+    round2Data := make(map[int]Round2Message)
+    for _, id := range signers {
+        data := ts.Parties[id].SignRound2(round1Data)
+        round2Data[id] = data
+    }
+
+    // Round 3: Generate final signature
+    signature := ts.combinePartialSignatures(round2Data)
+
+    return signature, nil
+}
+```
+
+## Network Protocol
+
+### Message Types
+
+```go
+type MessageType uint8
+
+const (
+    MsgKeyGenInit MessageType = iota
+    MsgKeyGenShare
+    MsgSignRound1
+    MsgSignRound2
+    MsgSignRound3
+    MsgAbort
+)
+
+type NetworkMessage struct {
+    Type      MessageType
+    SessionID []byte
+    PartyID   int
+    Data      []byte
+    MAC       []byte
+}
+```
+
+### Communication Layer
+
+```go
+func (p *Party) Broadcast(msg NetworkMessage) error {
+    // Add MAC for authentication
+    msg.MAC = p.computeMAC(msg)
+
+    // Send to all parties
+    for _, peer := range p.peers {
+        if err := peer.Send(msg); err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+
+func (p *Party) ReceiveMessages(
+    expectedType MessageType,
+    timeout time.Duration,
+) (map[int]NetworkMessage, error) {
+    messages := make(map[int]NetworkMessage)
+    deadline := time.Now().Add(timeout)
+
+    for time.Now().Before(deadline) {
+        msg, err := p.network.Receive()
+        if err != nil {
+            continue
+        }
+
+        // Verify MAC
+        if !p.verifyMAC(msg) {
+            return nil, ErrInvalidMAC
+        }
+
+        // Check message type
+        if msg.Type != expectedType {
+            return nil, ErrUnexpectedMessage
+        }
+
+        messages[msg.PartyID] = msg
+
+        if len(messages) == len(p.peers) {
+            break
+        }
+    }
+
+    return messages, nil
+}
+```
+
+## Security Considerations
+
+### Memory Security
+
+```go
+// Secure memory handling
+func (p *PrivateKey) Clear() {
+    // Overwrite private key material
+    bytes := p.Bytes()
+    for i := range bytes {
+        bytes[i] = 0
+    }
+    runtime.SetFinalizer(p, nil)
+}
+
+// Use defer for cleanup
+func sensitiveOperation() {
+    privKey := generatePrivateKey()
+    defer privKey.Clear()
+
+    // Perform operations
+    // ...
+}
+```
+
+### Randomness Quality
+
+```go
+// Always use crypto/rand for security-critical operations
+import "crypto/rand"
+
+func generateSecureRandom(size int) ([]byte, error) {
+    bytes := make([]byte, size)
+    _, err := rand.Read(bytes)
+    if err != nil {
+        return nil, fmt.Errorf("random generation failed: %w", err)
+    }
+    return bytes, nil
+}
+
+// Deterministic randomness for reproducibility
+func deterministicRandom(seed []byte) *DeterministicRNG {
+    h := sha256.Sum256(seed)
+    return &DeterministicRNG{
+        state: h[:],
+    }
+}
+```
+
+### Constant-Time Operations
+
+```go
+// Avoid timing leaks
+func constantTimeCompare(a, b []byte) bool {
+    if len(a) != len(b) {
+        return false
+    }
+
+    var result byte
+    for i := 0; i < len(a); i++ {
+        result |= a[i] ^ b[i]
+    }
+
+    return result == 0
+}
+
+// Constant-time selection
+func constantTimeSelect(v, a, b *big.Int) *big.Int {
+    // v = 1 -> return a
+    // v = 0 -> return b
+    mask := new(big.Int).Sub(v, big.NewInt(1))
+    mask.Not(mask)
+
+    result := new(big.Int)
+    result.And(a, mask)
+
+    tmp := new(big.Int)
+    tmp.Not(mask)
+    tmp.And(b, tmp)
+
+    result.Or(result, tmp)
+    return result
+}
+```
+
+## Testing Strategy
+
+### Unit Tests
+
+```go
+func TestRingSignature(t *testing.T) {
+    // Setup
+    ringSize := 16
+    ring := generateTestRing(ringSize)
+    signerIndex := 7
+    privKey := testPrivateKeys[signerIndex]
+    message := []byte("test message")
+
+    // Sign
+    sig, err := SignRing(message, ring, signerIndex, privKey)
+    require.NoError(t, err)
+
+    // Verify
+    valid := VerifyRing(message, sig)
+    assert.True(t, valid)
+
+    // Test linkability
+    sig2, _ := SignRing([]byte("another message"), ring, signerIndex, privKey)
+    assert.Equal(t, sig.KeyImage, sig2.KeyImage)
+}
+```
+
+### Benchmarks
+
+```go
+func BenchmarkRingSign16(b *testing.B) {
+    ring := generateTestRing(16)
+    privKey := generatePrivateKey()
+    message := []byte("benchmark message")
+
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        SignRing(message, ring, 0, privKey)
+    }
+}
+
+func BenchmarkRingVerify16(b *testing.B) {
+    ring := generateTestRing(16)
+    sig := generateTestSignature(ring)
+    message := []byte("benchmark message")
+
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        VerifyRing(message, sig)
+    }
+}
+```
+
+### Integration Tests
+
+```go
+func TestThresholdSigningProtocol(t *testing.T) {
+    // Setup threshold parameters
+    n := 7        // total parties
+    threshold := 5 // threshold
+
+    // Initialize parties
+    parties := setupParties(n, threshold)
+
+    // Select signers (must be >= threshold)
+    signers := []int{0, 2, 3, 4, 6}
+
+    // Run protocol
+    message := []byte("threshold test")
+    sig, err := runThresholdProtocol(parties, signers, message)
+
+    require.NoError(t, err)
+    assert.True(t, verifyThresholdSignature(message, sig))
+}
+```
+
+## Deployment
+
+### Library Usage
+
+```go
+import "github.com/luxfi/ringtail"
+
+// Initialize Ringtail
+rt := ringtail.New(ringtail.Config{
+    RingSize:       16,
+    Algorithm:      ringtail.AlgoSchnorr,
+    HashFunction:   sha256.New,
+    Curve:          elliptic.P256(),
+})
+
+// Generate keys
+pub, priv, _ := rt.GenerateKeyPair()
+
+// Create ring signature
+ring := rt.SelectRing(pub, 15) // 15 decoys + 1 signer
+sig, _ := rt.Sign(message, ring, priv)
+
+// Verify signature
+valid := rt.Verify(message, sig)
+```
+
+### Configuration Options
+
+```go
+type Config struct {
+    // Ring parameters
+    RingSize        int           // Number of ring members
+    Algorithm       Algorithm     // Signature algorithm
+
+    // Lattice parameters
+    PolyDegree      int          // Polynomial degree (power of 2)
+    Modulus         *big.Int     // Ring modulus
+    ErrorStdDev     float64      // Gaussian error standard deviation
+
+    // Threshold parameters
+    TotalParties    int          // Total number of parties
+    Threshold       int          // Signing threshold
+
+    // Security parameters
+    SecurityLevel   int          // Target security level in bits
+    QuantumSafe     bool         // Enable post-quantum features
+
+    // Performance tuning
+    ParallelOps     bool         // Enable parallel operations
+    CacheSize       int          // Signature cache size
+    BatchSize       int          // Batch verification size
+}
+```

@@ -1,0 +1,644 @@
+---
+title: API Reference
+description: Complete API documentation for Ringtail's cryptographic functions
+---
+
+# API Reference
+
+## Core Types
+
+### PublicKey
+
+Represents an elliptic curve public key.
+
+```go
+type PublicKey struct {
+    X, Y *big.Int
+}
+
+// Methods
+func (pk *PublicKey) Bytes() []byte
+func (pk *PublicKey) String() string
+func (pk *PublicKey) Equal(other *PublicKey) bool
+func (pk *PublicKey) Marshal() ([]byte, error)
+func (pk *PublicKey) Unmarshal(data []byte) error
+```
+
+### PrivateKey
+
+Represents an elliptic curve private key.
+
+```go
+type PrivateKey big.Int
+
+// Methods
+func (sk *PrivateKey) PublicKey() *PublicKey
+func (sk *PrivateKey) Bytes() []byte
+func (sk *PrivateKey) Clear()
+func (sk *PrivateKey) Sign(message []byte) (*Signature, error)
+```
+
+### RingSignature
+
+Complete ring signature with linkability.
+
+```go
+type RingSignature struct {
+    C0          *big.Int      // Initial challenge
+    S           []*big.Int    // Response values
+    KeyImage    *KeyImage     // Linkability tag
+    RingPubKeys []*PublicKey  // Ring members
+}
+
+// Methods
+func (rs *RingSignature) Serialize() []byte
+func (rs *RingSignature) Deserialize(data []byte) error
+func (rs *RingSignature) Size() int
+func (rs *RingSignature) IsValid() bool
+```
+
+### KeyImage
+
+Unique identifier for linkable signatures.
+
+```go
+type KeyImage struct {
+    X, Y *big.Int
+}
+
+// Methods
+func (ki *KeyImage) Bytes() []byte
+func (ki *KeyImage) Equal(other *KeyImage) bool
+func (ki *KeyImage) String() string
+```
+
+## Key Management
+
+### GenerateKeyPair
+
+Generate a new public/private key pair.
+
+```go
+func GenerateKeyPair() (*PublicKey, *PrivateKey, error)
+```
+
+**Returns:**
+- `*PublicKey`: The generated public key
+- `*PrivateKey`: The generated private key
+- `error`: Any error that occurred
+
+**Example:**
+```go
+pub, priv, err := ringtail.GenerateKeyPair()
+if err != nil {
+    log.Fatal(err)
+}
+defer priv.Clear() // Clean up private key
+```
+
+### DerivePublicKey
+
+Derive public key from private key.
+
+```go
+func DerivePublicKey(privKey *PrivateKey) *PublicKey
+```
+
+**Parameters:**
+- `privKey`: The private key to derive from
+
+**Returns:**
+- `*PublicKey`: The corresponding public key
+
+### GenerateKeyImage
+
+Generate key image for linkability.
+
+```go
+func GenerateKeyImage(privKey *PrivateKey) *KeyImage
+```
+
+**Parameters:**
+- `privKey`: The private key for key image generation
+
+**Returns:**
+- `*KeyImage`: The generated key image
+
+**Example:**
+```go
+keyImage := GenerateKeyImage(privKey)
+// Same private key always produces same key image
+```
+
+## Ring Signature Functions
+
+### SignRing
+
+Create a ring signature for a message.
+
+```go
+func SignRing(
+    message []byte,
+    ring []*PublicKey,
+    signerIndex int,
+    privKey *PrivateKey,
+) (*RingSignature, error)
+```
+
+**Parameters:**
+- `message`: The message to sign
+- `ring`: Array of public keys forming the ring
+- `signerIndex`: Position of actual signer in ring (0-indexed)
+- `privKey`: Private key of the actual signer
+
+**Returns:**
+- `*RingSignature`: The generated ring signature
+- `error`: Any error that occurred
+
+**Example:**
+```go
+ring := []*PublicKey{pk1, pk2, pk3, pk4}
+sig, err := SignRing(
+    []byte("transaction data"),
+    ring,
+    2, // signer is at index 2
+    privKey3,
+)
+```
+
+### VerifyRing
+
+Verify a ring signature.
+
+```go
+func VerifyRing(
+    message []byte,
+    signature *RingSignature,
+) bool
+```
+
+**Parameters:**
+- `message`: The original message
+- `signature`: The ring signature to verify
+
+**Returns:**
+- `bool`: True if signature is valid, false otherwise
+
+**Example:**
+```go
+valid := VerifyRing(message, signature)
+if !valid {
+    return errors.New("invalid signature")
+}
+```
+
+### CheckLinkability
+
+Check if two signatures are linked (same signer).
+
+```go
+func CheckLinkability(
+    sig1 *RingSignature,
+    sig2 *RingSignature,
+) bool
+```
+
+**Parameters:**
+- `sig1`: First ring signature
+- `sig2`: Second ring signature
+
+**Returns:**
+- `bool`: True if signatures are from the same private key
+
+## Threshold Signatures
+
+### Party
+
+Represents a participant in threshold signing.
+
+```go
+type Party struct {
+    ID             int
+    Ring           *ring.Ring
+    RingXi         *ring.Ring
+    RingNu         *ring.Ring
+    UniformSampler *ring.UniformSampler
+    SkShare        structs.Vector[ring.Poly]
+    // ... additional fields
+}
+
+// Constructor
+func NewParty(
+    id int,
+    r *ring.Ring,
+    r_xi *ring.Ring,
+    r_nu *ring.Ring,
+    sampler *ring.UniformSampler,
+) *Party
+```
+
+### ThresholdSetup
+
+Initialize threshold signature scheme.
+
+```go
+func ThresholdSetup(
+    n int,        // Total parties
+    t int,        // Threshold
+    secLevel int, // Security level
+) (*ThresholdConfig, error)
+```
+
+**Parameters:**
+- `n`: Total number of parties
+- `t`: Minimum parties needed to sign
+- `secLevel`: Security level in bits (128, 192, 256)
+
+**Returns:**
+- `*ThresholdConfig`: Configuration for threshold signing
+- `error`: Any error that occurred
+
+### DistributedKeyGen
+
+Generate distributed key shares.
+
+```go
+func DistributedKeyGen(
+    config *ThresholdConfig,
+    parties []*Party,
+) (*PublicKey, map[int]*KeyShare, error)
+```
+
+**Parameters:**
+- `config`: Threshold configuration
+- `parties`: Array of participating parties
+
+**Returns:**
+- `*PublicKey`: The group public key
+- `map[int]*KeyShare`: Map of party ID to key share
+- `error`: Any error that occurred
+
+### ThresholdSign
+
+Perform threshold signing with t-of-n parties.
+
+```go
+func ThresholdSign(
+    message []byte,
+    signers []*Party,
+    threshold int,
+) (*ThresholdSignature, error)
+```
+
+**Parameters:**
+- `message`: Message to sign
+- `signers`: Participating signers (must be >= threshold)
+- `threshold`: Minimum signers required
+
+**Returns:**
+- `*ThresholdSignature`: The threshold signature
+- `error`: Any error that occurred
+
+## Lattice Operations
+
+### Polynomial Ring Functions
+
+```go
+// Create new polynomial ring
+func NewRing(n int, q *big.Int) *ring.Ring
+
+// Sample random polynomial
+func SamplePoly(r *ring.Ring) ring.Poly
+
+// Polynomial multiplication
+func PolyMul(
+    r *ring.Ring,
+    a, b ring.Poly,
+) ring.Poly
+
+// NTT transformation
+func NTT(r *ring.Ring, poly ring.Poly) ring.Poly
+
+// Inverse NTT
+func INTT(r *ring.Ring, poly ring.Poly) ring.Poly
+```
+
+### Matrix Operations
+
+```go
+// Matrix-vector multiplication
+func MatrixVectorMul(
+    r *ring.Ring,
+    M structs.Matrix[ring.Poly],
+    v structs.Vector[ring.Poly],
+) structs.Vector[ring.Poly]
+
+// Matrix addition
+func MatrixAdd(
+    r *ring.Ring,
+    A, B structs.Matrix[ring.Poly],
+) structs.Matrix[ring.Poly]
+
+// Sample random matrix
+func SamplePolyMatrix(
+    r *ring.Ring,
+    rows, cols int,
+    sampler Sampler,
+) structs.Matrix[ring.Poly]
+```
+
+## Utility Functions
+
+### Hash Functions
+
+```go
+// Hash to elliptic curve point
+func HashToPoint(data []byte) *Point
+
+// Generate challenge hash
+func ChallengeHash(components ...[]byte) *big.Int
+
+// SHA-256 hash
+func Hash256(data []byte) []byte
+
+// Keccak-256 hash
+func Keccak256(data []byte) []byte
+```
+
+### Serialization
+
+```go
+// Serialize ring signature
+func SerializeRingSignature(sig *RingSignature) []byte
+
+// Deserialize ring signature
+func DeserializeRingSignature(data []byte) (*RingSignature, error)
+
+// Encode to base64
+func EncodeBase64(data []byte) string
+
+// Decode from base64
+func DecodeBase64(s string) ([]byte, error)
+```
+
+### Random Generation
+
+```go
+// Generate secure random bytes
+func GenerateRandom(size int) ([]byte, error)
+
+// Generate random scalar
+func RandomScalar() (*big.Int, error)
+
+// Generate random point
+func RandomPoint() (*Point, error)
+
+// Deterministic random from seed
+func DeterministicRandom(seed []byte, size int) []byte
+```
+
+## Network Protocol
+
+### Message Types
+
+```go
+const (
+    MsgKeyGenInit  MessageType = 0x01
+    MsgKeyGenShare MessageType = 0x02
+    MsgSignRound1  MessageType = 0x10
+    MsgSignRound2  MessageType = 0x11
+    MsgSignRound3  MessageType = 0x12
+    MsgAbort       MessageType = 0xFF
+)
+```
+
+### Network Functions
+
+```go
+// Send message to party
+func SendMessage(
+    party int,
+    msg NetworkMessage,
+) error
+
+// Broadcast to all parties
+func Broadcast(
+    msg NetworkMessage,
+) error
+
+// Receive messages
+func ReceiveMessages(
+    expectedType MessageType,
+    timeout time.Duration,
+) ([]NetworkMessage, error)
+
+// Establish secure channel
+func EstablishChannel(
+    partyID int,
+    publicKey *PublicKey,
+) (*SecureChannel, error)
+```
+
+## Configuration
+
+### Config Structure
+
+```go
+type Config struct {
+    // Ring signature parameters
+    RingSize      int
+    Algorithm     Algorithm
+    HashFunction  hash.Hash
+
+    // Lattice parameters
+    PolyDegree    int
+    Modulus       *big.Int
+    ErrorStdDev   float64
+
+    // Threshold parameters
+    TotalParties  int
+    Threshold     int
+
+    // Security
+    SecurityLevel int
+    QuantumSafe   bool
+
+    // Performance
+    ParallelOps   bool
+    CacheSize     int
+}
+```
+
+### Default Configurations
+
+```go
+// Default configuration
+func DefaultConfig() *Config
+
+// High security configuration
+func HighSecurityConfig() *Config
+
+// Performance optimized configuration
+func PerformanceConfig() *Config
+
+// Quantum-safe configuration
+func QuantumSafeConfig() *Config
+```
+
+## Error Types
+
+```go
+var (
+    // Key errors
+    ErrInvalidPrivateKey = errors.New("invalid private key")
+    ErrInvalidPublicKey  = errors.New("invalid public key")
+    ErrKeyMismatch       = errors.New("key mismatch")
+
+    // Signature errors
+    ErrInvalidSignature  = errors.New("invalid signature")
+    ErrInvalidRingSize   = errors.New("invalid ring size")
+    ErrSignerNotInRing   = errors.New("signer not in ring")
+
+    // Threshold errors
+    ErrInsufficientSigners = errors.New("insufficient signers")
+    ErrInvalidThreshold    = errors.New("invalid threshold")
+    ErrDuplicateSigner     = errors.New("duplicate signer")
+
+    // Protocol errors
+    ErrProtocolAborted   = errors.New("protocol aborted")
+    ErrTimeout           = errors.New("operation timeout")
+    ErrInvalidMAC        = errors.New("invalid MAC")
+
+    // Lattice errors
+    ErrInvalidPolynomial = errors.New("invalid polynomial")
+    ErrNTTFailed         = errors.New("NTT operation failed")
+)
+```
+
+## Constants
+
+```go
+const (
+    // Default values
+    DefaultRingSize      = 16
+    DefaultPolyDegree    = 4096
+    DefaultSecurityLevel = 128
+
+    // Size constants
+    PublicKeySize  = 64  // bytes
+    PrivateKeySize = 32  // bytes
+    KeyImageSize   = 64  // bytes
+    SignatureBase  = 96  // bytes (before ring members)
+
+    // Algorithm identifiers
+    AlgoSchnorr    Algorithm = 0x01
+    AlgoLattice    Algorithm = 0x02
+    AlgoHybrid     Algorithm = 0x03
+
+    // Security levels
+    SecurityLow    = 80
+    SecurityMedium = 128
+    SecurityHigh   = 192
+    SecurityMax    = 256
+)
+```
+
+## Example Usage
+
+### Basic Ring Signature
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+
+    "github.com/luxfi/ringtail"
+)
+
+func main() {
+    // Generate keys for ring members
+    keys := make([]*ringtail.PublicKey, 16)
+    var signerKey *ringtail.PrivateKey
+    signerIndex := 7
+
+    for i := 0; i < 16; i++ {
+        pub, priv, err := ringtail.GenerateKeyPair()
+        if err != nil {
+            log.Fatal(err)
+        }
+
+        keys[i] = pub
+        if i == signerIndex {
+            signerKey = priv
+        } else {
+            priv.Clear() // Clean up other private keys
+        }
+    }
+
+    // Create and verify signature
+    message := []byte("confidential transaction")
+
+    sig, err := ringtail.SignRing(
+        message,
+        keys,
+        signerIndex,
+        signerKey,
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    valid := ringtail.VerifyRing(message, sig)
+    fmt.Printf("Signature valid: %v\n", valid)
+
+    // Check linkability
+    sig2, _ := ringtail.SignRing(
+        []byte("another message"),
+        keys,
+        signerIndex,
+        signerKey,
+    )
+
+    linked := ringtail.CheckLinkability(sig, sig2)
+    fmt.Printf("Signatures linked: %v\n", linked)
+}
+```
+
+### Threshold Signature
+
+```go
+// Setup threshold scheme (3-of-5)
+config, err := ringtail.ThresholdSetup(5, 3, 128)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Initialize parties
+parties := make([]*ringtail.Party, 5)
+for i := 0; i < 5; i++ {
+    parties[i] = ringtail.NewParty(i, config)
+}
+
+// Generate distributed key
+pubKey, shares, err := ringtail.DistributedKeyGen(config, parties)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Sign with subset of parties (3 out of 5)
+signers := []*ringtail.Party{parties[0], parties[2], parties[4]}
+sig, err := ringtail.ThresholdSign(
+    []byte("message"),
+    signers,
+    3,
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Verify threshold signature
+valid := ringtail.VerifyThreshold([]byte("message"), sig, pubKey)
+fmt.Printf("Threshold signature valid: %v\n", valid)
+```

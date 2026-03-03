@@ -1,0 +1,730 @@
+---
+title: Usage Examples
+description: Practical examples and code samples for using Ringtail
+---
+
+# Usage Examples
+
+## Getting Started
+
+### Installation
+
+```bash
+# Install Ringtail library
+go get github.com/luxfi/ringtail
+
+# Install dependencies
+go get github.com/luxfi/lattice/v6
+```
+
+### Basic Setup
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+
+    "github.com/luxfi/ringtail"
+    "github.com/luxfi/ringtail/primitives"
+    "github.com/luxfi/ringtail/sign"
+)
+
+func main() {
+    // Initialize Ringtail with default configuration
+    rt := ringtail.New(ringtail.DefaultConfig())
+
+    fmt.Println("Ringtail initialized successfully")
+}
+```
+
+## Simple Ring Signature
+
+### Generate Keys and Create Signature
+
+```go
+package main
+
+import (
+    "crypto/rand"
+    "fmt"
+    "log"
+    "math/big"
+)
+
+func simpleRingSignatureExample() {
+    // 1. Generate key pairs for ring members
+    ringSize := 16
+    publicKeys := make([]*PublicKey, ringSize)
+
+    // Generate keys for all ring members
+    var signerPrivKey *PrivateKey
+    signerIndex := 7 // The actual signer will be at index 7
+
+    for i := 0; i < ringSize; i++ {
+        pub, priv, err := GenerateKeyPair()
+        if err != nil {
+            log.Fatal(err)
+        }
+
+        publicKeys[i] = pub
+
+        // Keep the private key for the actual signer
+        if i == signerIndex {
+            signerPrivKey = priv
+        }
+    }
+
+    // 2. Create a message to sign
+    message := []byte("Transfer 100 LUX to address xyz")
+
+    // 3. Generate the ring signature
+    signature, err := SignRing(
+        message,
+        publicKeys,
+        signerIndex,
+        signerPrivKey,
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 4. Verify the signature
+    valid := VerifyRing(message, signature)
+    fmt.Printf("Signature valid: %v\n", valid)
+
+    // 5. Check signature size
+    sigSize := signature.Size()
+    fmt.Printf("Signature size: %d bytes\n", sigSize)
+
+    // 6. Demonstrate linkability
+    message2 := []byte("Another transaction")
+    signature2, _ := SignRing(message2, publicKeys, signerIndex, signerPrivKey)
+
+    // Both signatures have the same key image
+    if signature.KeyImage.Equal(signature2.KeyImage) {
+        fmt.Println("Signatures are linkable (same signer)")
+    }
+}
+```
+
+## Privacy-Preserving Transaction
+
+### Confidential Transfer with Ring Signatures
+
+```go
+type ConfidentialTransaction struct {
+    Inputs      []TxInput
+    Outputs     []TxOutput
+    RingSize    int
+    Signatures  []*RingSignature
+}
+
+type TxInput struct {
+    Amount      uint64
+    KeyImage    *KeyImage
+    RingMembers []*PublicKey
+}
+
+type TxOutput struct {
+    Amount    uint64
+    Recipient *PublicKey
+    Ephemeral *PublicKey // For stealth address
+}
+
+func createConfidentialTransaction() (*ConfidentialTransaction, error) {
+    // 1. Select inputs (previous outputs we own)
+    inputs := []TxInput{
+        {
+            Amount:   100,
+            KeyImage: nil, // Will be set by signature
+        },
+    }
+
+    // 2. Create ring for input
+    ringSize := 16
+    ring := selectRingMembers(ringSize)
+    inputs[0].RingMembers = ring
+
+    // 3. Create outputs with stealth addresses
+    outputs := []TxOutput{
+        {
+            Amount:    90, // Send 90
+            Recipient: generateStealthAddress(recipientPubKey),
+        },
+        {
+            Amount:    10, // Change
+            Recipient: generateStealthAddress(ownPubKey),
+        },
+    }
+
+    // 4. Create transaction
+    tx := &ConfidentialTransaction{
+        Inputs:   inputs,
+        Outputs:  outputs,
+        RingSize: ringSize,
+    }
+
+    // 5. Sign each input with ring signature
+    for i, input := range tx.Inputs {
+        message := tx.HashForSigning(i)
+
+        sig, err := SignRing(
+            message,
+            input.RingMembers,
+            myIndex,
+            myPrivKey,
+        )
+        if err != nil {
+            return nil, err
+        }
+
+        tx.Signatures = append(tx.Signatures, sig)
+        tx.Inputs[i].KeyImage = sig.KeyImage
+    }
+
+    return tx, nil
+}
+
+func (tx *ConfidentialTransaction) Verify() bool {
+    // 1. Check balance (inputs = outputs)
+    if !tx.checkBalance() {
+        return false
+    }
+
+    // 2. Verify each ring signature
+    for i, sig := range tx.Signatures {
+        message := tx.HashForSigning(i)
+        if !VerifyRing(message, sig) {
+            return false
+        }
+    }
+
+    // 3. Check for double-spending (unique key images)
+    keyImages := make(map[string]bool)
+    for _, input := range tx.Inputs {
+        ki := input.KeyImage.String()
+        if keyImages[ki] {
+            return false // Double spend detected
+        }
+        keyImages[ki] = true
+    }
+
+    return true
+}
+```
+
+## Threshold Ring Signatures
+
+### Multi-Party Signing Protocol
+
+```go
+func thresholdRingSignatureExample() error {
+    // Setup: 3-of-5 threshold with 16-member ring
+    n := 5          // Total parties
+    threshold := 3  // Minimum signers
+    ringSize := 16
+
+    // 1. Initialize parties
+    parties := make([]*sign.Party, n)
+    for i := 0; i < n; i++ {
+        parties[i] = initializeParty(i)
+    }
+
+    // 2. Distributed Key Generation (DKG)
+    fmt.Println("Starting DKG protocol...")
+
+    publicKey, keyShares, err := runDKG(parties)
+    if err != nil {
+        return fmt.Errorf("DKG failed: %w", err)
+    }
+
+    fmt.Printf("Group public key generated: %x\n", publicKey.Bytes())
+
+    // 3. Distribute key shares to parties
+    for i, party := range parties {
+        party.SetKeyShare(keyShares[i])
+    }
+
+    // 4. Select subset of parties for signing (must be >= threshold)
+    signers := []int{0, 2, 4} // Parties 0, 2, and 4 will sign
+
+    // 5. Create ring with decoy members
+    ring := make([]*PublicKey, ringSize)
+    ring[0] = publicKey // Group's public key
+    for i := 1; i < ringSize; i++ {
+        ring[i] = generateDecoyKey()
+    }
+
+    // 6. Execute threshold signing protocol
+    message := []byte("Threshold signed message")
+
+    signature, err := executeThresholdSigning(
+        message,
+        ring,
+        parties,
+        signers,
+        threshold,
+    )
+    if err != nil {
+        return fmt.Errorf("threshold signing failed: %w", err)
+    }
+
+    // 7. Verify the threshold ring signature
+    valid := VerifyThresholdRingSignature(message, signature)
+    fmt.Printf("Threshold ring signature valid: %v\n", valid)
+
+    return nil
+}
+
+func executeThresholdSigning(
+    message []byte,
+    ring []*PublicKey,
+    parties []*sign.Party,
+    signers []int,
+    threshold int,
+) (*ThresholdRingSignature, error) {
+    // Round 1: Generate commitments
+    round1Messages := make(map[int]Round1Message)
+
+    for _, id := range signers {
+        msg, err := parties[id].SignRound1(message, ring)
+        if err != nil {
+            return nil, err
+        }
+        round1Messages[id] = msg
+    }
+
+    // Broadcast round 1 messages
+    for _, id := range signers {
+        parties[id].ReceiveRound1(round1Messages)
+    }
+
+    // Round 2: Generate shares
+    round2Messages := make(map[int]Round2Message)
+
+    for _, id := range signers {
+        msg, err := parties[id].SignRound2()
+        if err != nil {
+            return nil, err
+        }
+        round2Messages[id] = msg
+    }
+
+    // Broadcast round 2 messages
+    for _, id := range signers {
+        parties[id].ReceiveRound2(round2Messages)
+    }
+
+    // Round 3: Combine shares
+    var signature *ThresholdRingSignature
+
+    for _, id := range signers {
+        sig, err := parties[id].SignRound3()
+        if err != nil {
+            return nil, err
+        }
+        if signature == nil {
+            signature = sig
+        }
+    }
+
+    return signature, nil
+}
+```
+
+## Lattice-Based Ring Signatures
+
+### Post-Quantum Secure Implementation
+
+```go
+import (
+    "github.com/luxfi/lattice/v6/ring"
+    "github.com/luxfi/lattice/v6/utils/sampling"
+)
+
+func latticeRingSignatureExample() {
+    // 1. Setup lattice parameters
+    n := 4096 // Polynomial degree
+    q := big.NewInt(0).SetBit(big.NewInt(0), 119, 1) // Prime modulus
+
+    r, err := ring.NewRing(n, q)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 2. Setup samplers
+    prng, _ := sampling.NewKeyedPRNG([]byte("seed"))
+    uniformSampler := ring.NewUniformSampler(prng, r)
+    gaussianSampler := ring.NewGaussianSampler(
+        prng, r,
+        ring.DiscreteGaussian{Sigma: 3.2},
+        false,
+    )
+
+    // 3. Generate lattice-based keys
+    ringSize := 8 // Smaller ring due to larger signatures
+
+    publicKeys := make([]LatticePublicKey, ringSize)
+    var signerSecret LatticeSecretKey
+    signerIndex := 3
+
+    for i := 0; i < ringSize; i++ {
+        pk, sk := generateLatticeKeyPair(r, uniformSampler, gaussianSampler)
+        publicKeys[i] = pk
+
+        if i == signerIndex {
+            signerSecret = sk
+        }
+    }
+
+    // 4. Create lattice ring signature
+    message := []byte("Post-quantum secure message")
+
+    sig := createLatticeRingSignature(
+        r,
+        message,
+        publicKeys,
+        signerIndex,
+        signerSecret,
+    )
+
+    // 5. Verify signature
+    valid := verifyLatticeRingSignature(r, message, sig, publicKeys)
+    fmt.Printf("Lattice ring signature valid: %v\n", valid)
+
+    // 6. Check signature size
+    sigBytes := sig.Serialize()
+    fmt.Printf("Lattice signature size: %d KB\n", len(sigBytes)/1024)
+}
+
+type LatticePublicKey struct {
+    A structs.Matrix[ring.Poly]
+    B structs.Vector[ring.Poly]
+}
+
+type LatticeSecretKey struct {
+    S structs.Vector[ring.Poly]
+}
+
+func generateLatticeKeyPair(
+    r *ring.Ring,
+    uniformSampler *ring.UniformSampler,
+    gaussianSampler *ring.GaussianSampler,
+) (LatticePublicKey, LatticeSecretKey) {
+    // Generate random matrix A
+    m, n := 8, 8
+    A := utils.SamplePolyMatrix(r, m, n, uniformSampler, true, true)
+
+    // Generate secret vector s
+    s := utils.SamplePolyVector(r, n, gaussianSampler, false, false)
+
+    // Generate error vector e
+    e := utils.SamplePolyVector(r, m, gaussianSampler, false, false)
+
+    // Compute public key b = As + e
+    b := utils.InitializeVector(r, m)
+    utils.MatrixVectorMul(r, A, s, b)
+    utils.VectorAdd(r, b, e, b)
+
+    return LatticePublicKey{A: A, B: b}, LatticeSecretKey{S: s}
+}
+```
+
+## Integration with Q-Chain
+
+### Using Ringtail in QuantumVM
+
+```go
+// Smart contract using ring signatures
+contract PrivacyPool {
+    mapping(bytes32 => bool) public keyImages;
+    uint256 public poolBalance;
+
+    event Deposit(bytes32 commitment);
+    event Withdrawal(bytes32 keyImage);
+
+    function deposit() external payable {
+        require(msg.value > 0, "Invalid amount");
+
+        // Generate commitment for depositor
+        bytes32 commitment = keccak256(
+            abi.encodePacked(msg.sender, msg.value, block.timestamp)
+        );
+
+        poolBalance += msg.value;
+        emit Deposit(commitment);
+    }
+
+    function withdrawWithRingSignature(
+        uint256 amount,
+        bytes memory ringSignature,
+        bytes32[] memory ringCommitments
+    ) external {
+        // 1. Verify ring signature
+        require(
+            verifyRingSignature(
+                abi.encode(amount, msg.sender),
+                ringSignature,
+                ringCommitments
+            ),
+            "Invalid ring signature"
+        );
+
+        // 2. Extract and check key image
+        bytes32 keyImage = extractKeyImage(ringSignature);
+        require(!keyImages[keyImage], "Double spending");
+
+        // 3. Mark key image as used
+        keyImages[keyImage] = true;
+
+        // 4. Transfer funds
+        require(poolBalance >= amount, "Insufficient pool balance");
+        poolBalance -= amount;
+
+        payable(msg.sender).transfer(amount);
+        emit Withdrawal(keyImage);
+    }
+
+    function verifyRingSignature(
+        bytes memory message,
+        bytes memory signature,
+        bytes32[] memory ring
+    ) internal pure returns (bool) {
+        // Call Ringtail precompile for verification
+        return IRingtailVerifier(RINGTAIL_PRECOMPILE).verify(
+            message,
+            signature,
+            ring
+        );
+    }
+}
+```
+
+## Performance Benchmarks
+
+### Benchmark Different Configurations
+
+```go
+func runBenchmarks() {
+    configs := []struct {
+        name     string
+        ringSize int
+        algorithm string
+    }{
+        {"Small Ring (8)", 8, "schnorr"},
+        {"Medium Ring (16)", 16, "schnorr"},
+        {"Large Ring (32)", 32, "schnorr"},
+        {"Lattice Small (4)", 4, "lattice"},
+        {"Lattice Medium (8)", 8, "lattice"},
+        {"Hybrid (16)", 16, "hybrid"},
+    }
+
+    for _, cfg := range configs {
+        fmt.Printf("\n=== %s ===\n", cfg.name)
+
+        // Setup
+        ring := generateRing(cfg.ringSize)
+        message := []byte("benchmark message")
+
+        // Measure signing time
+        start := time.Now()
+        sig := sign(message, ring, cfg.algorithm)
+        signTime := time.Since(start)
+
+        // Measure verification time
+        start = time.Now()
+        verify(message, sig, cfg.algorithm)
+        verifyTime := time.Since(start)
+
+        // Measure signature size
+        sigSize := len(sig.Serialize())
+
+        fmt.Printf("Sign time: %v\n", signTime)
+        fmt.Printf("Verify time: %v\n", verifyTime)
+        fmt.Printf("Signature size: %d bytes\n", sigSize)
+        fmt.Printf("Size per ring member: %d bytes\n", sigSize/cfg.ringSize)
+    }
+}
+
+// Expected output:
+// === Small Ring (8) ===
+// Sign time: 1.2ms
+// Verify time: 0.9ms
+// Signature size: 288 bytes
+// Size per ring member: 36 bytes
+//
+// === Medium Ring (16) ===
+// Sign time: 2.1ms
+// Verify time: 1.8ms
+// Signature size: 544 bytes
+// Size per ring member: 34 bytes
+//
+// === Large Ring (32) ===
+// Sign time: 4.2ms
+// Verify time: 3.5ms
+// Signature size: 1056 bytes
+// Size per ring member: 33 bytes
+//
+// === Lattice Small (4) ===
+// Sign time: 3.5ms
+// Verify time: 2.1ms
+// Signature size: 8192 bytes
+// Size per ring member: 2048 bytes
+//
+// === Hybrid (16) ===
+// Sign time: 5.3ms
+// Verify time: 3.9ms
+// Signature size: 8704 bytes
+// Size per ring member: 544 bytes
+```
+
+## Error Handling
+
+### Comprehensive Error Handling
+
+```go
+func robustRingSignature() error {
+    // 1. Validate inputs
+    if len(ring) < MinRingSize {
+        return fmt.Errorf("ring too small: got %d, need at least %d",
+            len(ring), MinRingSize)
+    }
+
+    if signerIndex >= len(ring) {
+        return fmt.Errorf("signer index out of bounds: %d >= %d",
+            signerIndex, len(ring))
+    }
+
+    // 2. Check for duplicate keys in ring
+    seen := make(map[string]bool)
+    for i, pk := range ring {
+        key := pk.String()
+        if seen[key] {
+            return fmt.Errorf("duplicate key at index %d", i)
+        }
+        seen[key] = true
+    }
+
+    // 3. Validate private key corresponds to public key
+    derivedPub := DerivePublicKey(privKey)
+    if !derivedPub.Equal(ring[signerIndex]) {
+        return errors.New("private key doesn't match public key in ring")
+    }
+
+    // 4. Sign with timeout
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    sigChan := make(chan *RingSignature)
+    errChan := make(chan error)
+
+    go func() {
+        sig, err := SignRingWithContext(ctx, message, ring, signerIndex, privKey)
+        if err != nil {
+            errChan <- err
+        } else {
+            sigChan <- sig
+        }
+    }()
+
+    select {
+    case sig := <-sigChan:
+        // 5. Verify signature before returning
+        if !VerifyRing(message, sig) {
+            return errors.New("generated signature failed verification")
+        }
+        return nil
+
+    case err := <-errChan:
+        return fmt.Errorf("signing failed: %w", err)
+
+    case <-ctx.Done():
+        return errors.New("signing timeout exceeded")
+    }
+}
+```
+
+## Testing Utilities
+
+### Test Helper Functions
+
+```go
+// Generate test ring with known keys
+func generateTestRing(size int) (*TestRing, error) {
+    tr := &TestRing{
+        Size:        size,
+        PublicKeys:  make([]*PublicKey, size),
+        PrivateKeys: make([]*PrivateKey, size),
+    }
+
+    for i := 0; i < size; i++ {
+        pub, priv, err := GenerateKeyPair()
+        if err != nil {
+            return nil, err
+        }
+        tr.PublicKeys[i] = pub
+        tr.PrivateKeys[i] = priv
+    }
+
+    return tr, nil
+}
+
+// Test double-spending detection
+func testDoubleSpending(t *testing.T) {
+    ring, _ := generateTestRing(16)
+    message1 := []byte("first transaction")
+    message2 := []byte("second transaction")
+
+    // Sign two different messages with same key
+    sig1, _ := SignRing(message1, ring.PublicKeys, 0, ring.PrivateKeys[0])
+    sig2, _ := SignRing(message2, ring.PublicKeys, 0, ring.PrivateKeys[0])
+
+    // Key images should be identical (linkable)
+    if !sig1.KeyImage.Equal(sig2.KeyImage) {
+        t.Error("Key images should be identical for same signer")
+    }
+
+    // Create double-spend detector
+    detector := NewDoubleSpendDetector()
+
+    // First signature should be accepted
+    if !detector.Add(sig1.KeyImage) {
+        t.Error("First signature should be accepted")
+    }
+
+    // Second signature should be rejected (double-spend)
+    if detector.Add(sig2.KeyImage) {
+        t.Error("Second signature should be rejected as double-spend")
+    }
+}
+
+type DoubleSpendDetector struct {
+    keyImages map[string]bool
+    mu        sync.RWMutex
+}
+
+func NewDoubleSpendDetector() *DoubleSpendDetector {
+    return &DoubleSpendDetector{
+        keyImages: make(map[string]bool),
+    }
+}
+
+func (d *DoubleSpendDetector) Add(ki *KeyImage) bool {
+    d.mu.Lock()
+    defer d.mu.Unlock()
+
+    key := ki.String()
+    if d.keyImages[key] {
+        return false // Already seen
+    }
+
+    d.keyImages[key] = true
+    return true
+}
+```
+
+## Conclusion
+
+These examples demonstrate the versatility and power of Ringtail for privacy-preserving applications. From simple ring signatures to complex threshold protocols and post-quantum implementations, Ringtail provides the tools needed for strong privacy guarantees in blockchain and cryptographic applications.

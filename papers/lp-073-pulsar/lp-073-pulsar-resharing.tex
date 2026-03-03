@@ -1,0 +1,72 @@
+% Standalone wrapper to compile the resharing section.
+% The full LP-073-pulsar paper is composed at ~/work/lux/papers/lp-073-pulsar/
+% (parent directory under lux/papers/); this minimal wrapper exists so
+% the section can be typechecked in isolation during development.
+%
+% Compile with: pdflatex lp-073-pulsar-resharing.tex (twice, for refs).
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{enumitem}
+\usepackage{cleveref}
+
+\hypersetup{colorlinks=true,linkcolor=black,citecolor=blue,urlcolor=blue}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{remark}{Remark}
+
+\title{LP-073-pulsar: Proactive Secret Resharing for Pulsar Lattice Threshold Signatures}
+\author{Lux Industries Inc}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We adapt the Herzberg-Jakobsson-Jarecki-Krawczyk-Yung 1997 proactive
+secret-sharing protocol to the lattice ring $R_q = \mathbb{Z}_q[X]/(X^{256}+1)$
+used by Pulsar lattice threshold signatures, allowing the validator-set
+rotation problem of Quasar consensus to be solved without re-running
+trusted-dealer key generation at every epoch boundary. The master secret
+$s$ is preserved across rotations; only the share distribution changes.
+The genesis-time public key $\tilde b$ is unchanged, so signatures from
+any future epoch verify under the same public anchor.
+\end{abstract}
+
+\input{sections/06-resharing}
+
+\begin{thebibliography}{99}
+\bibitem{hjky97}
+Amir Herzberg, Markus Jakobsson, Stanis\l{}aw Jarecki, Hugo Krawczyk, Moti Yung.
+``Proactive secret sharing or: How to cope with perpetual leakage.''
+\emph{CRYPTO 1995/1997}.
+\bibitem{desmedt-jajodia97}
+Yvo Desmedt, Sushil Jajodia.
+``Redistributing secret shares to new access structures and its applications.''
+Technical Report ISSE TR-97-01, George Mason University, 1997.
+\bibitem{shamir79}
+Adi Shamir.
+``How to share a secret.''
+\emph{Communications of the ACM} 22(11):612--613, 1979.
+\bibitem{wong02}
+Theodore M.\ Wong, Chenxi Wang, Jeannette M.\ Wing.
+``Verifiable secret redistribution for archive systems.''
+In \emph{Proceedings of the First International IEEE Security in Storage Workshop}, 2002.
+\bibitem{lp020}
+LP-020. ``Quasar Consensus: Triple-Sign with BLS, Ringtail, and ML-DSA.''
+\bibitem{lp070}
+LP-070. ``ML-DSA-65 Identity Layer for Quasar Validators.''
+\bibitem{lp073}
+LP-073. ``Ringtail: A Two-Round MAC-Authenticated Lattice-Based Threshold Signature.''
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,85 @@
+% Standalone wrapper to compile the Pedersen DKG section.
+% The full LP-073-pulsar paper is composed at ~/work/lux/papers/lp-073-pulsar/
+% (parent directory under lux/papers/); this minimal wrapper exists so the
+% section can be typechecked in isolation during development.
+%
+% Compile with: pdflatex lp-073-pulsar-pedersen-dkg.tex (twice, for refs).
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{enumitem}
+\usepackage{cleveref}
+
+\hypersetup{colorlinks=true,linkcolor=black,citecolor=blue,urlcolor=blue}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{remark}{Remark}
+
+\title{LP-073-pulsar: Pedersen-Style Distributed Key Generation for Pulsar}
+\author{Lux Industries Inc}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We design and implement a Pedersen-style verifiable-secret-sharing-based
+distributed key generation (DKG) for the Pulsar lattice threshold-signature
+scheme over $R_q = \mathbb{Z}_q[X]/(X^{256}+1)$, $q = \mathtt{0x1000000004A01}$.
+The scheme replaces the broken Feldman-style commitment
+$C_k = A \cdot \mathrm{NTT}(c_k)$ in \texttt{pulsar/dkg/} (which leaks the
+secret to a passive observer via the pseudoinverse) with the
+Pedersen commitment $C_k = A \cdot \mathrm{NTT}(c_k) + B \cdot \mathrm{NTT}(r_k)$
+for an independent uniform matrix $B$.  Hiding holds computationally under
+$\mathsf{MLWE}_{q,\sigma_E}^B$; binding holds under
+$\mathsf{MSIS}_{q,[A|B]}$.  Round~2 verification is exact (no norm
+tolerance).  We provide a Go reference implementation, a deterministic KAT
+oracle (4 entries: 2-of-3, 3-of-5, 5-of-7, 7-of-11), a C++ port skeleton,
+negative tests confirming the pseudoinverse attack fails, and an
+end-to-end Pedersen-identity integration test against Pulsar Sign.
+\end{abstract}
+
+% Local references used by the section.
+\providecommand{\luxref}[1]{[#1]}
+
+\input{sections/07-pedersen-dkg}
+
+\begin{thebibliography}{99}
+\bibitem{red-dkg-review}
+Red Team.  ``RED-DKG-REVIEW: Adversarial review of the Feldman-VSS DKG
+C++ port.''  \texttt{luxcpp/crypto/ringtail/RED-DKG-REVIEW.md}, 2026.
+\bibitem{bdlop18}
+Carsten Baum, Ivan Damg\aa{}rd, Vadim Lyubashevsky, Sabine Oechsner,
+Chris Peikert.  ``More Efficient Commitments from Structured Lattice
+Assumptions.''  \emph{SCN 2018}.
+\bibitem{gks24}
+Christoph Gentry, Mariana Klimovich, Sina Shiehian.
+``Lattice-Based Distributed Key Generation: Construction and Analysis.''
+\emph{(GKS24, citation pending — most recent: Gennaro-Goldfeder-Krell-Pass-Tomescu).}
+\bibitem{krt24}
+Karim Khouzani, Roman Langrehr, Tomasz Truong.
+``Practical Threshold Signing from Module-LWE.''
+\emph{(KRT24, placeholder — see e.g.\ Espitau-Tibouchi `Threshold-CRYSTALS').}
+\bibitem{lp020}
+LP-020. ``Quasar Consensus: Triple-Sign with BLS, Ringtail, and ML-DSA.''
+\bibitem{lp070}
+LP-070. ``ML-DSA-65 Identity Layer for Quasar Validators.''
+\bibitem{lp073}
+LP-073. ``Ringtail: A Two-Round MAC-Authenticated Lattice-Based Threshold
+Signature.''
+\bibitem{ringtail2025}
+Ozcan Ozturk et al.  ``Ringtail: One-Round Threshold Signatures from
+Lattices.''  Cryptology ePrint, 2025.
+\end{thebibliography}
+
+\end{document}

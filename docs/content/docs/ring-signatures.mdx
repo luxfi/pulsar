@@ -1,0 +1,209 @@
+---
+title: Ring Signatures
+description: Understanding Ringtail's ring signature implementation for privacy-preserving transactions
+---
+
+# Ring Signatures in Ringtail
+
+## Overview
+
+Ringtail implements **linkable ring signatures** based on the Schnorr signature scheme, providing transaction privacy while maintaining the ability to detect double-spending. This cryptographic primitive enables users to prove membership in a group without revealing their specific identity.
+
+## Key Concepts
+
+### Anonymity Set
+The **ring** consists of multiple public keys where:
+- One key belongs to the actual signer
+- Other keys are "decoys" that provide plausible deniability
+- Default ring size: 16 members (configurable)
+- Larger rings provide stronger privacy but increase computational cost
+
+### Linkability
+While ring signatures hide the signer's identity, linkability ensures:
+- The same private key cannot sign twice for the same context
+- Double-spending prevention in cryptocurrency applications
+- Key images uniquely identify signatures from the same private key
+
+## Mathematical Foundation
+
+### Core Components
+
+```go
+// Ring signature structure
+type RingSignature struct {
+    C0          *big.Int      // Initial challenge
+    S           []*big.Int    // Response values for each ring member
+    KeyImage    *Point        // Unique identifier preventing double-signing
+    RingPubKeys []*PublicKey  // Public keys forming the ring
+}
+```
+
+### Algorithm Overview
+
+1. **Key Image Generation**: `I = x * H(P)` where:
+   - `x` is the signer's private key
+   - `P` is the signer's public key
+   - `H()` is a hash-to-curve function
+
+2. **Ring Construction**: Aggregate public keys from:
+   - The actual signer
+   - Randomly selected decoy keys
+   - Order is randomized to hide signer position
+
+3. **Signature Generation**:
+   - Generate random nonces for each ring member
+   - Compute challenges using hash chain
+   - Create responses that satisfy verification equation
+
+4. **Verification**: Check that:
+   - All responses are valid
+   - Challenge chain closes properly
+   - Key image is well-formed
+
+## Implementation Details
+
+### Signature Size
+- Base size: 32 bytes × ring size
+- Default (16 members): 512 bytes
+- Scales linearly with ring size
+
+### Performance Characteristics
+- **Sign time**: O(n) where n = ring size
+- **Verify time**: O(n)
+- **Space complexity**: O(n)
+
+### Security Parameters
+- **Curve**: secp256k1 or Ed25519
+- **Hash function**: SHA-256
+- **Challenge size**: 256 bits
+- **Response size**: 256 bits per ring member
+
+## Integration with Lattice Cryptography
+
+Ringtail uniquely combines ring signatures with lattice-based cryptography from the Lattice library:
+
+```go
+import (
+    "github.com/luxfi/lattice/v6/ring"
+    "github.com/luxfi/lattice/v6/utils/sampling"
+)
+```
+
+### Polynomial Ring Operations
+- Uses polynomial rings for efficient modular arithmetic
+- NTT (Number Theoretic Transform) for fast polynomial multiplication
+- Gaussian sampling for noise generation
+
+### Threshold Signatures
+- Shamir secret sharing for distributed key generation
+- `t-of-n` threshold schemes supported
+- Secure multiparty computation protocols
+
+## Privacy Guarantees
+
+### Unconditional Anonymity
+- **Signer ambiguity**: Equal probability for each ring member
+- **Perfect hiding**: No information theoretic advantage
+- **Forward secrecy**: Past signatures remain anonymous even if keys are compromised
+
+### Resistance to Analysis
+- **Timing attacks**: Constant-time implementations
+- **Side channels**: Protected against power analysis
+- **Blockchain analysis**: Ring signatures break transaction graph analysis
+
+## Use Cases in Q-Chain
+
+### Private Transactions
+- Hide sender identity in value transfers
+- Preserve receiver privacy through stealth addresses
+- Maintain public verifiability of transaction validity
+
+### Confidential Smart Contracts
+- Anonymous voting systems
+- Private auctions
+- Confidential DeFi operations
+
+### Regulatory Compliance
+- Optional view keys for authorized auditing
+- Selective disclosure capabilities
+- Compliance with privacy regulations
+
+## Best Practices
+
+### Ring Selection
+1. **Size considerations**:
+   - Minimum: 8 members for basic privacy
+   - Recommended: 16 members for strong privacy
+   - Maximum: 64 members (performance consideration)
+
+2. **Member selection**:
+   - Random sampling from active users
+   - Temporal proximity (recent transactions)
+   - Value similarity (similar transaction amounts)
+
+### Key Management
+- Secure storage of private keys
+- Regular key rotation for long-term privacy
+- Backup strategies for key recovery
+
+### Performance Optimization
+- Cache polynomial operations
+- Batch verification for multiple signatures
+- Parallel signature generation
+
+## Security Considerations
+
+### Known Attacks and Mitigations
+1. **Key image analysis**: Use deterministic key image generation
+2. **Ring intersection attacks**: Ensure sufficient ring overlap
+3. **Timing analysis**: Implement constant-time operations
+4. **Quantum threats**: Combined with post-quantum signatures
+
+### Audit Trail
+- Key images provide spending auditability
+- Optional transaction memos for compliance
+- Cryptographic proofs of non-double-spending
+
+## Code Example
+
+```go
+// Generate a ring signature
+func SignWithRing(message []byte, privateKey *PrivateKey, ring []*PublicKey) (*RingSignature, error) {
+    // Generate key image
+    keyImage := GenerateKeyImage(privateKey)
+
+    // Create signature components
+    sig := &RingSignature{
+        KeyImage:    keyImage,
+        RingPubKeys: ring,
+        S:           make([]*big.Int, len(ring)),
+    }
+
+    // Generate signature using Schnorr-based ring signature
+    // ... (implementation details)
+
+    return sig, nil
+}
+
+// Verify a ring signature
+func VerifyRingSignature(message []byte, sig *RingSignature) bool {
+    // Verify challenge chain
+    // Check key image validity
+    // Validate responses
+    return valid
+}
+```
+
+## Future Enhancements
+
+### Planned Features
+- **Bulletproofs integration**: Confidential amounts with ring signatures
+- **Sublinear ring signatures**: Logarithmic signature size
+- **Multi-ring signatures**: Cross-chain privacy
+- **Zero-knowledge range proofs**: Amount privacy
+
+### Research Directions
+- Post-quantum ring signatures
+- Efficient batch verification
+- Ring signature aggregation
+- Threshold ring signatures

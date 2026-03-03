@@ -1,0 +1,600 @@
+\section{Pedersen-Style DKG over $R_q$ (\texttt{dkg2})}
+\label{sec:pedersen-dkg}
+
+This section specifies the Pedersen-style distributed key generation
+protocol shipped at \texttt{github.com/luxfi/pulsar/dkg2}, the
+trusted-dealer-free genesis path that runs in parallel with the
+foundation MPC ceremony of \S\ref{sec:lifecycle:dkg}. The construction
+replaces upstream Ringtail's Feldman commit
+$\mathbf{C}_k = \mathbf{A}\cdot\mathrm{NTT}(c_k)$ with a Pedersen
+commit hiding under MLWE on a second uniform matrix $\mathbf{B}$ and
+binding under MSIS on the wide concatenation
+$[\mathbf{A}\,|\,\mathbf{B}]$. Formal hiding and binding statements are
+given as Theorem~\ref{thm:pedersen-hiding} and
+Proposition~\ref{prop:pedersen-binding}; the Lean theorem statements
+referenced are
+\texttt{Crypto.Pulsar.DKG2.pedersen\_hiding},
+\texttt{Crypto.Pulsar.DKG2.pedersen\_binding}, and
+\texttt{Crypto.Pulsar.DKG2.pedersen\_identity} at
+\texttt{proofs/lean/Crypto/Pulsar/dkg2.lean}.
+
+\subsection{The broken Feldman commit}
+\label{ssec:dkg-broken}
+
+The upstream Ringtail DKG at \texttt{ringtail/dkg/dkg.go} uses Feldman
+commits
+\begin{equation}
+\label{eq:feldman-broken}
+\mathbf{C}_k \;=\; \mathbf{A}\cdot\mathrm{NTT}(c_k) \;\in\; R_q^{m_{\textrm{pk}}},
+\qquad k = 0,\dots,t-1,
+\end{equation}
+where $\mathbf{A} \in R_q^{m_{\textrm{pk}} \times n_{\textrm{vec}}}$ is
+the Pulsar public matrix
+($m_{\textrm{pk}} = 8$, $n_{\textrm{vec}} = 7$,
+$q = 0\mathtt{x}1000000004A01$, $\sigma_E = 6.108$),
+$c_k \in R_q^{n_{\textrm{vec}}}$ is the Gaussian secret coefficient
+sampled from $\chi_E = \mathcal{D}(\sigma_E)$, and $\mathrm{NTT}$ is the
+number-theoretic transform on the cyclotomic ring $R_q = \mathbb{Z}_q[X]/(X^{256}+1)$.
+
+Because $\mathbf{A}$ is overdetermined ($m_{\textrm{pk}} > n_{\textrm{vec}}$)
+and $\mathrm{NTT}$ is unitary, the linear map $c_k \mapsto \mathbf{C}_k$
+is injective with overwhelming probability ($1 - O(q^{-2})$ per slot,
+$1 - O(N \cdot q^{-2}) \le 1 - 2^{-89}$ overall). A passive observer of
+the public broadcast recovers $c_k$ in closed form via the Moore-Penrose
+pseudoinverse, slot-by-slot:
+\begin{equation}
+\label{eq:pseudoinverse-attack}
+\mathrm{NTT}(c_k)[s]
+\;=\; \bigl(\mathbf{A}[s]^{\top}\mathbf{A}[s]\bigr)^{-1}
+       \mathbf{A}[s]^{\top}\cdot\mathbf{C}_k[s]
+\qquad s\in[0,256).
+\end{equation}
+Total cost: $\Theta(\varphi\cdot m_{\textrm{pk}}^3)$ ring multiplications,
+a few milliseconds on a laptop. This is the headline finding of the red
+review at
+\texttt{luxcpp/crypto/ringtail/RED-DKG-REVIEW.md} (Finding~1)
+\cite{red-dkg-review}. Public-key rounding
+$\tilde{\mathbf{b}} = \lfloor\sum_i \mathbf{C}_{i,0}\rceil_\Xi$ does not
+save the construction because the attacker has full-precision
+$\mathbf{C}_{i,k}$ for every $i,k$ on the broadcast channel.
+
+The empirical verification at
+\texttt{pulsar/dkg2/dkg2\_test.go::TestDKG2\_PseudoinverseAttack} runs
+this exact slot-wise pseudoinverse against the dkg2 commits and reports
+$1792/1792 = 100\%$ slot disagreement (against the broken-Feldman
+baseline of $0\%$ disagreement, i.e.\ exact recovery).
+
+\subsection{The Pedersen construction}
+\label{ssec:pedersen-construction}
+
+We define \texttt{dkg2} as the $t$-of-$n$ protocol whose Round~1
+broadcasts are
+\begin{equation}
+\label{eq:pedersen-commit}
+\mathbf{C}_{i,k} \;=\; \mathbf{A}\cdot\mathrm{NTT}(c_{i,k}) \;+\; \mathbf{B}\cdot\mathrm{NTT}(r_{i,k})
+\qquad k=0,\dots,t-1,
+\end{equation}
+where $\mathbf{A}, \mathbf{B} \in R_q^{m_{\textrm{pk}} \times n_{\textrm{vec}}}$
+are \emph{independent} public uniform matrices and
+$r_{i,k} \in R_q^{n_{\textrm{vec}}}$ is a fresh Gaussian \emph{blinding}
+vector sampled from the same $\chi_E$ as $c_{i,k}$. The matrices are
+derived deterministically from nothing-up-my-sleeve domain-separation
+tags via $\mathrm{BLAKE3}$ of \texttt{"pulsar.dkg2.A.v1"} and
+\texttt{"pulsar.dkg2.B.v1"} respectively, so every party agrees on
+$\mathbf{A}, \mathbf{B}$ without coordination
+(\texttt{pulsar/dkg2/dkg2.go} \texttt{DeriveA}/\texttt{DeriveB}).
+
+The matrix derivation is deliberately HashSuite-independent --- it uses a
+dedicated BLAKE3 path with its own version tag so KAT bytes stay stable
+across the Pulsar-SHA3 cutover. The Round~1.5 commit digest, by
+contrast, is bound to the active HashSuite (Pulsar-SHA3 in production;
+Pulsar-BLAKE3 retained for byte-equality with pre-cutover KATs). The
+suite ID is bound into the digest input so two suites can never collide
+on the same commit body
+(\texttt{pulsar/dkg2/dkg2.go} \texttt{CommitDigest}).
+
+Each dealer $i$ broadcasts $\{\mathbf{C}_{i,k}\}_{k=0}^{t-1}$ publicly
+and sends the share-pair
+\begin{equation}
+\label{eq:share-pair}
+\bigl(f_i(j+1),\;g_i(j+1)\bigr)
+\;\in\; R_q^{n_{\textrm{vec}}}\times R_q^{n_{\textrm{vec}}}
+\end{equation}
+to recipient $j$ over the authenticated point-to-point channel, where
+$f_i(x) = \sum_k c_{i,k} x^k$ and $g_i(x) = \sum_k r_{i,k} x^k$ are the
+Shamir polynomials in the secret and the blinding respectively.
+
+\paragraph{Round 1.5 (cross-party consistency).}
+Before opening shares, each party broadcasts the digest
+\[
+h_i \;=\; \mathrm{HashSuite.TranscriptHash}\bigl(
+  \texttt{tagCommitDigest}\,\|\,\texttt{suite.ID()}\,\|\,
+  \texttt{serialize}(\mathbf{C}_{i,0})\,\|\,\cdots\,\|\,
+  \texttt{serialize}(\mathbf{C}_{i,t-1})
+\bigr).
+\]
+Recipients abort if any $h_i$ they receive differs from the digest
+computed by other parties on the same broadcast. This closes the
+``different commits to different recipients'' attack flagged as
+Finding~2 in~\cite{red-dkg-review}. Implementation:
+\texttt{Round1Output.CommitDigest()}
+(\texttt{pulsar/dkg2/dkg2.go}). The legacy BLAKE3-only digest path
+\texttt{CommitDigestBLAKE3()} is retained for byte-equal replay against
+the canonical KAT at
+\texttt{luxcpp/crypto/pulsar/dkg2/test/kat/dkg2\_kat.json}.
+
+\paragraph{Round 2 (verification + aggregation).}
+Recipient $j$ checks every sender $i\in[n]$:
+\begin{equation}
+\label{eq:pedersen-verify}
+\mathbf{A}\cdot\mathrm{NTT}\!\bigl(f_i(j+1)\bigr)
+\;+\;
+\mathbf{B}\cdot\mathrm{NTT}\!\bigl(g_i(j+1)\bigr)
+\;\stackrel{?}{=}\;
+\sum_{k=0}^{t-1}(j+1)^k\cdot\mathbf{C}_{i,k}
+\qquad(\bmod\;q).
+\end{equation}
+Equality is \emph{exact}: both sides are $\mathbb{Z}_q$-linear and NTT
+is bijective. No norm tolerance is needed (contrast with naive ``add
+fresh noise to every commit'' fixes which require $\sigma$-dependent
+slack). Concretely the verification is one matrix-vector multiply over
+each of $\mathbf{A}, \mathbf{B}$ plus a Horner accumulation in the NTT
+domain ($\Theta(t\cdot m_{\textrm{pk}}\cdot n_{\textrm{vec}})$ ring
+multiplications).
+
+The verifier is constant-time: comparison runs an AND across all
+$m_{\textrm{pk}}$ slots' coefficient blobs via
+\texttt{subtle.ConstantTimeCompare}; runtime is independent of how many
+slots differ. Implementation: \texttt{constTimePolyEqual} in
+\texttt{pulsar/dkg2/dkg2.go}; Lean reference
+\texttt{Crypto.Pulsar.DKG2.verifier\_constant\_time}.
+
+On success party $j$ aggregates
+\begin{align}
+s_j  &= \sum_{i=1}^{n} f_i(j+1) \;\in\; R_q^{n_{\textrm{vec}}}, \\
+u_j  &= \sum_{i=1}^{n} g_i(j+1) \;\in\; R_q^{n_{\textrm{vec}}},
+\end{align}
+which are valid $(t,n)$-Shamir shares of the master secret
+$s = \sum_i c_{i,0}$ and the master blinding
+$t_{\mathrm{master}} = \sum_i r_{i,0}$ respectively. The
+Pedersen-shaped public key is
+\begin{equation}
+\label{eq:b-ped}
+b_{\mathrm{ped}}
+\;=\; \Bigl\lfloor \mathrm{INTT}\!\Bigl(\sum_{i=1}^{n}\mathbf{C}_{i,0}\Bigr) \Bigr\rceil_\Xi
+\;=\; \bigl\lfloor \mathbf{A}\cdot s + \mathbf{B}\cdot t_{\mathrm{master}} \bigr\rceil_\Xi,
+\end{equation}
+rounded to $\Xi=30$ bits as in the trusted-dealer Sign Gen path
+(\texttt{pulsar/sign/sign.go}).
+
+\subsection{Hiding (computational, MLWE on $\mathbf{B}$)}
+\label{ssec:pedersen-hiding}
+
+\begin{theorem}[Hiding]
+\label{thm:pedersen-hiding}
+Assume the decisional Module Learning-With-Errors problem
+$\mathsf{MLWE}_{q,\chi_E}^{\mathbf{B}}$ on the matrix
+$\mathbf{B}\in R_q^{m_{\textrm{pk}}\times n_{\textrm{vec}}}$ is hard.
+For any pair of secret distributions $\mathcal{C},\mathcal{C}'$ over
+$R_q^{n_{\textrm{vec}}}$, the views
+\[
+\mathrm{View}_\mathcal{C}
+= \bigl\{\mathbf{A},\mathbf{B},\{\mathbf{C}_{i,k}\}_{i\in[n], k\in[t]}
+  \,:\,c_{i,k}\leftarrow\mathcal{C}\bigr\}
+\quad\text{and}\quad
+\mathrm{View}_{\mathcal{C}'} = \bigl\{\cdots\,:\,c_{i,k}\leftarrow\mathcal{C}'\bigr\}
+\]
+are computationally indistinguishable, with adversary advantage at
+most $n\cdot t\cdot \mathrm{Adv}_{\mathsf{MLWE}_{q,\chi_E}^\mathbf{B}}$.
+\end{theorem}
+
+\begin{proof}[Game-based proof outline]
+We define a sequence of hybrid games $\mathrm{H}_0,\mathrm{H}_1,\dots,\mathrm{H}_{n\cdot t}$
+and show consecutive hybrids are computationally indistinguishable
+under $\mathsf{MLWE}_{q,\chi_E}^\mathbf{B}$.
+
+\begin{itemize}
+\item $\mathrm{H}_0 = \mathrm{View}_\mathcal{C}$ --- the real protocol view.
+\item $\mathrm{H}_\ell$ ($\ell = 1,\dots,n\cdot t$): for the first
+$\ell$ Pedersen summands $\mathbf{B}\cdot\mathrm{NTT}(r_{i,k})$ in
+canonical $(i,k)$ order, replace the summand with a fresh uniform
+$\mathbf{u}_{i,k}\in R_q^{m_{\textrm{pk}}}$. The remaining $n\cdot t-\ell$
+summands are unchanged.
+\item $\mathrm{H}_{n\cdot t}$: every $\mathbf{C}_{i,k}$ is now
+$\mathbf{A}\cdot\mathrm{NTT}(c_{i,k}) + \mathbf{u}_{i,k}$ with
+$\mathbf{u}_{i,k}$ uniform.
+\end{itemize}
+
+\noindent\emph{Hybrid distance.} For each $\ell\to\ell+1$, the only
+change is one summand $\mathbf{B}\cdot\mathrm{NTT}(r_{i,k})$ replaced
+with uniform $\mathbf{u}_{i,k}$. This is precisely a single decisional
+$\mathsf{MLWE}_{q,\chi_E}^\mathbf{B}$ challenge: the secret is
+$r_{i,k}\sim\chi_E$, the public matrix is $\mathbf{B}$, the target is
+$\mathbf{B}\cdot\mathrm{NTT}(r_{i,k})$ vs uniform. So
+$|\Pr[\mathcal{A}\text{ wins }\mathrm{H}_\ell] - \Pr[\mathcal{A}\text{ wins }\mathrm{H}_{\ell+1}]|
+\le \mathrm{Adv}_{\mathsf{MLWE}_{q,\chi_E}^\mathbf{B}}$.
+
+\noindent\emph{Endpoint distinguishability.} In $\mathrm{H}_{n\cdot t}$
+each $\mathbf{C}_{i,k}$ is $\mathbf{A}\cdot\mathrm{NTT}(c_{i,k})+\mathbf{u}_{i,k}$
+with $\mathbf{u}_{i,k}$ uniform; this is uniformly distributed over
+$R_q^{m_{\textrm{pk}}}$ and independent of $c_{i,k}$. Thus
+$\mathrm{H}_{n\cdot t}$ is identical for $\mathcal{C}$ and $\mathcal{C}'$.
+
+\noindent\emph{Telescoping.} Adversary advantage telescopes to
+$n\cdot t\cdot\mathrm{Adv}_{\mathsf{MLWE}_{q,\chi_E}^\mathbf{B}}$,
+which is negligible under the standing MLWE hardness assumption at the
+Pulsar parameter set.
+\end{proof}
+
+The pseudoinverse attack of \eqref{eq:pseudoinverse-attack} fails as a
+direct corollary: applying $\mathbf{A}^+ := (\mathbf{A}^\top\mathbf{A})^{-1}\mathbf{A}^\top$
+to $\mathbf{C}_{i,k}$ yields
+\[
+\mathbf{A}^+\mathbf{C}_{i,k}
+\;=\; \mathrm{NTT}(c_{i,k})\;+\;\mathbf{A}^+\mathbf{B}\cdot\mathrm{NTT}(r_{i,k}),
+\]
+where the second term is a $\mathbf{B}$-driven LWE mask. Without the
+corresponding $r_{i,k}$ the attacker recovers a uniform shift of
+$\mathrm{NTT}(c_{i,k})$ in $\mathbb{Z}_q$. The empirical test
+\texttt{TestDKG2\_PseudoinverseAttack} in
+\texttt{pulsar/dkg2/dkg2\_test.go} confirms $1792/1792 = 100\%$ slot
+disagreement against $\mathrm{NTT}(c_0)$ for a randomly sampled run
+(threshold for ``hiding intact'' is 99\% slots disagreeing; observed
+margin is 100\%). Lean reference:
+\texttt{Crypto.Pulsar.DKG2.pseudoinverse\_attack\_fails}.
+
+\subsection{Binding (computational, MSIS on $[\mathbf{A}\,|\,\mathbf{B}]$)}
+\label{ssec:pedersen-binding}
+
+\begin{proposition}[Binding]
+\label{prop:pedersen-binding}
+Suppose an adversary outputs two distinct openings
+$(c_k, r_k)\neq(c_k', r_k')$ of the same commitment $\mathbf{C}_k$ with
+$\|c_k-c_k'\|_\infty,\,\|r_k-r_k'\|_\infty\le 2\beta_E$. Then
+$(c_k-c_k',\,r_k-r_k')$ is a non-trivial bounded-norm element of the
+kernel of the wide matrix
+$[\mathbf{A}\,|\,\mathbf{B}]\in R_q^{m_{\textrm{pk}}\times 2 n_{\textrm{vec}}}$,
+violating
+$\mathsf{MSIS}_{q,[\mathbf{A}\,|\,\mathbf{B}],2\beta_E}$.
+\end{proposition}
+
+\begin{proof}[Reduction outline]
+Suppose $(c_k, r_k)\neq(c_k', r_k')$ both open $\mathbf{C}_k$. Then
+\begin{align*}
+\mathbf{C}_k &= \mathbf{A}\cdot\mathrm{NTT}(c_k)+\mathbf{B}\cdot\mathrm{NTT}(r_k) \\
+\mathbf{C}_k &= \mathbf{A}\cdot\mathrm{NTT}(c_k')+\mathbf{B}\cdot\mathrm{NTT}(r_k')
+\end{align*}
+Subtracting,
+$\mathbf{A}\cdot\mathrm{NTT}(c_k - c_k')+\mathbf{B}\cdot\mathrm{NTT}(r_k - r_k') = \mathbf{0}$,
+i.e.,
+$[\mathbf{A}\,|\,\mathbf{B}]\cdot\binom{\mathrm{NTT}(c_k-c_k')}{\mathrm{NTT}(r_k-r_k')} = \mathbf{0}$.
+Since $(c_k, r_k)\neq(c_k', r_k')$, the difference vector is non-zero.
+The triangle inequality on the bound assumption gives
+$\|\,c_k - c_k'\,\|_\infty,\,\|\,r_k - r_k'\,\|_\infty\le 2\beta_E$.
+Combining horizontally yields a non-trivial vector in
+$\ker_{\textrm{small}}([\mathbf{A}\,|\,\mathbf{B}])$ of $\ell_\infty$-norm
+$\le 2\beta_E$, which is exactly an
+$\mathsf{MSIS}_{q,[\mathbf{A}\,|\,\mathbf{B}],2\beta_E}$ solution.
+\end{proof}
+
+The matrix $[\mathbf{A}\,|\,\mathbf{B}]$ is fat
+($m_{\textrm{pk}} = 8 < 2 n_{\textrm{vec}} = 14$) so its
+$\mathbb{Z}_q$-kernel is generically non-trivial in unbounded norm;
+binding is therefore statistical only within the small-norm cone
+$\|c\|,\|r\|\le\beta_E$ and computational otherwise. This matches the
+binding regime of standard BDLOP commitments \cite{bdlop18} and recent
+lattice DKG schemes \cite{gks24,krt24}. Lean reference:
+\texttt{Crypto.Pulsar.DKG2.pedersen\_binding}.
+
+\subsection{Pedersen identity (correctness across Lagrange recombination)}
+\label{ssec:pedersen-identity}
+
+\begin{theorem}[Pedersen identity]
+\label{thm:pedersen-identity}
+For honestly generated $\{\mathbf{C}_{i,0}, s_j, u_j\}$ and any
+$t$-subset $T\subseteq[n]$ with Lagrange weights
+$\lambda_j = \prod_{k\in T,k\ne j}\frac{-(k+1)}{(j-k)}\pmod q$,
+let $s = \sum_{j\in T}\lambda_j s_j$ and
+$t_{\mathrm{master}} = \sum_{j\in T}\lambda_j u_j$. Then
+\begin{equation}
+\label{eq:pedersen-identity}
+\mathbf{A}\cdot\mathrm{NTT}(s) \;+\; \mathbf{B}\cdot\mathrm{NTT}(t_{\mathrm{master}})
+\;\equiv\; \sum_{i=1}^{n}\mathbf{C}_{i,0} \pmod q.
+\end{equation}
+\end{theorem}
+
+\begin{proof}[Verification]
+Each commit expands as
+$\mathbf{C}_{i,0} = \mathbf{A}\cdot\mathrm{NTT}(c_{i,0})+\mathbf{B}\cdot\mathrm{NTT}(r_{i,0})$.
+Summing over $i$,
+\(
+\sum_i\mathbf{C}_{i,0}
+= \mathbf{A}\cdot\mathrm{NTT}\!\sum_i c_{i,0} + \mathbf{B}\cdot\mathrm{NTT}\!\sum_i r_{i,0}.
+\)
+The Lagrange recombination identity
+$\sum_{j\in T}\lambda_j\cdot f_i(j+1) = f_i(0) = c_{i,0}$ for any
+degree-$(t-1)$ polynomial $f_i$ (and similarly for $g_i$) gives
+$s = \sum_i c_{i,0}$ and $t_{\mathrm{master}} = \sum_i r_{i,0}$.
+Substituting yields \eqref{eq:pedersen-identity}.
+\end{proof}
+
+The identity is validated end-to-end at $t=2,n=3$ in
+\texttt{pulsar/dkg2/dkg2\_test.go::TestDKG2\_PedersenIdentity}: every
+$m_{\textrm{pk}}$-slot of $\mathbf{A}\cdot\mathrm{NTT}(s)+\mathbf{B}\cdot\mathrm{NTT}(t_{\mathrm{master}})$
+matches the corresponding slot of $\sum_i\mathbf{C}_{i,0}$ exactly.
+Lean reference: \texttt{Crypto.Pulsar.DKG2.pedersen\_identity}.
+
+\subsection{Comparison to broken Feldman, GKS24, KRT24, Threshold Raccoon}
+\label{ssec:pedersen-compare}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{l|c|c|c|c}
+\toprule
+Scheme & Hiding & Binding & Cost / Round & Round count \\
+\midrule
+Broken \texttt{ringtail/dkg/} (Feldman, no noise)
+        & \emph{none} (linear)
+        & statistical
+        & $1\times\mathrm{matvec}_\mathbf{A}$
+        & 2 \\
+Naive ``add Gaussian to commit''
+        & MLWE on $\mathbf{A}$
+        & statistical (norm bound)
+        & $1\times\mathrm{matvec}_\mathbf{A}$ + sample
+        & 2 + tolerance check \\
+GKS24 \cite{gks24} (lattice GJKR)
+        & MLWE on $\mathbf{A}$
+        & MSIS on $\mathbf{A}$ (NIZK)
+        & $1\times\mathrm{matvec}_\mathbf{A}$ + NIZK
+        & 3 + ZK \\
+KRT24 \cite{krt24} (lattice JF-DKG)
+        & MLWE on $\mathbf{A}$, Pedersen-aux
+        & MSIS, structured
+        & $2\times\mathrm{matvec}$ + structured ZK
+        & 3 + ZK \\
+Threshold Raccoon \cite{thresholdraccoon} (single-round, noise-flooding)
+        & MLWE on $\mathbf{A}$
+        & statistical (flooded noise)
+        & $1\times\mathrm{matvec}_\mathbf{A}$ + flood
+        & 1 \\
+\textbf{This work (\texttt{dkg2})}
+        & \textbf{MLWE on $\mathbf{B}$}
+        & \textbf{MSIS on $[\mathbf{A}\,|\,\mathbf{B}]$}
+        & $\mathbf{2\times\mathrm{matvec}}$
+        & \textbf{2 (+ 1.5 digest)} \\
+\bottomrule
+\end{tabular}
+\caption{Pedersen \texttt{dkg2} versus alternatives. All four lattice
+DKGs share the same hardness regime; \texttt{dkg2} prioritises round
+count and verification simplicity over zero-knowledge identifiable-abort,
+and gets identifiable-abort by \emph{sender index} via the signed
+complaint workflow at \texttt{pulsar/dkg2/complaint.go}.
+\label{tab:dkg-compare}}
+\end{table}
+
+\texttt{dkg2} pays a $2\times$ cost relative to the broken Feldman
+scheme ($\mathbf{A}\cdot c$ becomes $\mathbf{A}\cdot c + \mathbf{B}\cdot r$)
+but eliminates the key-recovery attack and avoids the noise-tolerance
+accounting that ``add Gaussian to commit'' fixes require. It is
+strictly weaker than GKS24/KRT24 in identifiability (the protocol
+identifies a corrupt \emph{sender} via Pedersen verification mismatch
+but does not produce a zero-knowledge proof of correct dealing); the
+Round~1.5 digest exchange covers the cross-party-inconsistency vector,
+and the signed complaint workflow turns every detection into slashable
+evidence. Threshold Raccoon \cite{thresholdraccoon} achieves a single
+round but at the cost of a noise-flooding accounting that grows with
+the validator-set size and a separate share-distribution channel;
+\texttt{dkg2} keeps the share distribution inline at $2\times$ matvec
+cost.
+
+\subsection{Concrete parameters}
+\label{ssec:pedersen-params}
+
+The following parameters are pinned in \texttt{pulsar/sign/config.go}
+and inherited by \texttt{dkg2}:
+
+\begin{tabular}{ll}
+\toprule
+$\varphi$           & $2^8 = 256$ \\
+$q$                 & $0\mathtt{x}1000000004A01 = 281\,474\,976\,729\,601$ (48-bit prime) \\
+$m_{\textrm{pk}}$   & $8$ \\
+$n_{\textrm{vec}}$  & $7$ \\
+$\sigma_E$          & $6.108187070284607$ \\
+$\beta_E$           & $2\sigma_E = 12.216374140569214$ \\
+$\Xi$               & $30$ bits \\
+\bottomrule
+\end{tabular}
+
+These are the same lattice-attack-estimator parameters as upstream
+Ringtail \cite{ringtail2025}: at least 128-bit classical and at least
+120-bit quantum security per the Albrecht primal/dual estimator. The
+matrix $\mathbf{B}$ inherits the same regime as $\mathbf{A}$
+(uniform over $R_q$, dimension $8\times 7$); the additional MLWE
+instance $(\mathbf{B}, \mathbf{B}\cdot\mathrm{NTT}(r) + \mathrm{noise})$
+reuses the same $\sigma_E$, so the security-level analysis carries
+over verbatim. The fat-matrix MSIS on
+$[\mathbf{A}\,|\,\mathbf{B}]\in R_q^{8\times 14}$ has dimension and
+norm bound parameters that the same estimator covers; binding holds
+within the small-norm cone $\|c\|,\|r\|\le\beta_E$ at the Pulsar
+hardness level.
+
+\subsection{Identifiable abort and the complaint workflow}
+\label{ssec:pedersen-complaint}
+
+Every detected misbehaviour during \texttt{dkg2} produces a signed
+complaint identifying the offending sender. The four reasons mirror
+\texttt{reshare.ComplaintReason} (\texttt{pulsar/reshare/complaint.go})
+to keep one adjudication path for both protocols:
+
+\begin{itemize}[leftmargin=2em,nosep]
+\item \textbf{ComplaintBadDelivery} --- sender $i$ shipped a
+$(\text{share}_{i\to j},\text{blind}_{i\to j})$ pair that fails
+\eqref{eq:pedersen-verify}. Evidence: the $(\text{share},\text{blind},
+\text{commits})$ triple. Re-checked via
+\texttt{VerifyShareAgainstCommits}.
+\item \textbf{ComplaintEquivocation} --- sender $i$ broadcast disagreeing
+commit-digest values to different recipients (Round~1.5 cross-check).
+Evidence: two signed digest broadcasts under sender $i$'s wire
+identity that disagree.
+\item \textbf{ComplaintMissing} --- sender $i$ failed Round~1 by the
+cohort deadline. Evidence is the absence; a separate liveness round
+timestamps the deadline.
+\item \textbf{ComplaintMalformedCommit} --- sender $i$'s commit vector
+has wrong length / wrong dimension / nil entries. Evidence: the
+malformed commit vector.
+\end{itemize}
+
+Disqualification rule: a sender is disqualified iff at least
+$\max(1, t-1)$ distinct complainers signed valid complaints against it
+(\texttt{DisqualificationThreshold} in \texttt{complaint.go}). The
+$t-1$ cap is the corruption bound, so no honest sender can be
+disqualified by a maximally adversarial complainer set. After the
+Round~2 deadline, every honest party computes the same disqualified set
+$D$ and the same surviving quorum $Q'=Q\setminus D$ via
+\texttt{FilterQualifiedQuorum}. If $|Q'| < t$ the protocol returns
+\texttt{ErrInsufficientQuorum} and the activation cert binds the abort
+transcript so the chain stays at the previous epoch.
+
+Lean reference:
+\texttt{Crypto.Pulsar.DKG2.disqualification\_below\_corruption\_bound}
+proves that \texttt{disqualificationThreshold(t) = t-1} for $t\ge 2$,
+matching the implementation.
+
+\subsection{Mapping to Pulsar Sign}
+\label{ssec:pedersen-sign-integration}
+
+Pulsar Sign (LP-073, \S\ref{sec:protocol}) expects a public key of the
+form $\tilde b = \lfloor\mathbf{A}\cdot s + e\rceil_\Xi$ with $e$ a
+fresh Gaussian. The Pedersen-shaped key
+$b_{\mathrm{ped}} = \lfloor\mathbf{A}\cdot s + \mathbf{B}\cdot t_{\mathrm{master}}\rceil_\Xi$
+of \eqref{eq:b-ped} is structurally different --- the noise term has the
+algebraic shape $\mathbf{B}\cdot t_{\mathrm{master}}$ rather than free
+Gaussian. Three integration paths exist; we document the trade-offs
+and the recommended path.
+
+\paragraph{Path (a) --- Reflood public key, keep Sign unchanged.}
+After Round~2 each party $j$ broadcasts
+$\beta_j = \mathbf{A}\cdot\mathrm{NTT}(\lambda_j s_j) + e_j'$ where
+$\lambda_j$ are Lagrange weights for any $t$-subset $T\subseteq[n]$ and
+$e_j'\sim\mathcal{D}(\sigma'')$ is a fresh Gaussian with
+$\sigma'' = \kappa\sigma_E\sqrt{n}$ (we pin
+$\sigma'' = 23\cdot 6.108\cdot\sqrt{n}$ here, matching the
+$\eta_\varepsilon$ slack reservation of LP-073~\S5). Final key
+$b = \sum_{j\in T}\beta_j = \mathbf{A}\cdot s + e''$ with
+$e'' = \sum_{j\in T} e_j'$ is Pulsar-shaped. The $L_2$ slack budget
+for verification is then
+$\|e''\|_2\le\sigma''\sqrt{n\cdot m_{\textrm{pk}}\varphi}\approx
+2^{42}$, well within Pulsar's $B^2 = 184\,960\,669\,042\,442\,604\,975\,662\,780\,477$.
+
+\paragraph{Path (b) --- Modify Sign verification to accept Pedersen pk.}
+Replace Pulsar's verification identity
+$z = r^* + \sum_{j\in T}\lambda_j s_j c$ with the joint identity
+\[
+z + z'
+\;=\; r^* + \sum_{j\in T}\lambda_j s_j c
+\;+\; \mathbf{B}\cdot\sum_{j\in T}\lambda_j u_j c,
+\]
+i.e.,\ promote the protocol to a 2-secret instance carrying both $s_j$
+and $u_j$. Every signing round transmits a $z'$ companion to $z$ and
+the verifier's public input is $(\mathbf{A}, \mathbf{B}, b_{\mathrm{ped}})$.
+This is a protocol change to LP-073 that does not exist in any
+published canon; it preserves the elegance of the Pedersen DKG but
+invalidates the existing Pulsar Sign KAT contract.
+
+\paragraph{Path (c) --- Hybrid: Pedersen DKG, separate noise-flooding refresh.}
+Run \texttt{dkg2} as specified. Discard $u_j$ permanently after
+Round~2. Add a separate, single-round noise-flooding sub-protocol that
+takes the shares $\{s_j\}$ and produces a Pulsar-shaped $\tilde b$ via
+path~(a)'s mechanism. This minimises the change to Pulsar Sign (no
+protocol edits) at the cost of one extra round.
+
+\paragraph{Recommended path.}
+Path~(c) is the canonical production deployment for LP-073 because it
+\begin{enumerate}
+\item leaves Pulsar Sign and its KAT contract unchanged,
+\item separates the cryptographic DKG from the noise-flooding refresh
+      (orthogonality), and
+\item allows the Pedersen DKG to be re-used by other Pulsar-class
+      signers that may have different public-key conventions.
+\end{enumerate}
+The integration test in this section exercises path~(b) --- the
+modified-verifier form --- because it exposes the Pedersen identity
+\eqref{eq:pedersen-identity} directly. The empirical validation at
+\texttt{pulsar/dkg2/dkg2\_test.go::TestDKG2\_PedersenIdentity} closes
+the loop: dealer commits, distributed share aggregation, and Lagrange
+recombination all close end-to-end.
+
+\subsection{Implementation surface}
+\label{ssec:dkg2-implementation}
+
+\begin{itemize}[leftmargin=2em,nosep]
+\item \textbf{Go canonical}
+      (\texttt{pulsar/dkg2/dkg2.go}, \texttt{pulsar/dkg2/complaint.go})
+      --- production-shipping. Round1WithSeed pins every byte of the
+      protocol output for byte-equal C++ porting.
+\item \textbf{KAT oracle}
+      (\texttt{pulsar/cmd/dkg2\_oracle/main.go}) --- emits 4 byte-stable
+      entries (2-of-3, 3-of-5, 5-of-7, 7-of-11) at
+      \texttt{luxcpp/crypto/pulsar/dkg2/test/kat/dkg2\_kat.json}.
+\item \textbf{C++ surface}
+      (\texttt{luxcpp/crypto/pulsar/cpp/dkg2/dkg2.\{hpp,cpp\}}) ---
+      production-stable header surface; algorithmic body via cgo to the
+      Go canonical until the pulsar-namespaced lattice-ring extraction
+      lands. Surface tests at
+      \texttt{luxcpp/crypto/pulsar/test/dkg2/dkg2\_surface\_test.cpp}
+      pin constructor validation, FFI-routing semantics, and the
+      sentinel commit-digest contract.
+\item \textbf{Hash suite}
+      (\texttt{pulsar/hash/}) --- production digests use Pulsar-SHA3
+      (\texttt{cSHAKE256}/\texttt{KMAC256}/\texttt{TupleHash256}); legacy
+      Pulsar-BLAKE3 retained for byte-equal KAT replay.
+\item \textbf{Negative tests}
+      \begin{itemize}[nosep]
+      \item \texttt{TestDKG2\_PseudoinverseAttack} --- 100\% of NTT slots
+            disagree with broken-Feldman recovery (target 99\%).
+      \item \texttt{TestDKG2\_TamperedShareRejected} --- verification
+            rejects bit-flipped shares.
+      \item \texttt{TestDKG2\_Round2Identify} --- identifiable abort
+            names the offending sender.
+      \item \texttt{TestDKG2\_MalformedCommitRejected} --- wrong-length
+            commit vector rejected with sender ID.
+      \item \texttt{TestDKG2\_MissingDataRejected} --- absent inputs
+            rejected with \texttt{ErrMissingData}.
+      \item \texttt{TestDKG2\_CommitDigestEquivocation} --- Round 1.5
+            cross-check detects different commits to different
+            recipients.
+      \item \texttt{TestDKG2\_BadDeliveryComplaint} --- re-checkable
+            evidence packaged for slashing pipeline.
+      \item \texttt{TestDKG2\_HashSuiteCrossProfile} --- SHA3 and BLAKE3
+            digests cannot collide on the same commits.
+      \item \texttt{TestDKG2\_DisqualificationThreshold},
+            \texttt{TestDKG2\_FilterQualifiedQuorum} --- disqualification
+            arithmetic and quorum filtering.
+      \end{itemize}
+\item \textbf{Integration test}
+      \texttt{TestDKG2\_PedersenIdentity} verifies
+      \eqref{eq:pedersen-identity} end-to-end for the 2-of-3 protocol.
+\end{itemize}
+
+\subsection{Lean theorem index}
+\label{ssec:dkg2-lean}
+
+Theorem statements live in
+\texttt{proofs/lean/Crypto/Pulsar/dkg2.lean} and are referenced
+verbatim from this section without duplicating the proof bodies:
+
+\begin{tabular}{ll}
+\toprule
+This section & Lean reference \\
+\midrule
+Theorem~\ref{thm:pedersen-hiding}      & \texttt{Crypto.Pulsar.DKG2.pedersen\_hiding} \\
+Proposition~\ref{prop:pedersen-binding} & \texttt{Crypto.Pulsar.DKG2.pedersen\_binding} \\
+Theorem~\ref{thm:pedersen-identity}    & \texttt{Crypto.Pulsar.DKG2.pedersen\_identity} \\
+\eqref{eq:pseudoinverse-attack} corollary & \texttt{Crypto.Pulsar.DKG2.pseudoinverse\_attack\_fails} \\
+\S\ref{ssec:pedersen-construction} (CT verifier) & \texttt{Crypto.Pulsar.DKG2.verifier\_constant\_time} \\
+\S\ref{ssec:pedersen-complaint} (disqualification cap) & \texttt{Crypto.Pulsar.DKG2.disqualification\_below\_corruption\_bound} \\
+\S\ref{ssec:pedersen-sign-integration} (path-b) & \texttt{Crypto.Pulsar.DKG2.path\_b\_sign\_verification} \\
+\bottomrule
+\end{tabular}

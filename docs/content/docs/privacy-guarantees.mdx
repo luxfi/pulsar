@@ -1,0 +1,440 @@
+---
+title: Privacy Guarantees
+description: Understanding the privacy properties and security guarantees of Ringtail
+---
+
+# Privacy Guarantees
+
+## Overview
+
+Ringtail provides strong privacy guarantees through a combination of cryptographic techniques. This document details the privacy properties, threat models, and security guarantees provided by the system.
+
+## Privacy Properties
+
+### 1. Signer Anonymity
+
+**Property**: The identity of the actual signer is hidden among a set of potential signers (the ring).
+
+**Guarantee Level**: **Unconditional**
+- Information-theoretic hiding
+- No computational assumptions required
+- Perfect indistinguishability among ring members
+
+**Mathematical Foundation**:
+```
+For a ring R = {PK₁, PK₂, ..., PKₙ} and signature σ:
+Pr[Signer = PKᵢ | σ] = 1/n for all i ∈ [1,n]
+```
+
+### 2. Unlinkability (Within Different Rings)
+
+**Property**: Signatures using different rings cannot be linked to the same signer.
+
+**Guarantee Level**: **Computational**
+- Based on Decisional Diffie-Hellman (DDH) assumption
+- Quantum resistance through lattice-based alternatives
+
+**Formal Definition**:
+```
+For signatures σ₁ on ring R₁ and σ₂ on ring R₂:
+If R₁ ≠ R₂, then σ₁ and σ₂ are unlinkable
+```
+
+### 3. Linkability (Within Same Context)
+
+**Property**: Signatures from the same private key can be detected (preventing double-spending).
+
+**Guarantee Level**: **Cryptographic**
+- Deterministic key image generation
+- Collision-resistant hash functions
+
+**Key Image Property**:
+```
+KeyImage = x · H(P) where:
+- x is the private key
+- P is the public key
+- H is a hash-to-point function
+
+Same x → Same KeyImage (always)
+Different x → Different KeyImage (with overwhelming probability)
+```
+
+### 4. Non-frameability
+
+**Property**: No party can forge a signature that appears to come from another party's private key.
+
+**Guarantee Level**: **Computational**
+- Based on discrete logarithm assumption
+- Existential unforgeability under chosen message attack (EUF-CMA)
+
+### 5. Forward Privacy
+
+**Property**: Past signatures remain anonymous even if private keys are later compromised.
+
+**Guarantee Level**: **Perfect**
+- Historical signatures cannot be de-anonymized
+- Key compromise doesn't reveal past signing patterns
+
+## Threat Models
+
+### Passive Adversary
+
+**Capabilities**:
+- Observe all signatures on the blockchain
+- Analyze transaction patterns
+- Collect timing information
+
+**Protection**:
+- Ring signatures hide signer identity
+- Key images prevent correlation attacks
+- Constant-time implementations prevent timing attacks
+
+**Limitations**:
+- Cannot determine actual signer from signature
+- Cannot link signatures across different rings
+- Cannot predict future signatures
+
+### Active Adversary
+
+**Capabilities**:
+- Create malicious signatures
+- Attempt to forge signatures
+- Control some ring members
+
+**Protection**:
+- Cryptographic unforgeability
+- Threshold requirements for multi-party signatures
+- MAC authentication in network protocols
+
+**Attack Scenarios Protected Against**:
+1. **Sybil Attacks**: Controlling multiple ring members doesn't break anonymity
+2. **Chosen Ring Attacks**: Adversary cannot force specific ring compositions
+3. **Replay Attacks**: Unique challenges prevent signature replay
+
+### Quantum Adversary
+
+**Capabilities**:
+- Shor's algorithm for discrete logarithm
+- Grover's algorithm for search problems
+- Unlimited classical computation
+
+**Protection (Hybrid Mode)**:
+- Lattice-based signatures (quantum-resistant)
+- Increased key sizes for Grover resistance
+- Post-quantum key exchange protocols
+
+**Security Levels**:
+
+| Component | Classical | Post-Quantum |
+|-----------|-----------|--------------|
+| Ring Signatures | 128-bit | 64-bit |
+| Lattice Signatures | 256-bit | 128-bit |
+| Hybrid Mode | 256-bit | 128-bit |
+
+## Anonymity Set Analysis
+
+### Ring Size Impact
+
+The anonymity set size directly affects privacy:
+
+| Ring Size | Anonymity | Storage Overhead | Verification Time |
+|-----------|-----------|------------------|-------------------|
+| 4 | 2 bits | 128 bytes | 0.5 ms |
+| 8 | 3 bits | 256 bytes | 1.0 ms |
+| 16 | 4 bits | 512 bytes | 1.8 ms |
+| 32 | 5 bits | 1024 bytes | 3.5 ms |
+| 64 | 6 bits | 2048 bytes | 7.0 ms |
+
+**Recommended Minimum**: 16 members (4 bits of anonymity)
+
+### Temporal Analysis Resistance
+
+**Ring Member Selection Strategy**:
+```go
+func SelectRingMembers(currentHeight int) []*PublicKey {
+    // Recent outputs (50%)
+    recent := selectFromRange(currentHeight-100, currentHeight)
+
+    // Medium-term outputs (30%)
+    medium := selectFromRange(currentHeight-1000, currentHeight-100)
+
+    // Historical outputs (20%)
+    historical := selectFromRange(0, currentHeight-1000)
+
+    return shuffle(append(recent, medium, historical...))
+}
+```
+
+### Statistical Disclosure Attacks
+
+**Protection Measures**:
+1. **Uniform Distribution**: Ring members selected uniformly
+2. **Output Mixing**: Include outputs from different time periods
+3. **Value Similarity**: Select outputs with similar values
+4. **Churn Prevention**: Limit frequency of ring reuse
+
+## Information Leakage Analysis
+
+### What IS Revealed
+
+1. **Key Image**: Unique identifier for double-spend detection
+2. **Ring Members**: The set of possible signers
+3. **Message**: The signed data (unless encrypted)
+4. **Timestamp**: When signature was created
+
+### What is NOT Revealed
+
+1. **Actual Signer**: Hidden among ring members
+2. **Private Key**: No information about secret key
+3. **Link Between Different Rings**: Unlinkable across contexts
+4. **Transaction Amount**: Can be hidden with Pedersen commitments
+
+### Metadata Protection
+
+**Network-Level Privacy**:
+```go
+// Use Tor/I2P for transaction broadcast
+func BroadcastTransaction(tx *Transaction) error {
+    // Route through privacy network
+    if config.UseTor {
+        return broadcastViaTor(tx)
+    }
+
+    // Add timing jitter
+    delay := randomDelay(0, 60*time.Second)
+    time.Sleep(delay)
+
+    // Broadcast to random subset of peers
+    peers := selectRandomPeers(8)
+    return broadcastToPeers(tx, peers)
+}
+```
+
+## Cryptographic Assumptions
+
+### Classical Security
+
+**Discrete Logarithm Problem (DLP)**:
+- Given: `P = xG`
+- Find: `x`
+- Hardness: 2^128 operations for 256-bit curves
+
+**Decisional Diffie-Hellman (DDH)**:
+- Distinguish: `(G, xG, yG, xyG)` from `(G, xG, yG, zG)`
+- Required for: Unlinkability between rings
+
+**Hash Function Properties**:
+- Collision resistance: Cannot find `x ≠ y` where `H(x) = H(y)`
+- Preimage resistance: Given `h`, cannot find `x` where `H(x) = h`
+- Second preimage resistance: Given `x`, cannot find `y ≠ x` where `H(x) = H(y)`
+
+### Post-Quantum Security
+
+**Ring Learning With Errors (Ring-LWE)**:
+- Given: `(A, As + e)` for small error `e`
+- Find: Secret `s`
+- Hardness: Exponential in lattice dimension
+
+**Module Learning With Errors (Module-LWE)**:
+- Generalization of Ring-LWE
+- Used in NIST standardized algorithms
+- Security parameter: 128-256 bits post-quantum
+
+## Implementation Security
+
+### Side-Channel Resistance
+
+**Timing Attack Prevention**:
+```go
+// Constant-time scalar multiplication
+func constantTimeScalarMult(k *big.Int, P *Point) *Point {
+    // Always perform same number of operations
+    result := IdentityPoint()
+    temp := P.Copy()
+
+    for i := 0; i < 256; i++ {
+        bit := k.Bit(i)
+        // Conditional move, not branch
+        result = conditionalAdd(result, temp, bit)
+        temp = temp.Double()
+    }
+
+    return result
+}
+```
+
+**Power Analysis Protection**:
+```go
+// Randomized computation order
+func protectedSign(msg []byte, ring []*PublicKey) *Signature {
+    // Random blinding factor
+    blind := randomScalar()
+
+    // Shuffle computation order
+    order := randomPermutation(len(ring))
+
+    // Process in random order with blinding
+    for _, idx := range order {
+        processRingMember(idx, blind)
+    }
+
+    // Remove blinding
+    return unblind(signature, blind)
+}
+```
+
+### Memory Security
+
+**Secure Cleanup**:
+```go
+// Zero memory after use
+func (sk *PrivateKey) Clear() {
+    bytes := sk.Bytes()
+
+    // Overwrite multiple times
+    for i := 0; i < 3; i++ {
+        for j := range bytes {
+            bytes[j] = byte(rand.Intn(256))
+        }
+    }
+
+    // Final zero
+    for j := range bytes {
+        bytes[j] = 0
+    }
+
+    // Prevent compiler optimization
+    runtime.KeepAlive(bytes)
+}
+```
+
+## Privacy Best Practices
+
+### For Developers
+
+1. **Ring Selection**:
+   - Use sufficient ring size (≥16)
+   - Randomize ring member selection
+   - Include diverse temporal distribution
+
+2. **Key Management**:
+   - Generate fresh keys for each identity
+   - Secure key storage (HSM/TEE)
+   - Regular key rotation
+
+3. **Network Privacy**:
+   - Use Tor/I2P for broadcast
+   - Add random delays
+   - Avoid correlatable patterns
+
+### For Users
+
+1. **Operational Security**:
+   - Don't reuse addresses
+   - Avoid temporal patterns
+   - Use privacy-preserving networks
+
+2. **Ring Hygiene**:
+   - Verify ring size before signing
+   - Check ring member diversity
+   - Avoid rings with compromised keys
+
+3. **Metadata Protection**:
+   - Randomize transaction timing
+   - Use different nodes for broadcast
+   - Avoid correlatable amounts
+
+## Formal Security Proofs
+
+### Theorem 1: Signer Anonymity
+
+**Statement**: For any PPT adversary A, the advantage in identifying the actual signer is negligible.
+
+**Proof Sketch**:
+1. Ring signature is perfectly hiding
+2. All ring members equally likely
+3. Information-theoretic indistinguishability
+
+### Theorem 2: Unforgeability
+
+**Statement**: Under the DL assumption, no PPT adversary can forge a valid signature without the private key.
+
+**Proof Sketch**:
+1. Reduction to discrete logarithm problem
+2. Forger implies DL solver
+3. Contradiction with DL hardness
+
+### Theorem 3: Linkability
+
+**Statement**: Signatures from the same key produce identical key images with probability 1.
+
+**Proof**:
+1. Key image `I = xH(P)` is deterministic
+2. Same `x` always produces same `I`
+3. Different `x` produces different `I` (except negligible probability)
+
+## Audit and Compliance
+
+### Selective Disclosure
+
+**View Keys**:
+```go
+type ViewKey struct {
+    KeyImage    *KeyImage
+    PrivateView *big.Int
+}
+
+// Allow auditor to verify specific signatures
+func (vk *ViewKey) VerifyOwnership(sig *RingSignature) bool {
+    return vk.KeyImage.Equal(sig.KeyImage)
+}
+```
+
+### Compliance Features
+
+1. **Time-locked Disclosure**: Keys revealed after specific time
+2. **Threshold Disclosure**: Multiple parties required for reveal
+3. **Regulatory Reporting**: Aggregate statistics without individual privacy loss
+
+### Zero-Knowledge Proofs
+
+**Proof of Assets**:
+```go
+// Prove ownership without revealing which signatures
+func ProveAssets(amount *big.Int, signatures []*RingSignature) *ZKProof {
+    // Generate commitment to total
+    commitment := PedersenCommit(amount)
+
+    // Create range proof
+    rangeProof := BulletproofRange(amount)
+
+    // Link to signatures without revealing which
+    ownershipProof := ProveRingOwnership(signatures)
+
+    return &ZKProof{
+        Commitment: commitment,
+        Range:      rangeProof,
+        Ownership:  ownershipProof,
+    }
+}
+```
+
+## Future Enhancements
+
+### Advanced Privacy Features
+
+1. **Stealth Addresses**: One-time addresses for receivers
+2. **Confidential Assets**: Hide asset types
+3. **Private Smart Contracts**: Compute on encrypted data
+4. **Coinjoin Integration**: Additional mixing layer
+
+### Research Directions
+
+1. **Sublinear Ring Signatures**: O(log n) verification
+2. **Updatable Anonymity Sets**: Dynamic ring membership
+3. **Cross-Chain Privacy**: Universal anonymity pools
+4. **Quantum-Safe Variants**: Full post-quantum security
+
+## Conclusion
+
+Ringtail provides strong, provable privacy guarantees suitable for financial privacy applications. The combination of ring signatures for anonymity, key images for double-spend prevention, and lattice cryptography for post-quantum security creates a robust privacy system resistant to current and future threats.

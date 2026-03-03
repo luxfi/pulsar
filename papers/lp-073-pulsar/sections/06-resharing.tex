@@ -1,0 +1,242 @@
+\section{Proactive Secret Resharing}
+\label{sec:resharing}
+
+\subsection{Problem statement}
+
+The two-round signing protocol of \S\ref{sec:protocol} is parameterised by a master secret $s \in R_q^{n_{\textrm{vec}}}$, a public matrix $A \in R_q^{m_{\textrm{pk}} \times n_{\textrm{vec}}}$, an error term $e \in R_q^{m_{\textrm{pk}}}$, and the public group key $b = A \cdot s + e$ (rounded into $\tilde b$). At genesis a trusted-dealer Gen distributes Shamir shares of $s$ to the initial validator committee. The secret $s$ never appears explicitly thereafter --- only its shares.
+
+When the validator set rotates at the end of an epoch, the natural na\"{i}ve approach is to run trusted-dealer Gen again with the new committee. This re-derives $s$ inside a single party's memory, which is unacceptable for a leaderless public chain: the new dealer learns the master secret, and the public key $b$ changes (so all signatures from prior epochs become unverifiable without auxiliary indexing).
+
+\textbf{Goal.} Rotate the share distribution from an old committee $\mathcal{O} = \{1, \dots, n_{\mathrm{old}}\}$ with threshold $t_{\mathrm{old}}$ onto a new committee $\mathcal{N}$ (potentially disjoint, with possibly different $|\mathcal{N}|, t_{\mathrm{new}}$), without (i) reconstructing $s$ in any party's memory, and (ii) changing the public key $\tilde b$. Equivalently: any threshold subset of $\mathcal{N}$ jointly produces signatures that verify under the same $\tilde b$ as before.
+
+We adapt the proactive secret-sharing protocol of Herzberg, Jakobsson, Jarecki, Krawczyk, and Yung \cite{hjky97} to the lattice ring $R_q = \mathbb{Z}_q[X]/(X^{256} + 1)$ used by Pulsar.
+
+\subsection{Notation}
+
+Throughout this section, party identifiers are 1-indexed. Each old party $i \in \mathcal{O}$ holds a Shamir share $s_i \in R_q^{n_{\textrm{vec}}}$ of $s$ in standard (non-NTT, non-Montgomery) form, where $s_i$ is the value of an underlying secret polynomial $P : R_q \to R_q^{n_{\textrm{vec}}}$ at $X = i$:
+\[
+P(X) = s + a_1 X + a_2 X^2 + \cdots + a_{t_{\mathrm{old}} - 1} X^{t_{\mathrm{old}} - 1}, \qquad s_i = P(i),
+\]
+with $a_1, \dots, a_{t_{\mathrm{old}}-1}$ uniform in $R_q$. Here $P$, $a_d$, and $s_i$ are vectors of polynomials in $R_q^{n_{\textrm{vec}}}$; Shamir is applied independently per coordinate of each component poly. The threshold relation is $\sum_{i \in T} \lambda_i^T \cdot s_i = s$ for any $T \subseteq \mathcal{O}$ with $|T| = t_{\mathrm{old}}$, where the Lagrange basis at $X = 0$ is
+\[
+\lambda_i^T = \prod_{j \in T,\, j \neq i} \frac{-x_j}{x_i - x_j} \pmod{q}, \qquad x_i = i.
+\]
+
+\subsection{Protocol \textsc{Reshare}}
+
+\begin{enumerate}
+\item \textbf{Quorum selection.} The protocol picks a deterministic quorum $\mathcal{Q} \subseteq \mathcal{O}$ with $|\mathcal{Q}| = t_{\mathrm{old}}$. The Pulsar canonical takes the smallest-ID quorum so the protocol is reproducible across implementations (load-bearing for the cross-language KAT in \S\ref{sec:resharing-kat}).
+
+\item \textbf{Per-party random polynomial.} Each $i \in \mathcal{Q}$ samples a random degree-$(t_{\mathrm{new}} - 1)$ polynomial $g_i$ in $X$ over $R_q^{n_{\textrm{vec}}}$ with constant term equal to $\lambda_i^{\mathcal{Q}} \cdot s_i$ (the party's own share scaled by its Lagrange coefficient for $\mathcal{Q}$):
+\[
+g_i(X) = \bigl(\lambda_i^{\mathcal{Q}} \cdot s_i\bigr) + r_{i,1} X + r_{i,2} X^2 + \cdots + r_{i, t_{\mathrm{new}} - 1} X^{t_{\mathrm{new}} - 1},
+\]
+where $r_{i,d} \in R_q^{n_{\textrm{vec}}}$ is uniform for $1 \le d < t_{\mathrm{new}}$. Each coefficient is sampled independently per Shamir-coordinate slot.
+
+\item \textbf{Share dealing.} For each $j \in \mathcal{N}$, party $i$ computes $g_i(j) \in R_q^{n_{\textrm{vec}}}$ and sends it to party $j$ over an authenticated, encrypted pairwise channel. The transport layer is out of scope for this section --- standard X25519 + ML-KEM hybrid \cite{lp070} suffices.
+
+\item \textbf{New share assembly.} Each new party $j \in \mathcal{N}$ collects the $t_{\mathrm{old}}$ values $\{g_i(j) : i \in \mathcal{Q}\}$ and computes its new share:
+\[
+s'_j \;=\; \sum_{i \in \mathcal{Q}} g_i(j) \pmod{q}.
+\]
+\end{enumerate}
+
+\begin{remark}[Comparison with the literature.]
+The HJKY97 paper presents two distinct primitives: (a) a same-committee proactive update using a zero-polynomial $z_i(0) = 0$, and (b) a redistribution protocol for changing access structures. The protocol above is a specialization of (b) due to Desmedt and Jajodia \cite{desmedt-jajodia97}; the same-committee version is implemented as a \emph{distinct} routine \textsc{Refresh} (described in \S\ref{sec:resharing-refresh} below) for periodic mobile-adversary defense within a stable validator set.
+\end{remark}
+
+\subsection{Protocol \textsc{Refresh} (same-committee)}
+\label{sec:resharing-refresh}
+
+\textsc{Refresh} is the kernel for HJKY97's primitive (a). The committee $T = \{\alpha_1, \dots, \alpha_n\}$ and threshold $t$ are held \emph{fixed}. Every party rotates its share to fresh independent randomness while preserving the master secret. This is a proactive-security \emph{hygiene} step within an unchanging validator set --- distinct from \textsc{Reshare} above, which rotates the validator set itself.
+
+\begin{enumerate}
+\item Each $i \in T$ samples a random degree-$(t-1)$ polynomial $z_i(X)$ over $R_q^{n_{\textrm{vec}}}$ with $z_i(0) = 0$. Concretely the constant term is forced to zero; the higher-degree coefficients are uniformly random.
+\item Each $i$ privately delivers $z_i(\alpha_j)$ to every $j \in T$ over an authenticated channel.
+\item Each $j$ updates: $s'_j = s_j + \sum_i z_i(\alpha_j) \pmod q$.
+\end{enumerate}
+
+\begin{theorem}[\textsc{Refresh} preserves the master secret]
+Define $Z(X) = \sum_i z_i(X)$. $Z$ has degree at most $t-1$ and $Z(0) = 0$. Let $S(X)$ be the original Shamir polynomial of degree $t-1$ with $S(0) = s$ and $S(\alpha_j) = s_j$ for all $j \in T$. The new shares are evaluations of $S'(X) = S(X) + Z(X)$ at the original points; $S'(0) = s$, so the new shares are valid $(t, n)$-Shamir shares of the same master secret $s$. Furthermore the joint distribution of $\{s'_j\}_{j \in T}$ is independent of $\{s_j\}_{j \in T}$ subject to $S'(0) = s$, because $Z$'s degree-$1, \dots, t-1$ coefficients are uniform and independent of $S$.
+\end{theorem}
+
+\textsc{Refresh} and \textsc{Reshare} compose: a chain may schedule \textsc{Refresh} on a periodic background timer (e.g.\ every block within a stable epoch) and \textsc{Reshare} only at validator-set rotation boundaries. Both produce activation certificates (\S\ref{sec:resharing-activation}) under the same unchanged group public key.
+
+\subsection{Correctness}
+
+\begin{theorem}[Public-key invariance]
+\label{thm:resharing-pk-invariant}
+Let $s'_j$ be the share computed by new party $j \in \mathcal{N}$ after \textsc{Reshare}. Then for every threshold subset $T' \subseteq \mathcal{N}$ with $|T'| = t_{\mathrm{new}}$,
+\[
+\sum_{j \in T'} \lambda_j^{T'} \cdot s'_j \;=\; s \pmod{q},
+\]
+where $s$ is the master secret of the input shares. Equivalently, the public key $\tilde b$ derived from $s$ at genesis verifies signatures produced by any $t_{\mathrm{new}}$-subset of $\mathcal{N}$.
+\end{theorem}
+
+\begin{proof}
+Define $G(X) = \sum_{i \in \mathcal{Q}} g_i(X)$. By construction $G$ has degree at most $t_{\mathrm{new}} - 1$ and constant term
+\[
+G(0) = \sum_{i \in \mathcal{Q}} g_i(0) = \sum_{i \in \mathcal{Q}} \lambda_i^{\mathcal{Q}} \cdot s_i = s,
+\]
+where the last equality is the Lagrange-interpolation identity for the old quorum. The new shares are $s'_j = G(j)$ for $j \in \mathcal{N}$, so $\{s'_j\}_{j \in \mathcal{N}}$ are valid Shamir shares of $G(0) = s$ with threshold $t_{\mathrm{new}}$. Lagrange interpolation of any $t_{\mathrm{new}}$-subset $T' \subseteq \mathcal{N}$ at $X = 0$ recovers $G(0) = s$. Therefore the underlying master secret is preserved exactly. The genesis-time public key $b = A \cdot s + e$ depends only on $s$ (and the unchanged $A, e$), so $\tilde b = \mathrm{Round}(A \cdot s + e, \xi)$ is identical before and after \textsc{Reshare}.\qed
+\end{proof}
+
+\begin{remark}[Degree of $G$]
+$G$ has degree exactly $t_{\mathrm{new}} - 1$ except with negligible probability: the leading-coefficient slot of $G$ is $\sum_{i \in \mathcal{Q}} r_{i, t_{\mathrm{new}}-1}$, a sum of $t_{\mathrm{old}}$ independent uniform $R_q^{n_{\textrm{vec}}}$ samples. The probability that this sum equals zero on every coordinate is at most $q^{-n_{\textrm{vec}} \cdot \varphi} = 2^{-48 \cdot 7 \cdot 256} \approx 2^{-86\,016}$, vanishing.
+\end{remark}
+
+\subsection{Security}
+
+\subsubsection{Threat model}
+
+We adopt the static-corruption-per-epoch adversary of \cite{hjky97}: in each epoch, a probabilistic polynomial-time adversary $\mathcal{A}$ may corrupt up to $t_{\mathrm{old}} - 1$ parties of $\mathcal{O}$ (resp.\ $t_{\mathrm{new}} - 1$ of $\mathcal{N}$) and learn their shares and per-session randomness. Crucially, corruptions in epoch $e$ and epoch $e+1$ are \emph{independent}: a party corrupted across both epochs is counted against the threshold of each, but the adversary obtains no extra advantage from the temporal aggregation.
+
+We further assume each honest outgoing party's RNG is unbiased and unobservable. A corrupted party's randomness is under adversarial control; a corrupted party may also drop messages, send malformed messages, or otherwise deviate from the protocol --- but the kernel \textsc{Reshare} as specified above does not detect such deviations. Verifiable Secret Resharing (VSR) is layered on top in production; see \S\ref{sec:resharing-vsr}.
+
+\subsubsection{Confidentiality}
+
+\begin{theorem}[Static confidentiality]
+\label{thm:resharing-confidentiality}
+Let $\mathcal{B}_{\mathrm{old}} \subseteq \mathcal{O}$ with $|\mathcal{B}_{\mathrm{old}}| < t_{\mathrm{old}}$ and $\mathcal{B}_{\mathrm{new}} \subseteq \mathcal{N}$ with $|\mathcal{B}_{\mathrm{new}}| < t_{\mathrm{new}}$ denote the corruption sets in the old and new epochs. Then the joint view of $\mathcal{A}$ across the resharing,
+\[
+\mathrm{View}_\mathcal{A} = \bigl(\{s_i\}_{i \in \mathcal{B}_{\mathrm{old}}},\, \{s'_j\}_{j \in \mathcal{B}_{\mathrm{new}}},\, \{g_i(j)\}_{i \in \mathcal{Q},\, j \in \mathcal{B}_{\mathrm{new}}}\bigr),
+\]
+is statistically independent of the master secret $s$.
+\end{theorem}
+
+\begin{proof}[Sketch]
+The old shares $\{s_i\}_{i \in \mathcal{B}_{\mathrm{old}}}$ alone leak no information about $s$ by the standard $(t_{\mathrm{old}}-1)$-Shamir security, applied per Shamir-coordinate slot \cite{shamir79}. The new shares $\{s'_j\}_{j \in \mathcal{B}_{\mathrm{new}}}$ similarly leak nothing on their own: $|\mathcal{B}_{\mathrm{new}}| < t_{\mathrm{new}}$ so they correspond to $< t_{\mathrm{new}}$ evaluations of $G$. The cross-leakage from the dealing step contributes only $\{g_i(j) : i \in \mathcal{Q},\, j \in \mathcal{B}_{\mathrm{new}}\}$. Each $g_i$ is constructed from $i$'s own share $s_i$ (already known to $\mathcal{A}$ if $i \in \mathcal{B}_{\mathrm{old}}$, otherwise an honest random) plus $t_{\mathrm{new}} - 1$ uniform high-degree coefficients. Conditioned on $s_i$, the distribution of $g_i(j)$ for $|\{j\}| < t_{\mathrm{new}}$ is uniformly random in $R_q^{n_{\textrm{vec}}}$, independent of $s$. Therefore the entire $\mathrm{View}_\mathcal{A}$ admits a simulator that draws the leaked $g_i(j)$ values uniformly without knowing $s$ --- so $\mathcal{A}$'s advantage in distinguishing $s$ from random is information-theoretically zero.\qed
+\end{proof}
+
+\begin{remark}[Why we do \emph{not} require $|\mathcal{B}_{\mathrm{old}}| + |\mathcal{B}_{\mathrm{new}}| < t_{\mathrm{old}}$]
+A weaker version of \Cref{thm:resharing-confidentiality} would require $|\mathcal{B}_{\mathrm{old}}| + |\mathcal{B}_{\mathrm{new}}| < t_{\mathrm{old}}$ (corruptions must not aggregate across epochs). The stronger statement above holds because every honest old party's contribution to a leaked $g_i(j)$ is randomized by independent $r_{i,d}$ values, and an honest party's $s_i$ is itself uniformly random (per Shamir security). The randomization in degrees $1, \dots, t_{\mathrm{new}} - 1$ is the crucial ingredient: it means the new-epoch corruption set $\mathcal{B}_{\mathrm{new}}$ is "fresh" with respect to $s$, even if the same physical machines are corrupted across both epochs.
+\end{remark}
+
+\subsubsection{Public-key indistinguishability}
+
+A separate, weaker security property: an external observer who sees only the public output $\tilde b$ before and after \textsc{Reshare} learns nothing about the rotation. This is trivial: $\tilde b$ is unchanged by \Cref{thm:resharing-pk-invariant}, so there is no observable.
+
+\subsection{Verifiable Secret Resharing (VSR)}
+\label{sec:resharing-vsr}
+
+The protocols of \S\ref{sec:resharing}--\S\ref{sec:resharing-refresh} are the arithmetic \emph{kernel}: adequate for honest-but-curious parties and sufficient for cryptographic-correctness proofs. Production deployment in a permissionless setting layers the following components on top, all collectively known as Verifiable Secret Resharing (VSR) \cite{wong02}. Each is implemented in a sibling file in the \texttt{pulsar/reshare/} package.
+
+\paragraph{Authenticated point-to-point channels} (\texttt{pairwise.go}). Each pair $(i, j)$ runs an authenticated key exchange: X25519 in the classical baseline, X25519 $\|$ ML-KEM-768 hybrid in the post-quantum mode. The wire-identity Ed25519 key signs the X25519 ephemeral, defeating active man-in-the-middle. The transcript hash (below) is bound into the signed ephemeral so a stale exchange cannot be replayed in a different invocation.
+
+\paragraph{Domain-separated transcript binding} (\texttt{transcript.go}). Every resharing message and complaint includes the 32-byte BLAKE3 hash of
+\[
+  (\mathit{chain\_id},\, \mathit{group\_id},\, \mathit{old\_epoch\_id},\, \mathit{new\_epoch\_id},\, H(\mathcal{O}),\, H(\mathcal{N}),\, t_{\mathrm{old}},\, t_{\mathrm{new}},\, H(\tilde b),\, \mathit{variant})
+\]
+under personalization \texttt{"pulsar.reshare.transcript.v1"}. The \emph{variant} field $\in \{\textsc{refresh}, \textsc{reshare}\}$ separates the two primitives' transcripts so an activation cert produced for one cannot be replayed for the other. The validator-set hashes $H(\mathcal{O}), H(\mathcal{N})$ are computed over sorted public-key byte strings, independent of map iteration order.
+
+\paragraph{Polynomial commitments} (\texttt{commit.go}). Each old party $i$ broadcasts the Pedersen-style commitment
+\[
+  C_{i,k} \;=\; A_R \cdot \mathrm{NTT}(c_{i,k}) + B_R \cdot \mathrm{NTT}(r_{i,k})
+\]
+for $k = 0, \dots, t-1$, where $A_R, B_R$ are public matrices derived from \texttt{"pulsar.reshare.A.v1"} and \texttt{"pulsar.reshare.B.v1"} via BLAKE3-XOF $\to$ KeyedPRNG $\to$ UniformSampler. (These tags are distinct from the \texttt{dkg2} commit tags, so a DKG commit cannot be replayed as a reshare commit.) Each recipient $j$ verifies
+\[
+  A_R \cdot \mathrm{NTT}(\mathit{share}_{i \to j}) + B_R \cdot \mathrm{NTT}(\mathit{blind}_{i \to j}) \;=\; \sum_{k=0}^{t-1} \beta_j^k \cdot C_{i,k}
+\]
+in $R_q^M$ as exact equality. Hiding follows from MLWE on $B_R$; binding (over the small-norm cone) from MSIS on $[A_R \mid B_R]$. The argument is structurally identical to the \texttt{dkg2} commit scheme analyzed in \S\ref{sec:pedersen-dkg}.
+
+\paragraph{Complaints and disqualification} (\texttt{complaint.go}). On a failed verification --- \textsc{BadDelivery}, \textsc{Equivocation}, \textsc{Missing}, or \textsc{MalformedCommit} --- the recipient broadcasts an Ed25519-signed \texttt{Complaint} naming the misbehaving sender and the failing slot. Sender $i$ is disqualified iff $\geq t_{\mathrm{old}} - 1$ distinct complainers signed valid complaints against $i$. The threshold $t_{\mathrm{old}} - 1$ exceeds the static-corruption bound $t_{\mathrm{old}} - 1$ by exactly one in the worst-case dishonest coalition, so no honest sender can be disqualified by a maximally adversarial set. After disqualification settles, every honest party computes the same surviving quorum $\mathcal{Q}' = \mathcal{Q} \setminus \mathit{disqualified}$ and the same $\lambda^{\mathcal{Q}'}$ coefficients. If $|\mathcal{Q}'| < t_{\mathrm{old}}$, the round fails and the chain stays at the old epoch.
+
+\paragraph{Slashing evidence.} Each disqualifying \texttt{Complaint}, plus the equivocation pair $(C_a, C_b)$ where applicable, is admissible as slashing evidence at the consensus layer. The slasher re-runs \texttt{VerifyShareAgainstCommits} or \texttt{CommitDigest} equality under the recorded transcript hash; successful re-verification triggers the slashing transaction. The on-chain wire format is documented in \texttt{quasar\_integration.go}.
+
+\subsection{Activation circuit-breaker}
+\label{sec:resharing-activation}
+
+Resharing is meaningless without a hard go/no-go switch at the chain level. If the new committee cannot collectively sign under the \emph{unchanged} group public key, the shares it holds do not actually reconstruct the master secret, and rotating to those shares would brick the chain. The \emph{activation certificate} is the proof that the new committee \emph{can} sign --- and therefore the chain accepts the new epoch.
+
+The activation message (canonical bytes signed by the new committee under the unchanged group public key):
+\begin{verbatim}
+"QUASAR-PULSAR-ACTIVATE-v1"
+    || transcript_hash         (32 bytes, TranscriptInputs.Hash())
+    || reshare_transcript_hash (32 bytes, exchange digest:
+                                 commits, complaints, disqualifications)
+\end{verbatim}
+The \texttt{transcript\_hash} field is a structural binding to the resharing parameters. The \texttt{reshare\_transcript\_hash} field is the BLAKE3 digest of the actual exchange under personalization \texttt{"pulsar.reshare.exchange-transcript.v1"}: every committed value, every complaint, every disqualification, in canonical order. Two honest validators with the same view of the exchange compute the same 32-byte hash.
+
+\paragraph{Acceptance rule (consensus layer).}
+\begin{enumerate}
+\item The chain extracts the new $\textsc{EpochShareState}$ from the resharing batch.
+\item The new committee runs the Sign protocol on the activation message.
+\item The threshold-aggregated signature MUST verify under the unchanged group public key.
+\item If verification succeeds, the chain commits the new $\textsc{EpochShareState}$, forwards activation evidence to the slashing module, and erases the old shares (\S\ref{sec:resharing-erasure}).
+\item If verification fails, the chain stays at the old epoch. The old committee continues signing. A new resharing attempt is scheduled at the next epoch boundary.
+\end{enumerate}
+
+\subsection{KeyShare regeneration}
+\label{sec:resharing-keyshare}
+
+The Pulsar and Ringtail signing protocols consume a per-party \texttt{KeyShare} struct that carries more than just the bare Shamir share:
+\[
+  \texttt{KeyShare} = (\mathit{Index},\, \mathit{SkShare},\, \mathit{Seeds},\, \mathit{MACKeys},\, \Lambda,\, \mathit{GroupKey}).
+\]
+\textsc{Reshare} and \textsc{Refresh} only update $\mathit{SkShare}$. The remaining four fields must be regenerated for a complete \texttt{KeyShare} that can drive the signing protocol:
+
+\begin{itemize}
+\item $\Lambda$ (Lagrange coefficient): deterministic from the new committee's evaluation point set, recomputed via \texttt{primitives.ComputeLagrangeCoefficients} and brought into NTT-Montgomery form.
+
+\item $\mathit{Seeds}_{ij}$ (per-pair PRF seed): derived from $\mathit{auth\_kex}_{ij}$ under the BLAKE3 personalization \texttt{"pulsar.reshare.prf-seed.v1"} with explicit binding to $(\mathit{chain\_id}, \mathit{group\_id}, \mathit{new\_epoch\_id}, i, j)$. The pair ordering $(i, j)$ is canonicalized (smaller-id first) so both endpoints derive the same value.
+
+\item $\mathit{MACKeys}_{ij}$ (per-pair MAC key): same construction as $\mathit{Seeds}$, but under personalization \texttt{"pulsar.reshare.mac-key.v1"}. The distinct tag enforces $\mathit{Seeds}_{ij} \neq \mathit{MACKeys}_{ij}$ even though both are KDF outputs of the same $\mathit{auth\_kex}_{ij}$.
+
+\item $\mathit{GroupKey}$: pointer copy of the persistent $(A, \tilde b)$ --- \emph{unchanged} across resharing.
+\end{itemize}
+
+The regeneration is implemented in \texttt{keyshare.go} as \texttt{PartyKey\-Share\-From\-Share}. The integration test \texttt{TestFullReshareThenKeyShareThenSign} drives the full chain Reshare $\to$ \texttt{PartyKey\-Share\-From\-Share} $\to$ Sign and confirms that the resulting signature verifies against the original (unchanged) $\tilde b$.
+
+\subsection{Forced erasure}
+\label{sec:resharing-erasure}
+
+After the activation cert is accepted, every old share MUST be erased. The package provides \texttt{EraseShare} as a reasonable-effort overwrite of every \texttt{uint64} coefficient in every level of every polynomial in the share. Production deployments SHOULD additionally:
+\begin{enumerate}
+\item Pin the share allocation with \texttt{mlock} (Linux) or equivalent so paged-out swap cannot leak it after the fact.
+\item Call \texttt{EraseShare} inline at the activation moment; do not retain stale references to the old share.
+\item Optionally trigger \texttt{runtime.GC()} to free non-pinned references; pinned memory is unaffected.
+\end{enumerate}
+Failure to erase undermines the proactive-security guarantee: a long-running adversary that compromises a node \emph{after} resharing-activation gains the old share if it remains in memory, and an old-share leak combined with $< t_{\mathrm{new}}$ new shares does \emph{not} reconstruct the master secret --- but it does pin one position of the original Shamir polynomial, eroding the threshold security margin in a way that aggregates over many epochs.
+
+\subsection{Quasar consensus integration}
+\label{sec:resharing-quasar}
+
+The Quasar epoch manager (\texttt{consensus/protocol/quasar/epoch.go}) currently regenerates a \emph{fresh} group public key at every validator-set rotation by calling \texttt{ringtailThreshold.GenerateKeys}. Under \textsc{Reshare}, the group public key is invariant for the entire group lineage; the rotation method is renamed for clarity:
+
+\begin{center}
+\begin{tabular}{ll}
+\textbf{Old name} & \textbf{New name} \\ \hline
+\texttt{RotateEpochKeys} & \texttt{ReshareEpoch} \\
+\texttt{EpochKeys} & \texttt{EpochShareState} \\
+\texttt{RotateEpoch(newVals)} calling \texttt{GenerateKeys} & \texttt{ReshareEpoch(newVals)} calling \texttt{Reshare(\ldots)} \\
+GroupKey changes per epoch & GroupKey persistent for group lineage \\
+\end{tabular}
+\end{center}
+
+\noindent
+The forward-compat sketch in \texttt{consensus/protocol/quasar/reshare\_epoch.go} declares \texttt{ReshareEpoch} as an alias for \texttt{RotateEpoch} pending the body change, and exposes \texttt{ActivationMessage\-Personalization} plus the canonical transcript-input shape. The full integration checklist (renaming, transport reuse, complaint workflow, slashing evidence ingestion) is documented in \texttt{pulsar/reshare/quasar\_integration.go}.
+
+\subsection{KAT cross-implementation contract}
+\label{sec:resharing-kat}
+
+The Go canonical at \texttt{pulsar/reshare/reshare.go} is byte-equivalent to the C++ port at \texttt{luxcpp/crypto/pulsar/reshare/} under a deterministic SHA-256 counter-mode PRNG. The KAT oracle at \texttt{pulsar/cmd/reshare\_oracle/main.go} emits 22 entries to \texttt{luxcpp/crypto/pulsar/test/kat/reshare\_kat.json}: 16 \textsc{Reshare} entries and 6 \textsc{Refresh} entries.
+
+The 16 \textsc{Reshare} entries cover:
+\begin{itemize}
+\item Threshold tightening: $(2, 3) \to (3, 5)$, $(3, 5) \to (5, 7)$, $(5, 7) \to (7, 11)$
+\item Threshold loosening: $(5, 7) \to (3, 5)$, $(5, 7) \to (2, 3)$
+\item Same-threshold rotation: $(3, 5) \to (3, 5)$ disjoint, $(5, 7) \to (5, 7)$ disjoint
+\item Committee growth: $(2, 3) \to (5, 9)$, $(2, 3) \to (2, 9)$
+\item Partial overlap: $(3, 5) \to (3, 5)$ with shared and fresh IDs
+\item Edge: $n_{\mathrm{new}} = t_{\mathrm{new}} + 1$ (smallest valid new committee)
+\end{itemize}
+
+The 6 \textsc{Refresh} entries cover $t \in \{1, 2, 3, 5, 7\}$ across canonical and relabelled committee IDs, including the degenerate $t = 1$ case (where \textsc{Refresh} must be the identity). Each entry pins (i) the planted secret $s$, (ii) the deterministic seed for the old Shamir polynomial coefficients, (iii) the seed for the resharing/refresh PRNG, (iv) the byte-exact old shares, (v) the byte-exact new shares, and (vi) per-share SHA-256 commitments. The C++ test reads the JSON, replays both primitives under the pinned PRNG seeds, and asserts byte-equality on all 22 entries.
+
+\subsection{Performance}
+
+The dominant cost of \textsc{Reshare} is dealing: each old party in $\mathcal{Q}$ samples $(t_{\mathrm{new}} - 1)$ polynomials in $R_q^{n_{\textrm{vec}}}$ ($\approx t_{\mathrm{new}} \cdot n_{\textrm{vec}} \cdot \varphi$ uniform $\mathbb{F}_q$ samples, totaling $\approx 7 \cdot 256 \cdot t_{\mathrm{new}}$ samples per party for the production parameters $n_{\textrm{vec}} = 7$, $\varphi = 256$) and evaluates the resulting polynomial at $|\mathcal{N}|$ points. Each evaluation is a Horner sweep over $t_{\mathrm{new}}$ coefficients, dominated by $t_{\mathrm{new}} \cdot n_{\textrm{vec}} \cdot \varphi$ modular multiplications.
+
+For the canonical Quasar-21 deployment ($t_{\mathrm{new}} = 14$, $|\mathcal{N}| = 21$), each party performs $\approx 14 \cdot 21 \cdot 7 \cdot 256 \approx 5 \cdot 10^5$ modular multiplications. On a single Apple Silicon M2 Ultra core this completes in well under $10$~ms, dominated by the BLAKE3-XOF stream for the random coefficients. The wire cost is $|\mathcal{Q}| \cdot |\mathcal{N}| \cdot n_{\textrm{vec}} \cdot \varphi \cdot \lceil \log_2 q \rceil / 8 \approx 14 \cdot 21 \cdot 7 \cdot 256 \cdot 6 = 3.16$~MiB total across the committee, or $\approx 150$~KiB per ordered pair. The latency is dominated by the slowest pairwise channel, not by computation.
+
+In comparison, a fresh trusted-dealer Gen at the same parameters costs the same $\approx 5 \cdot 10^5$ modular multiplications per share plus an additional $A \cdot s$ multiplication ($m_{\textrm{pk}} \cdot n_{\textrm{vec}} \cdot \varphi^2 / 2 \approx 1.8 \cdot 10^6$ multiplications under NTT) and the discrete-Gaussian sampling for $s, e$. The crucial cost difference is not asymptotic but architectural: \textsc{Reshare} preserves the public key, avoids a single dealer holding $s$, and runs entirely on operational infrastructure --- no offline ceremony required.
