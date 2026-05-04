@@ -20,6 +20,7 @@ package threshold
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"sync"
 	"testing"
@@ -29,6 +30,68 @@ import (
 	"github.com/luxfi/lattice/v7/ring"
 	"github.com/luxfi/lattice/v7/utils/structs"
 )
+
+// maxLatticeUintSliceLen mirrors warp/pulsar.MaxLatticeUintSliceLen and
+// bounds every length field a lattigo wire frame can declare. A
+// canonical Pulsar Poly has 256 coefficients per level; a Vector/Matrix
+// has at most M*N = 8*32 = 256 polys. This cap is structural — frames
+// that declare more are not legitimate Pulsar protocol bytes.
+//
+// IMPORTANT: this duplicate cap exists because the upstream lattice
+// library has TWO DoS surfaces:
+//   1. ReadUintNSlice unbounded recursion — fixed by luxfi/lattice#3
+//      (open as of 2026-05-04).
+//   2. Vector.ReadFrom calling make([]T, size) before any bound check —
+//      NOT addressed by PR #3. A 9-byte input
+//      `\xad\x93\xd8\x5a\x00\x04\x00\x00\\` reads size=0x40005AD893AD
+//      (~70T entries) and OOMs the goroutine before the slice reader
+//      runs. Found by FuzzPulsarSign1Round1Data on 2026-05-04.
+//
+// The walker below pre-validates the wire frame BEFORE handing it to
+// lattigo, mirroring warp/pulsar.validateVectorPolyFrame.
+const maxLatticeUintSliceLen = 4096
+
+// validateVectorPolyFrameInline walks a lattigo Vector[Poly] wire
+// frame end-to-end (one 8-byte vector length header followed by N
+// concatenated Poly frames; each Poly = 8-byte levels header + per-
+// level 8 + 8*coeff_count). Returns nil on a structurally valid
+// frame, error otherwise. Mirrors warp/pulsar.validateVectorPolyFrame.
+func validateVectorPolyFrameInline(frame []byte) error {
+	if len(frame) < 8 {
+		return fmt.Errorf("vector frame too short: %d < 8", len(frame))
+	}
+	n := binary.LittleEndian.Uint64(frame[:8])
+	if n > maxLatticeUintSliceLen {
+		return fmt.Errorf("vector length %d exceeds %d", n, maxLatticeUintSliceLen)
+	}
+	rest := frame[8:]
+	for i := uint64(0); i < n; i++ {
+		if len(rest) < 8 {
+			return fmt.Errorf("vector poly %d: header truncated (%d)", i, len(rest))
+		}
+		levels := binary.LittleEndian.Uint64(rest[:8])
+		if levels > maxLatticeUintSliceLen {
+			return fmt.Errorf("vector poly %d: levels %d exceeds %d", i, levels, maxLatticeUintSliceLen)
+		}
+		rest = rest[8:]
+		for k := uint64(0); k < levels; k++ {
+			if len(rest) < 8 {
+				return fmt.Errorf("vector poly %d level %d: header truncated", i, k)
+			}
+			coeffs := binary.LittleEndian.Uint64(rest[:8])
+			rest = rest[8:]
+			if coeffs > maxLatticeUintSliceLen {
+				return fmt.Errorf("vector poly %d level %d: coeff count %d exceeds %d", i, k, coeffs, maxLatticeUintSliceLen)
+			}
+			need := coeffs * 8
+			if uint64(len(rest)) < need {
+				return fmt.Errorf("vector poly %d level %d: need %d coeff bytes, have %d", i, k, need, len(rest))
+			}
+			rest = rest[need:]
+		}
+	}
+	return nil
+}
 
 // makeEmptyPolyVector returns a length-N vector of zero-initialized
 // Poly's bound to ring r. This is the destination shape every
@@ -67,6 +130,16 @@ const fuzzMaxRawSize = 1024
 func decodeVectorWithRecover(raw []byte) (err error) {
 	if len(raw) > fuzzMaxRawSize {
 		return fmt.Errorf("input exceeds fuzzMaxRawSize")
+	}
+	// Pre-validate the wire frame BEFORE handing to lattigo. This is
+	// defense-in-depth against the second lattice DoS surface
+	// (Vector.ReadFrom -> make([]T, size) with no bound check), which
+	// luxfi/lattice#3 does not address.  recover() cannot catch the
+	// fatal "out of memory" thrown when make() requests > available
+	// memory, so the only safe path is to reject malformed frames
+	// before the allocation runs.
+	if vErr := validateVectorPolyFrameInline(raw); vErr != nil {
+		return vErr
 	}
 	defer func() {
 		if r := recover(); r != nil {
