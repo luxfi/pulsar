@@ -1,0 +1,164 @@
+% Pulsar-M threat model -- included by pulsar-m.tex.
+% Mirrors docs/threat-model.md (now deleted; this file is the
+% canonical LaTeX form).
+
+\subsection{Adversary classes}
+
+We give an adversary the union of the following capabilities,
+parameterized by $t$ (the corruption threshold) and the corruption
+model:
+
+\paragraph{Static corruption (default).}
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item Adversary $\mathcal{A}$ selects up to $t-1$ parties to corrupt
+\textbf{before} protocol start. From start to end of the protocol,
+those $t-1$ parties are controlled; the remaining honest parties run
+the protocol faithfully.
+\item $\mathcal{A}$ sees all messages on the broadcast channel + all
+messages on the authenticated point-to-point channels into corrupted
+parties.
+\item $\mathcal{A}$ learns each corrupted party's full state (secret
+share, randomness, per-round values) including session-state values.
+\item $\mathcal{A}$ can selectively delay messages within the round
+window but cannot forge messages from honest parties on
+authenticated channels.
+\end{itemize}
+
+\paragraph{Adaptive corruption (stronger model).}
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item Adversary $\mathcal{A}$ can corrupt up to $t-1$ parties at any
+time during the protocol, including mid-round, conditioned on the
+transcript so far.
+\item Once corrupted, a party remains corrupted for the rest of the
+protocol.
+\item All other capabilities as in static.
+\end{itemize}
+
+The Pulsar-M security analysis (\texttt{spec/security-games.tex})
+provides the precise game definitions. Static security is the
+baseline; adaptive security is a stretch goal for the first MPTC
+submission and a hard requirement for the second-round response.
+
+\paragraph{Mobile corruption (proactive resharing).}
+For long-lived deployments where the validator set rotates between
+epochs (Pulsar's \texttt{reshare/} direction), the relevant model is
+HJKY97 mobile adversary: $\mathcal{A}$ can corrupt up to $t-1$
+parties \textbf{per epoch}, with the corruption set varying across
+epochs. The adversary may \emph{uncorrupt} a party (forget what it
+learned) at epoch boundaries.
+
+Pulsar-M proactive resharing inherits the soundness argument from
+Pulsar's \texttt{reshare/} (with the constant-time fix from F9 of
+the Hanzo HIP-0077 red review). The MPTC submission documents the
+mobile-adversary game explicitly.
+
+\subsection{Out-of-scope adversary capabilities}
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item Compromise of the cryptographic hash function (SHAKE-256 /
+cSHAKE-256 / KMAC-256). NIST FIPS 202 + SP 800-185 are taken as
+building blocks.
+\item Side-channel attacks on the \emph{physical} hardware running a
+party (power analysis, EM, fault injection). Mitigation discussed in
+\S\ref{sec:knownlimits} as future work.
+\item Compromise of the BIP-32/BIP-39 mnemonic from which
+device-specific keys are derived. The HD-derivation security
+argument lives in HIP-0077 \S``Identity''; the Pulsar-M layer
+assumes parties' input keys are uniformly distributed.
+\end{itemize}
+
+\subsection{In-scope security goals}
+
+\paragraph{Threshold unforgeability (TS-UF).}
+For any PPT adversary $\mathcal{A}$ controlling up to $t-1$ parties,
+$\mathcal{A}$ cannot produce a valid Pulsar-M signature $\sigma^*$
+on any message $\mu^*$ that an honest signing ceremony has not
+produced.
+
+\paragraph{Robustness / identifiable abort.}
+If a corrupted party deviates from the protocol, the honest parties:
+
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+\item Detect the deviation.
+\item Identify the deviating party.
+\item Produce signed evidence of the deviation suitable for slashing
+/ reputation reduction.
+\end{enumerate}
+
+\paragraph{Output indistinguishability from FIPS 204.}
+A Pulsar-M signature $\sigma$ on message $\mu$ against group public
+key $\mathit{pk}$ is computationally indistinguishable from a
+FIPS~204 ML-DSA signature on the same $(\mathit{pk}, \mu)$.
+Specifically: an adversary that can distinguish the two with
+non-negligible advantage breaks the underlying M-LWE assumption.
+
+\paragraph{Bias resistance.}
+The randomness used in each party's contribution (Gaussian samples,
+challenge polynomials) is statistically indistinguishable from
+uniform even given the adversary's view of corrupted parties'
+randomness.
+
+\paragraph{DKG soundness.}
+Pedersen DKG over $\Rq^k$ produces a public key $\mathit{pk}$
+distributed uniformly over the valid M-LWE public-key space, with no
+party holding more than $1/n$ partial information about the
+corresponding secret key.
+
+\subsection{Assumed channels}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+channel & property & purpose \\
+\midrule
+Broadcast & authenticated, eventual-delivery & round transcripts,
+  public coins \\
+Point-to-point & authenticated, encrypted & private share / blind
+  delivery \\
+Public bulletin & authenticated, append-only & DKG commitments,
+  reshare records \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The reference implementation provides these channels via TCP + TLS.
+Production deployments (e.g.\ Lux consensus + Quasar) bind these to
+their existing P2P transport.
+
+\subsection{Trusted parameters}
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item The cyclotomic ring $\Rq = \Zq[X] / (X^{256} + 1)$ and
+parameters $(q, k, \ell, \eta, \beta, \omega, \ldots)$ exactly as in
+FIPS~204 ML-DSA-65.
+\item The hash family: SHAKE-256 (FIPS 202), cSHAKE-256 / KMAC-256 /
+TupleHash-256 (NIST SP 800-185). Customization tags are pinned in
+\texttt{spec/pulsar-m.tex}.
+\item The Gaussian sampler parameters from FIPS~204 \S3.3 / \S4.2.
+\end{itemize}
+
+No trusted setup beyond NIST primitives.
+
+\subsection{Failure modes addressed}
+
+The MPTC submission documents how Pulsar-M handles each failure
+mode that broke earlier threshold-lattice schemes:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \textbf{Rejection-sampling restart leaking secret information
+across rounds}: Pulsar's PRNG-key per-round domain separation
+(CRIT-1 fix from upstream's 2026-05-03 amendment) ports forward.
+\item \textbf{Constant-time share comparison}:
+\texttt{dkg2.constTimePolyEqual} pattern ported from upstream
+Pulsar (\texttt{reshare/commit.go} F9 fix).
+\item \textbf{Information leaks via logging}: zero stdlib
+\texttt{log} use in any secret-touching path; all logging via
+\texttt{luxfi/log} at fields that are explicitly public.
+\item \textbf{Deterministic quorum selection in resharing leaking
+adversary positioning}: Pulsar-M uses a beacon-derived per-reshare
+quorum selection (HIP-0077 \S``reshare quorum'' F10 fix).
+\item \textbf{Cross-mode hash-suite confusion}: NIST profile is
+exclusively SHA-3 family; no BLAKE3 in Pulsar-M ever.
+\end{itemize}

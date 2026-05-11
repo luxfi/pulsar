@@ -12,7 +12,7 @@ package pulsarm
 // signature produced by ThresholdSign (threshold.go) flows through
 // the SAME Verify code path as a single-party Sign output.
 //
-// Per pulsar-m.tex §4.3 and docs/nist-mptc-category.md, this is the
+// Per pulsar-m.tex §4.3 and spec/nist-mptc-category.tex, this is the
 // load-bearing property of the entire Pulsar-M family: anything that
 // changes Verify breaks Class N1 output interchangeability.
 
