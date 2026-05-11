@@ -170,7 +170,7 @@ type Round2Message struct {
 
 	// PartialSig is this party's contribution toward the FIPS 204
 	// signature. In the v0.1 reconstruction-aggregator instantiation
-	// (see docs/known-limitations.md), this is the Shamir share of
+	// (see spec/known-limitations.tex), this is the Shamir share of
 	// the seed encrypted under the round transcript hash; the
 	// aggregator collects t shares, reconstructs the seed, and emits
 	// a single FIPS 204 signature. The Lagrange-linearity path of

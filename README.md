@@ -71,7 +71,7 @@ pulsar-m/
 ## Quickstart
 
 > **Pulsar-M is in pre-spec stage.** Reference impl, vectors, and bench harness
-> ship after the spec freezes. Track [docs/known-limitations.md](docs/known-limitations.md)
+> ship after the spec freezes. Track [spec/known-limitations.tex](spec/known-limitations.tex)
 > for what's stable vs in-flight.
 
 ```bash
@@ -90,7 +90,7 @@ cd pulsar-m
 | Technical Specification | `spec/pulsar-m.pdf` (built from `spec/pulsar-m.tex`) | draft |
 | Reference Implementation | `ref/go/` | skeleton |
 | Report on Experimental Evaluation | `bench/results/REPORT.md` | TBD |
-| Notes on Patent Claims | `docs/patent-notes-draft.md` | TBD |
+| Notes on Patent Claims | `spec/patent-notes.tex` | TBD |
 | Open-source license | `LICENSE` (Apache-2.0) | ✓ |
 | Build/test/benchmark scripts | `scripts/` | skeleton |
 | I/O test vectors | `vectors/kat-v1.{json,rsp}` | TBD |

@@ -5,7 +5,7 @@
 // The headline claim of Pulsar-M is output interchangeability with FIPS 204:
 // a signature produced by an n-of-t threshold ceremony verifies under
 // unmodified FIPS 204 ML-DSA.Verify(pk, message, signature). See
-// docs/nist-mptc-category.md for the formal claim and its scope.
+// spec/nist-mptc-category.tex for the formal claim and its scope.
 //
 // Status: pre-spec-freeze. The exported API in this package will change
 // up to the spec encoding freeze (target end of August 2026). After

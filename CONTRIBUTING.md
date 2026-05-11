@@ -70,4 +70,4 @@ By contributing, you agree your contribution is licensed under Apache-2.0
 and grant the patent license described in the Apache 2.0 §3.
 
 For NIST MPTC submission: contributions are subject to the patent-claim
-disclosures collected in `docs/patent-notes-draft.md`.
+disclosures collected in `spec/patent-notes.tex`.
