@@ -39,41 +39,44 @@ variant & repo (target) & lattice basis & hash family (canonical) &
   no --- special threshold-friendly primitive &
   Class S1 + S4 &
   production-enabled; Lux R-LWE fork, lifecycle DKG complete \\
-\textbf{Annulus} (code-name \texttt{Nasua}; tracks academic Ringtail upstream) &
+\textbf{Nasua} (early academic prototype; tracks Ringtail upstream) &
   \texttt{github.com/luxfi/nasua} &
   Ring-LWE ($\Rq$) &
   BLAKE3 (academic profile) &
   no &
   academic-only &
-  \emph{not enabled}; research artifact, upstream-tracker \\
+  \emph{not enabled}; research artifact \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\paragraph{Lineage.} Annulus is the academic root (forks the
-Ringtail primitive of Boschini et~al.~\cite{boschini2024ringtail},
+\paragraph{Lineage.} Nasua is the early academic prototype (forks
+the Ringtail primitive of Boschini et~al.~\cite{boschini2024ringtail},
 which builds on the Raccoon Fiat--Shamir-without-rejection
 template~\cite{raccoon2024}). Corona is the Lux production-hardened
-R-LWE fork of Annulus: SHA-3 hash family, identifiable abort,
+R-LWE fork of Nasua: SHA-3 hash family, identifiable abort,
 proactive reshare. Pulsar lifts Corona's protocol skeleton from
 Ring-LWE ($\Rq$, single polynomial) to Module-LWE ($\Rq^k$,
 polynomial vectors) so the threshold output is byte-equal to a
 single-party FIPS~204 ML-DSA signature.
 
-\paragraph{Naming discipline.} The three Lux Quasar family names
-follow the stellar / circular-feature pattern:
+\paragraph{Naming discipline.}
 
 \begin{itemize}[leftmargin=*, itemsep=0pt]
-\item \textbf{Pulsar} --- rotating neutron star; named for the
-periodic two-round signing cadence.
-\item \textbf{Corona} --- ring of light around a star; named for
-the Ring-LWE algebra and the hardened production status.
-\item \textbf{Annulus} --- ring-shaped region; the academic root
-of the family. The implementation repository carries the
-code-name \texttt{Nasua} (the binomial name of the
-ring-tailed coati \emph{Nasua nasua}) to distinguish the Lux
-upstream-tracker from the academic Ringtail primitive itself.
+\item \textbf{Pulsar} --- rotating neutron star; the M-LWE
+production variant.
+\item \textbf{Corona} --- ring of light around a star; the R-LWE
+production variant.
+\item \textbf{Nasua} --- the ring-tailed coati \emph{Nasua nasua};
+the academic-only research prototype that forks the Ringtail
+upstream verbatim. Single-word brand, repo-name aligned.
 \end{itemize}
+
+\paragraph{Reserved names.} \texttt{Annulus} (mathematical
+ring-shaped region) is held in reserve for a future next-generation
+variant. It is \emph{not} the name of any current artifact; do not
+reference it in shipping code, wire formats, or specifications
+until a concrete future variant claims it.
 
 All variants share:
 
