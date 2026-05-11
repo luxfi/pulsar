@@ -149,7 +149,7 @@ func (s *LargeReshareSession) Round1() (*LargeDKGRound1Msg, error) {
 	myCommit := transcriptHash32(tagReshareCommit, commitInput)
 
 	keyMaterial := []byte{}
-	keyMaterial = append(keyMaterial, []byte("PULSAR-M-RESHARE-DEALER-V1")...)
+	keyMaterial = append(keyMaterial, []byte("PULSAR-RESHARE-DEALER-V1")...)
 	keyMaterial = append(keyMaterial, s.commitOldCommitteeRoot()...)
 	keyMaterial = append(keyMaterial, s.commitNewCommitteeRoot()...)
 	keyMaterial = append(keyMaterial, blind[:]...)
@@ -170,7 +170,7 @@ func (s *LargeReshareSession) Round1() (*LargeDKGRound1Msg, error) {
 		blindMask := cshake256(
 			append(append([]byte{}, blind[:]...), recipient[:]...),
 			shareWireSizeQ,
-			"PULSAR-M-RESHARE-BLINDMASK-V1",
+			"PULSAR-RESHARE-BLINDMASK-V1",
 		)
 		var envShare [shareWireSizeQ]byte
 		copy(envShare[:], shareBytes[:])
@@ -329,7 +329,7 @@ func (s *LargeReshareSession) reshareQuorumEvalPoints() []uint32 {
 
 func (s *LargeReshareSession) commitOldCommitteeRoot() []byte {
 	parts := make([][]byte, 0, len(s.OldCommittee)+1)
-	parts = append(parts, []byte("PULSAR-M-COMMITTEE-V1"))
+	parts = append(parts, []byte("PULSAR-COMMITTEE-V1"))
 	for _, id := range s.OldCommittee {
 		parts = append(parts, id[:])
 	}
@@ -339,7 +339,7 @@ func (s *LargeReshareSession) commitOldCommitteeRoot() []byte {
 
 func (s *LargeReshareSession) commitNewCommitteeRoot() []byte {
 	parts := make([][]byte, 0, len(s.NewCommittee)+1)
-	parts = append(parts, []byte("PULSAR-M-COMMITTEE-V1"))
+	parts = append(parts, []byte("PULSAR-COMMITTEE-V1"))
 	for _, id := range s.NewCommittee {
 		parts = append(parts, id[:])
 	}

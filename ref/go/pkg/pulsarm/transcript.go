@@ -30,27 +30,27 @@ import (
 // pulsar-m.tex §3 table "purpose -> SP 800-185 customisation tag"
 // byte-for-byte.
 const (
-	tagDKGCommit     = "PULSAR-M-DKG-COMMIT-V1"
-	tagDKGTranscript = "PULSAR-M-DKG-TRANSCRIPT-V1"
-	tagSignR1        = "PULSAR-M-SIGN-R1-V1"
-	tagSignR1MAC     = "PULSAR-M-SIGN-R1-MAC-V1"
-	tagSignR2        = "PULSAR-M-SIGN-R2-V1"
-	tagSignPRNG      = "PULSAR-M-SIGN-PRNG-V1"
-	tagSignPRNGKey   = "PULSAR-M-SIGN-PRNGKEY-V1"
-	tagSignPRF       = "PULSAR-M-SIGN-PRF-V1"
-	tagReshareCommit = "PULSAR-M-RESHARE-COMMIT-V1"
-	tagReshareTrans  = "PULSAR-M-RESHARE-TRANSCRIPT-V1"
-	tagReshareBeacon = "PULSAR-M-RESHARE-BEACON-V1"
-	tagExpandB       = "PULSAR-M-EXPANDB-V1"
-	tagComplaint     = "PULSAR-M-COMPLAINT-V1"
-	tagSeedShare     = "PULSAR-M-SEED-SHARE-V1"
+	tagDKGCommit     = "PULSAR-DKG-COMMIT-V1"
+	tagDKGTranscript = "PULSAR-DKG-TRANSCRIPT-V1"
+	tagSignR1        = "PULSAR-SIGN-R1-V1"
+	tagSignR1MAC     = "PULSAR-SIGN-R1-MAC-V1"
+	tagSignR2        = "PULSAR-SIGN-R2-V1"
+	tagSignPRNG      = "PULSAR-SIGN-PRNG-V1"
+	tagSignPRNGKey   = "PULSAR-SIGN-PRNGKEY-V1"
+	tagSignPRF       = "PULSAR-SIGN-PRF-V1"
+	tagReshareCommit = "PULSAR-RESHARE-COMMIT-V1"
+	tagReshareTrans  = "PULSAR-RESHARE-TRANSCRIPT-V1"
+	tagReshareBeacon = "PULSAR-RESHARE-BEACON-V1"
+	tagExpandB       = "PULSAR-EXPANDB-V1"
+	tagComplaint     = "PULSAR-COMPLAINT-V1"
+	tagSeedShare     = "PULSAR-SEED-SHARE-V1"
 )
 
 // functionName is the SP 800-185 cSHAKE function-name parameter.
-// All Pulsar-M cSHAKE calls pin N to "Pulsar-M" so that an integrator
+// All Pulsar-M cSHAKE calls pin N to "Pulsar" so that an integrator
 // who mistakenly fed Pulsar-M cSHAKE bytes into a non-Pulsar-M cSHAKE
 // engine would get a deterministic mismatch.
-const functionName = "Pulsar-M"
+const functionName = "Pulsar"
 
 // cshake256 returns the first outLen bytes of cSHAKE256(input, N,
 // customisation) per SP 800-185 §3. Implemented over Go's

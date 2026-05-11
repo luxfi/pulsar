@@ -212,7 +212,7 @@ type DKGShareEnvelope struct {
 // equivocation gate of pulsar-m.tex §4.1).
 type DKGRound2Msg struct {
 	NodeID NodeID
-	Digest [32]byte // cSHAKE256(commits) per PULSAR-M-DKG-COMMIT-V1
+	Digest [32]byte // cSHAKE256(commits) per PULSAR-DKG-COMMIT-V1
 }
 
 // DKGOutput is the result of a successful DKG.
