@@ -87,6 +87,26 @@ type Params struct {
 // seed across the committee.
 const SeedSize = 32
 
+// TargetCommitteeSize is the canonical "extreme committee" size used
+// in spec/pulsar-m.tex section "Large committees" and in the bench
+// harness. It exercises the GF(q) Shamir path at 1 111 111 signers —
+// over four orders of magnitude beyond the GF(257) cap of 256.
+//
+// Rationale for the exact value: seven 1s. The digit literal is
+// memorable, and the value sits at ≈13.3 % of the GF(q) party-count
+// limit q − 1 = 8 380 416, leaving ≈87 % headroom for over-
+// provisioning, joining-without-reshare slack, and future
+// grow-without-fork.
+//
+// Arithmetic-width note. At N = 1 111 111 every per-byte share value
+// remains a single uint32 lane (mod q is ≤ 23 bits). One Lagrange
+// multiplication needs at most 46 bits of intermediate width, so
+// uint64 accumulators suffice everywhere — uint128 / uint256 are not
+// required for Pulsar-M's core arithmetic. (Wider widths are
+// reserved for the SNARK side of Z-Chain, which operates over
+// ~254-bit prime-order fields.)
+const TargetCommitteeSize = 1_111_111
+
 // Hard-coded parameter tables per FIPS 204 §4 Table 1.
 //
 // PublicKeySize / PrivateKeySize / SignatureSize values match

@@ -1,46 +1,258 @@
-% Pulsar-M system model — included by pulsar-m.tex §"System model"
+% Pulsar-M system model -- included by pulsar-m.tex section "System model"
 
-\section*{System model}
+% ---------------------------------------------------------------
+% Top of document inserts this file under the chapter heading
+% "System model"; no \section* command here is appropriate
+% because pulsar-m.tex provides one via the surrounding
+% \section{System model}.
 
-% TODO. Cover:
-%
-% Network model
-%   - synchronous vs asynchronous (Pulsar-M assumes synchronous broadcast
-%     within the round window; partially-synchronous is future work)
-%   - broadcast channel: authenticated, eventual delivery
-%   - point-to-point channel: authenticated, encrypted
-%   - public bulletin: authenticated, append-only (consensus-anchored)
-%
-% Setup assumptions
-%   - PKI: each party has a long-term verification key advertised on the
-%     public bulletin (e.g. lux/consensus identity record per HIP-0077)
-%   - Random beacon: shared randomness oracle for reshare quorum selection
-%     (lux consensus randomness layer)
-%
-% Trust model
-%   - Up to t-1 corrupted parties (static), t-1 per epoch (mobile)
-%   - Honest majority of (n - t + 1) needed for liveness
-%
-% Abort model
-%   - Identifiable abort: protocol surfaces a signed complaint when a
-%     deviation is detected, with the deviating party ID
-%   - Slashing: governance layer consumes complaints (out of scope here)
-%
-% Preprocessing
-%   - DKG runs once per validator-set epoch
-%   - Reshare runs at epoch boundary (typical cadence: hours to days)
-%   - Sign runs per-message; preprocessing-free if combined with non-cached
-%     sampler, or with optional Round-0 mask precomputation per Pulsar's
-%     offline/online split
-%
-% Rotation
-%   - Reshare protocol updates shares without changing pk (per HJKY97)
-%   - Members may join / leave between epochs subject to (n', t') constraint
-%
-% Monitoring
-%   - Public artifacts: pk, commitments, signed complaints, signature outputs
-%   - Private artifacts: shares, blinds, masks, samples — never logged
-%
-% Deployment surface
-%   - Reference assumes pure software
-%   - HSM integration is future work (out of scope for round 1 MPTC)
+\paragraph{Network model.}
+The protocols assume a partially synchronous network with three
+channel primitives:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \textbf{Authenticated broadcast.} Every party broadcasts via a
+total-order channel (Lux consensus) that is FIFO per sender and
+eventually delivered to every honest party within a known bound
+$\Delta$ after global stabilisation. Within a round window the
+honest parties are assumed to receive every honest broadcast; outside
+the window the protocol re-runs (\Cref{game:rob}).
+\item \textbf{Point-to-point.} Each ordered pair of parties shares an
+authenticated, encrypted channel using long-term identity keys
+(production: Ed25519 + Noise XK; reference: TLS 1.3 mutual auth).
+DKG Round-1 envelopes and the per-pair MAC keys flow over this
+channel.
+\item \textbf{Public bulletin.} The Lux consensus log itself is the
+append-only authenticated bulletin: $\mathit{pk}$, commitments,
+signed complaints, signatures, and beacon values are all anchored
+in finalised blocks. Bulletin entries are immutable, totally
+ordered, and observable by every participant.
+\end{itemize}
+
+Full asynchrony is out of scope for round-1 MPTC and is recorded as
+a round-2 open question in \S\ref{sec:knownlimits}.
+
+\paragraph{Setup assumptions.}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \textbf{PKI.} Each party advertises a long-term identity
+verification key in the Lux consensus validator-set record per
+HIP-0077. This key signs complaints (\Cref{sec:abort}) and the
+DKG / Reshare activation certificates.
+\item \textbf{Random beacon.} The chain randomness layer (Lux Quasar)
+provides an unbiasable beacon $\beta_e$ at every epoch boundary $e$.
+$\beta_e$ is committed in the post-finalisation header of epoch $e$
+and is unpredictable in advance of corruption decisions for that
+epoch (the beacon-unbiasability assumption invoked by
+\Cref{thm:reshare-priv} and \Cref{thm:mob}).
+\item \textbf{Common reference string.} The public matrices
+$\mathbf{A}, \mathbf{B} \in \Rq^{k \times \ell}$ derive from
+nothing-up-my-sleeve seeds: $\rho$ is the chain genesis randomness,
+$\rho_B$ is its $\cSHAKE$ image with the customisation tag
+\texttt{PULSAR-M-EXPANDB-V1} (\S\ref{sec:prelim-pedersen}).
+\end{itemize}
+
+\paragraph{Trust model.}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \textbf{Static corruption.} Up to $t-1$ parties out of $n$ are
+controlled by a $\PPT$ adversary $\mathcal{A}$ from the start of the
+ceremony. $\mathcal{A}$ observes the protocol transcript and may
+deviate arbitrarily from the prescribed protocol on the corrupted
+parties' behalf. This is the round-1 MPTC adversarial model and is
+captured by \Cref{game:tsuf}.
+\item \textbf{Mobile corruption.} Across epochs the adversary may
+re-select its corruption set: at each epoch $e$ a fresh
+$\mathcal{C}_e$ with $|\mathcal{C}_e| \le t-1$ is chosen, leaked,
+and (between epochs) un-corrupted in the sense that the party
+forgets its epoch-$e$ secrets. This is captured by \Cref{game:mob}
+and reduces to TS-UF plus beacon-unbiasability plus M-LWE.
+\item \textbf{Adaptive corruption.} The strongest in-game adaptive
+model is recorded as \Cref{game:adapt}; the formal proof is
+deferred to round 2 (see \S\ref{sec:knownlimits}).
+\end{itemize}
+
+The honest-participation requirement for liveness is $n - t + 1$
+honest parties at every round. Honest-participation below this
+threshold makes a complete protocol round impossible and triggers a
+liveness-only abort (no security loss, but no signature output until
+the network heals).
+
+\paragraph{Abort model.}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \textbf{Identifiable abort.} Every detected deviation produces
+a signed \textsc{Complaint} record identifying the deviating party
+\emph{by long-term identity key}. The complaint structure is
+specified in \S\ref{sec:abort} and is publicly verifiable from the
+transcript alone.
+\item \textbf{Slashing.} The Lux consensus governance layer consumes
+complaints; a quorum of distinct accusers against the same accused
+within one epoch is a disqualification event with on-chain
+slashing consequences. The slashing rule is out of scope for this
+document; we specify only the complaint format and the threshold
+soundness arguments (\Cref{thm:rob}).
+\end{itemize}
+
+\paragraph{Preprocessing.}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item $\DKG$ runs once per validator-set epoch. Output: a fresh
+$\mathit{pk}$ and per-party shares $(\mathbf{s}_i, \mathbf{u}_i)$.
+\item $\Reshare$ runs at every validator-set change (typically every
+few hours to days). Output: new shares against the unchanged
+$\mathit{pk}$.
+\item $\Refresh$ (zero-polynomial $\Reshare$) runs as a background
+hygiene step at hourly cadence within a stable validator set.
+\item $\Sign$ runs per signature request and is preprocessing-free
+at the protocol layer (per-round randomness is recomputed each
+attempt). An optional Round-0 mask precomputation is available
+for low-latency targets and is described in
+\S\ref{sec:impl-rejection-restart}.
+\end{itemize}
+
+\paragraph{Rotation.}
+The reshare protocol of \S\ref{sec:reshare} rotates the share
+distribution without changing $\mathit{pk}$
+(\Cref{thm:reshare-pkinv}). Members may join, leave, or be
+disqualified between epochs subject to the $(n', t')$ constraint
+$n' \ge 2t' - 1$ on the new committee. Rotation cadence is governed
+by the validator-set epoch (typically 12 hours to 7 days on Lux).
+
+\paragraph{Committee scale.}
+Pulsar-M's per-byte Shamir layer supports two operating regimes:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \emph{Small committee} ($n \le 256$). Shares are dealt over
+GF(257) with 64-byte wire encoding. This is the regime used by the
+Lux primary network's validator set today and matches the
+GF(257)-fast-path KAT vectors in \texttt{vectors/}.
+\item \emph{Large committee} ($n \le q - 1 = 8\,380\,416$). Shares
+are dealt over GF($q$) with 128-byte wire encoding, where $q$ is
+the FIPS~204 prime $2^{23} - 2^{13} + 1$. The reference
+implementation pins the canonical extreme committee size at
+$N^* = \mathtt{TargetCommitteeSize} = 1\,111\,111$ -- well above
+the round-1 MPTC suggested ceiling and the practical bar of
+$N > 10^4$ -- so that the protocol's algebraic correctness has
+been exercised at over four orders of magnitude beyond any
+deployment currently planned in production. The wide-field path
+is mandatory whenever $n > 256$.
+\end{itemize}
+
+Both regimes produce identical FIPS~204 signature bytes; the field
+choice never propagates past the per-quorum DKG / Sign boundary and
+is therefore not visible to FIPS~204 verifiers. See
+\S\ref{sec:parameters} for the corresponding party-count entries
+and \S\ref{sec:impl} for the auto-selection rule embedded in the
+reference implementation.
+
+\paragraph{Committee selection and PQ rollup (production).}
+The canonical Lux deployment does \emph{not} run one $1\,111\,111$-
+party DKG ceremony. Instead it composes three orthogonal layers:
+
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+\item \emph{Grouped sortition.} The Lux consensus layer
+(\texttt{consensus/protocol/quasar/grouped\_threshold.go}) splits
+the $N \approx 1.1$M-validator pool into $\sim N / 3$ groups of size
+$3$ using deterministic SHA3-384 Fisher-Yates shuffle. The
+sortition seed is an epoch-bound chain digest, making it
+unpredictable in advance of group composition.
+\item \emph{Per-group Pulsar-M (3, 2).} Each group runs the small-
+committee Pulsar-M path at $(T, N) = (2, 3)$ -- the canonical
+small-committee config. The group produces one FIPS~204 ML-DSA
+signature per epoch checkpoint. Tolerates one Byzantine party per
+group. Per-group DKG / Sign / Reshare cost is constant in the
+total validator-pool size.
+\item \emph{P3Q STARK rollup.} All per-group ML-DSA signatures roll
+up via P3Q (Lux's strict-PQ Plonky3 fork: STARK + FRI over
+Goldilocks, cSHAKE256 Merkle, FIPS 202 + SP 800-185 hash family).
+The chain pins
+\texttt{ProofBackendP3QSTARKFRISHA3 = 0x22} in
+\texttt{consensus/config/pq\_mode.go}; the proof-backend registry
+explicitly forbids
+\texttt{ProofBackendGroth16WrapForbid = 0x80} and
+\texttt{ProofBackendKZGWrapForbid = 0x81} so no pairing-based
+classical proof system can leak in. The final certificate carries
+a single P3Q proof; verification time is constant in the total
+signer count.
+\end{enumerate}
+
+The composition is \emph{fully post-quantum end-to-end}: every
+primitive in the stack rests on post-quantum hardness assumptions.
+
+\begin{center}\small
+\begin{tabular}{l l l}
+\toprule
+layer & primitive & PQ hardness \\
+\midrule
+per-validator identity sig  & ML-DSA-65 (FIPS~204)               & Module-LWE + MSIS \\
+per-group threshold sign    & Pulsar-M (2, 3) $\to$ FIPS~204 sig & Module-LWE + MSIS \\
+sortition                   & SHA3-384 Fisher-Yates              & SHA-3 collision-resistance \\
+inter-group rollup          & P3Q STARK + FRI                    & cSHAKE256 collision-resistance \\
+final cert verifier         & P3Q verifier                       & cSHAKE256 collision-resistance \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+There is no pairing, no elliptic-curve recursion, no KZG, no Groth16
+anywhere in the production path. Shor's algorithm has no purchase on
+any layer.
+
+\paragraph{Why Pulsar-M does not need to scale to 1.1M parties.}
+A naive scaling approach would run one Pulsar-M ceremony over all
+$1.1$M validators. This costs $O(n^2)$ communication
+($\sim 10^{12}$ envelopes), which is physically infeasible. The
+grouped-sortition + P3Q-rollup architecture sidesteps the quadratic
+ceiling: each Pulsar-M ceremony runs at constant size $(T, N) =
+(2, 3)$, and the inter-group attestation runs as one P3Q proof.
+The wide-field GF($q$) Pulsar-M path documented in this section is
+the alternative single-large-committee deployment for permissioned
+consortium / audit-attestation scenarios where the grouped
+sortition layer is not appropriate.
+
+\paragraph{Integer-arithmetic discipline.}
+Every modular operation in Pulsar-M's core path uses uint32 lanes
+with uint64 accumulators. The widest intermediate is one Lagrange
+multiplication over GF($q$), which spans at most 46 bits. uint128
+and uint256 widths are explicitly \emph{not} required by this
+protocol; they are reserved for the Z-Chain SNARK side (which
+operates over $\sim$254-bit prime-order fields). This discipline
+gives constant-cycle modular arithmetic on every supported CPU
+(x86\_64, aarch64, RISC-V64), as well as on GPU dispatch backends
+(Apple Metal, NVIDIA CUDA, AMD ROCm) that natively support the
+uint32 / uint64 pair.
+
+\paragraph{Monitoring and observability.}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \textbf{Public artefacts.} $\mathit{pk}$, all commitments, all
+broadcast messages, signed complaints, final signatures, beacon
+values $\beta_e$, and per-party identity-key signatures. These are
+safe to log at any verbosity level.
+\item \textbf{Private artefacts.} Shares
+$\{\mathbf{s}_i, \mathbf{u}_i\}$, blinding factors $\mathbf{r}_{i,k}, g_i(j)$,
+per-round masks $\mathbf{y}_i$, sampled secret values, PRNG seeds,
+and norm-check intermediate values. These MUST NOT be logged at
+any verbosity level (DD-007). The reference implementation enforces
+this with a CI lint that rejects \texttt{log.*} and
+\texttt{fmt.Print*} calls in \texttt{ref/go/pkg/pulsarm/}.
+\end{itemize}
+
+\paragraph{Deployment surface.}
+The reference implementation is pure software (Go). Production
+deployments are expected to integrate the share custody with an
+HSM-backed key store (or equivalent secret-enclave technology); the
+HSM exposes only Round-2 contributions and never reveals the share
+in cleartext. HSM integration is out of scope for round-1 MPTC and
+is recorded as a round-2 hardening item in \S\ref{sec:knownlimits}.
+
+\paragraph{Failure recovery.}
+On any disqualification event the chain layer removes the
+disqualified party from the validator set and triggers an immediate
+$\Reshare$ to a new committee. Liveness is preserved provided fewer
+than $t-1$ parties are disqualified per epoch; beyond that bound the
+chain enters a recovery mode that re-runs $\DKG$ from scratch with a
+new committee derived from the stake-weighted validator set.
+
+\paragraph{Cross-implementation conformance.}
+The Go reference (\texttt{ref/go/}) and the eventual C reference
+(\texttt{ref/c/}) MUST produce byte-equal outputs from the same
+seeded inputs. KAT replay (\S\ref{sec:vectors}) is the conformance
+gate. The KAT generation oracle is locked at
+\texttt{cmd/pulsar-m-oracle}; both references replay it without
+modification.

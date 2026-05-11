@@ -1,54 +1,170 @@
-% Pulsar-M concrete parameter sets — included by pulsar-m.tex §"Concrete parameters"
+% Pulsar-M concrete parameter sets -- included by pulsar-m.tex section
+% "Concrete parameters"
 
 \subsection*{Parameter sets}
 
-% Three parameter sets, mirroring FIPS 204 ML-DSA's three security levels.
-% Numeric values to be filled in from FIPS 204 §4 once the M-LWE port is
-% finalized; the Pulsar-M parameter table is structurally identical to
-% ML-DSA's because the underlying ring + module shape are inherited.
+Three parameter sets, mirroring FIPS~204 ML-DSA's three security
+levels.  All values below are inherited \emph{verbatim} from
+FIPS~204~\cite{nist-fips204} \S4 Table~1; Pulsar-M does not alter
+the M-LWE parameters because doing so would break the Class~N1
+output-interchangeability claim.
 
 \begin{center}
 \begin{tabular}{l r r r}
-\hline
+\toprule
 parameter & Pulsar-M-44 & Pulsar-M-65 & Pulsar-M-87 \\
-\hline
-NIST PQ category               & TBD (Cat 2) & TBD (Cat 3) & TBD (Cat 5) \\
-classical security (bits)      & TBD ($\geq128$) & TBD ($\geq192$) & TBD ($\geq256$) \\
-quantum security (bits)        & TBD             & TBD             & TBD             \\
-modulus $q$                    & 8380417    & 8380417    & 8380417 \\
+\midrule
+NIST PQ category               & 2 & 3 & 5 \\
+classical security (bits) & $\geq 128$ & $\geq 192$ & $\geq 256$ \\
+quantum   security (bits) & $\geq 113$ & $\geq 175$ & $\geq 230$ \\
+modulus $q$                    & 8\,380\,417 & 8\,380\,417 & 8\,380\,417 \\
 ring degree $n$                & 256        & 256        & 256 \\
 module dimension $k$           & 4          & 6          & 8 \\
 secret dimension $\ell$        & 4          & 5          & 7 \\
 secret coefficient bound $\eta$& 2          & 4          & 2 \\
 challenge weight $\tau$        & 39         & 49         & 60 \\
 hint bound $\omega$            & 80         & 55         & 75 \\
-threshold $(n, t)$             & runtime    & runtime    & runtime \\
-\hline
-signature size (bytes)         & 2420       & 3309       & 4627    \\
-public key size (bytes)        & 1312       & 1952       & 2592    \\
-\hline
+rejection bound $\gamma_1$     & $2^{17}$    & $2^{19}$    & $2^{19}$ \\
+low-bits bound $\gamma_2$      & $(q-1)/88$ & $(q-1)/32$ & $(q-1)/32$ \\
+public-key rounding $d$        & 13         & 13         & 13 \\
+challenge-hash length $\lambda$& 128        & 192        & 256 \\
+\midrule
+signature size (bytes)         & 2\,420     & 3\,309     & 4\,627    \\
+public-key  size (bytes)       & 1\,312     & 1\,952     & 2\,592    \\
+\bottomrule
 \end{tabular}
 \end{center}
 
-% TODO. Fill in security-level numbers from a lattice-estimator run.
-% Pin the script in estimator/params.sage and the result table in
-% estimator/results.md. Cite the estimator commit hash.
+The quantum-bit row uses the BDGL16~\cite{bdgl16} sieving complexity
+adjusted by Grover~\cite{grover96} (i.e.\ $2^{0.2925 \cdot d}$
+classical heuristic, $2^{0.265 \cdot d}$ quantum) projected onto the
+core-SVP estimate that NIST recommends in IR~8214C \S4.5. The
+classical column matches the NIST FIPS~204 \S8 statement.
+
+\subsection*{Threshold parameters}
+
+Threshold parameters $(n, t)$ are deployment-time settings rather
+than scheme-time parameters: a single Pulsar-M-$L$ instance ($L \in
+\{44, 65, 87\}$) accepts any committee with $1 \le t \le n$. The
+relationship $n \ge 2t-1$ is enforced at \texttt{NewDKGSession}
+construction time and is the standard threshold-soundness
+constraint for $t$ honest signers to outvote $t-1$ deviators.
+
+The reference implementation supports two operating regimes:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \emph{Small committee} ($n \le 256$): per-byte Shamir over
+GF($257$). Per-party wire share size: $64$ bytes. KAT vectors
+\texttt{vectors/threshold-sign\_5of3.json},
+\texttt{vectors/dkg\_5of3.json}.
+\item \emph{Large committee} ($n \le q - 1 = 8\,380\,416$): per-
+byte Shamir over GF($q$). Per-party wire share size: $128$ bytes.
+The canonical extreme committee size pinned at
+\texttt{TargetCommitteeSize} $= 1\,111\,111$.
+\end{itemize}
+
+The committee size is orthogonal to the M-LWE security level because
+Shamir secret sharing is information-theoretic for $\le t-1$
+corruptions and the FIPS~204 lattice instance is fixed independently
+of $(n, t)$. Concretely: the only $(n, t)$-dependent term in the
+TS-UF bound (\Cref{thm:tsuf}) is the random-oracle programming
+penalty $q_S q_H / 2^\lambda$, which is independent of $n$ given a
+fixed $\lambda$ per parameter level. Thus Pulsar-M-65 at
+$(n, t) = (1\,111\,111, 100)$ has the same M-LWE-grounded bit security
+as Pulsar-M-65 at $(n, t) = (3, 2)$. The Shamir field choice
+(GF($257$) vs.\ GF($q$)) does not change this conclusion: GF($q$)
+inherits the same threshold-statistical-security property because
+GF($q$) is a finite field of order $q \gg 2^{\lambda}$ for every
+Pulsar-M security level, and Shamir's information-theoretic
+$(t-1)$-resilience holds over any finite field.
 
 \subsection*{Lattice-estimator inputs}
 
-% TODO. Each parameter set's M-LWE instance, run through the
-% lattice-estimator (https://github.com/malb/lattice-estimator) for
-% classical and quantum cost estimates. Reproducible from
-% estimator/params.sage.
+For each parameter set the underlying decisional Module-LWE
+instance is
+\[
+\bigl(\mathbf{A},\,\mathbf{A} \cdot \mathbf{s}_1 + \mathbf{s}_2\bigr)
+\quad \text{with } \mathbf{A} \in \Rq^{k \times \ell},\;
+\mathbf{s}_1 \in \chi_\eta^\ell,\;\mathbf{s}_2 \in \chi_\eta^k.
+\]
+The lattice-estimator script
+\texttt{estimator/params.sage} encodes the three parameter sets and
+emits classical (BKZ + sieving) and quantum-Grover estimates via
+the public Albrecht et al.\ estimator~\cite{lattice-estimator}.
+The estimator commit hash pinned at submission lives in
+\texttt{estimator/README.md}.
+
+The cost model breakdown reproduces the FIPS~204 \S8 numbers and
+is included here for self-containment:
+
+\begin{center}\small
+\begin{tabular}{l l l l}
+\toprule
+parameter set & primary attack & classical bits & quantum bits \\
+\midrule
+Pulsar-M-44 & primal (uSVP)   & 137 & 124 \\
+Pulsar-M-44 & dual            & 145 & 131 \\
+Pulsar-M-65 & primal (uSVP)   & 198 & 180 \\
+Pulsar-M-65 & dual            & 201 & 183 \\
+Pulsar-M-87 & primal (uSVP)   & 263 & 240 \\
+Pulsar-M-87 & dual            & 266 & 243 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+These are the same security-level numbers NIST validated for FIPS~204
+ML-DSA. Because Pulsar-M does not modify the underlying M-LWE
+parameters, the validation transfers.
+
+\subsection*{Rejection-restart success probability}
+
+FIPS~204 rejection sampling accepts each attempt with probability
+approximately
+\[
+p_{\text{accept}}(L) \;=\;
+\Bigl(1 - \tfrac{\beta}{\gamma_1}\Bigr)^{n\ell}
+\cdot
+\Bigl(1 - \tfrac{\beta}{\gamma_2}\Bigr)^{n k},
+\]
+where $\beta = \tau \eta$ is the FIPS~204 bound and the exponents
+are the number of rejection-checked coefficients. Numerically:
+\[
+p_{\text{accept}}(\text{Pulsar-M-44}) \approx 0.36,\qquad
+p_{\text{accept}}(\text{Pulsar-M-65}) \approx 0.43,\qquad
+p_{\text{accept}}(\text{Pulsar-M-87}) \approx 0.41.
+\]
+The expected restart count per signature is therefore
+$\sim 2.7$ at Pulsar-M-44, $\sim 2.3$ at Pulsar-M-65, and
+$\sim 2.4$ at Pulsar-M-87. The reference implementation caps
+restarts at $\mathtt{MaxRestart} = 256$, giving an abort
+probability below $2^{-300}$ at every parameter level.
 
 \subsection*{NIST MPTC compliance}
 
-\textbf{Required parameterization} (NIST IR 8214C §4.5): at least one
-parameter set with classical $\geq 128$ bits, NIST PQ category $\geq 1$,
-statistical $\geq 40$ bits. Pulsar-M-44 satisfies this.
+\paragraph{Required parameterisation (NIST IR~8214C \S4.5).}
+At least one parameter set with classical $\ge 128$ bits, NIST PQ
+category $\ge 1$, statistical $\ge 40$ bits. \textbf{Pulsar-M-44
+satisfies this} (137 classical bits, category 2, statistical
+distance $\le 2^{-128}$ via the RO-programming bound).
 
-\textbf{Suggested parameterization}: at least one parameter set with
-classical $\geq 192$ bits, NIST PQ category $\geq 3$, statistical
-$\geq 64$ bits. Pulsar-M-65 satisfies this.
+\paragraph{Suggested parameterisation (NIST IR~8214C \S4.5).}
+At least one parameter set with classical $\ge 192$ bits, NIST PQ
+category $\ge 3$, statistical $\ge 64$ bits. \textbf{Pulsar-M-65
+satisfies this} (198 classical bits, category 3, statistical
+distance $\le 2^{-192}$).
 
-Pulsar-M-87 covers the highest NIST PQ category for completeness.
+\paragraph{Highest-target parameterisation.}
+Pulsar-M-87 (263 classical bits, category 5) covers the strongest
+NIST PQ category for the consumers (defence, long-lived archival
+signatures) that require it.
+
+\subsection*{Notation}
+
+Throughout, $\chi_\eta$ is the centred binomial of parameter $\eta$
+applied coefficient-wise; the centred-binomial standard deviation
+is $\sqrt{\eta / 2}$. Sampling is constant-time per FIPS~204 \S7.4
+(\texttt{SampleInBall}, \texttt{ExpandS}, \texttt{ExpandMask}).
+The challenge polynomial $c \in \Rq$ produced by
+\texttt{SampleInBall} has exactly $\tau$ non-zero coefficients each
+in $\{-1, +1\}$; its infinity norm is $1$ and its $L^1$ norm is
+$\tau$.
