@@ -70,7 +70,7 @@ func shamirDealRandom(secret [SeedSize]byte, n, t int, coeffStream []byte) ([]sh
 // coefficients per slot are pulled from coeffStream.
 //
 // If coeffStream is shorter than needed, it is stretched via
-// cSHAKE256(coeffStream, tag=PULSAR-M-SEED-SHARE-V1).
+// cSHAKE256(coeffStream, tag=PULSAR-SEED-SHARE-V1).
 //
 // Use this when the secret vector contains values that may equal
 // 256 (the 257-th GF element), e.g. an HJKY97 reshare contribution
