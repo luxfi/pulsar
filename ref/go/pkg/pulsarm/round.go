@@ -66,7 +66,7 @@ func (c RoundContext) Encode() []byte {
 
 // RoundSessionID derives a deterministic per-Lux-round Pulsar-M
 // SessionID from a RoundContext. The session-id binds the Pulsar-M
-// per-round PRNG (PULSAR-M-SIGN-PRNG-V1 customisation tag in
+// per-round PRNG (PULSAR-SIGN-PRNG-V1 customisation tag in
 // transcript.go) to the unique (epoch, round, item, committee) tuple,
 // closing the CRIT-1 replay vector that del Pino-Niot's PRNGKeyForRound
 // addresses in the small-committee path.
@@ -90,7 +90,7 @@ func RoundCommitteeRoot(committee []NodeID) [32]byte {
 		}
 	}
 	parts := make([][]byte, 0, len(sorted)+1)
-	parts = append(parts, []byte("PULSAR-M-LUXROUND-COMMITTEE-V1"))
+	parts = append(parts, []byte("PULSAR-ROUND-COMMITTEE-V1"))
 	for _, id := range sorted {
 		parts = append(parts, id[:])
 	}

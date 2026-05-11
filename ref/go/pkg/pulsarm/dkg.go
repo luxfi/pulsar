@@ -19,7 +19,7 @@ package pulsarm
 //
 // The v0.1 commitment is the RO-binding cSHAKE256 commit
 //
-//     C_i = cSHAKE256(c_i || blind_i, 32, "PULSAR-M-DKG-COMMIT-V1")
+//     C_i = cSHAKE256(c_i || blind_i, 32, "PULSAR-DKG-COMMIT-V1")
 //
 // which is binding under collision resistance and hiding under
 // uniformity of blind_i. The v0.2 path replaces this with R_q^k
@@ -158,7 +158,7 @@ func (s *DKGSession) Round1() (*DKGRound1Msg, error) {
 	// DKG sessions on the same contribution never collide.
 	committeeRoot := s.commitCommitteeRoot()
 	keyMaterial := []byte{}
-	keyMaterial = append(keyMaterial, []byte("PULSAR-M-DKG-DEALER-V1")...)
+	keyMaterial = append(keyMaterial, []byte("PULSAR-DKG-DEALER-V1")...)
 	keyMaterial = append(keyMaterial, committeeRoot[:]...)
 	keyMaterial = append(keyMaterial, byte(s.myIndex>>8), byte(s.myIndex))
 	keyMaterial = append(keyMaterial, s.myBlind[:]...)
@@ -190,7 +190,7 @@ func (s *DKGSession) Round1() (*DKGRound1Msg, error) {
 		blindMask := cshake256(
 			append(append([]byte{}, s.myBlind[:]...), recipient[:]...),
 			shareWireSize,
-			"PULSAR-M-DKG-BLINDMASK-V1",
+			"PULSAR-DKG-BLINDMASK-V1",
 		)
 		var blindOut [shareWireSize]byte
 		copy(blindOut[:], blindMask)
@@ -411,7 +411,7 @@ func (s *DKGSession) computeRound2Digest(ordered []*DKGRound1Msg) [32]byte {
 // sorted committee.
 func (s *DKGSession) commitCommitteeRoot() [32]byte {
 	parts := make([][]byte, 0, len(s.Committee)+1)
-	parts = append(parts, []byte("PULSAR-M-COMMITTEE-V1"))
+	parts = append(parts, []byte("PULSAR-COMMITTEE-V1"))
 	for _, id := range s.Committee {
 		parts = append(parts, id[:])
 	}

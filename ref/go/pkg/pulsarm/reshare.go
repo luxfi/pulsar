@@ -202,7 +202,7 @@ func (s *ReshareSession) Round1() (*DKGRound1Msg, error) {
 
 	// Shamir-share the contribution at threshold newT to the new committee.
 	keyMaterial := []byte{}
-	keyMaterial = append(keyMaterial, []byte("PULSAR-M-RESHARE-DEALER-V1")...)
+	keyMaterial = append(keyMaterial, []byte("PULSAR-RESHARE-DEALER-V1")...)
 	keyMaterial = append(keyMaterial, s.commitOldCommitteeRoot()...)
 	keyMaterial = append(keyMaterial, s.commitNewCommitteeRoot()...)
 	keyMaterial = append(keyMaterial, blind[:]...)
@@ -223,7 +223,7 @@ func (s *ReshareSession) Round1() (*DKGRound1Msg, error) {
 		blindMask := cshake256(
 			append(append([]byte{}, blind[:]...), recipient[:]...),
 			shareWireSize,
-			"PULSAR-M-RESHARE-BLINDMASK-V1",
+			"PULSAR-RESHARE-BLINDMASK-V1",
 		)
 		var envShare [64]byte
 		copy(envShare[:], shareBytes[:])
@@ -433,7 +433,7 @@ func (s *ReshareSession) reshareQuorumEvalPoints() []uint32 {
 // old committee.
 func (s *ReshareSession) commitOldCommitteeRoot() []byte {
 	parts := make([][]byte, 0, len(s.OldCommittee)+1)
-	parts = append(parts, []byte("PULSAR-M-COMMITTEE-V1"))
+	parts = append(parts, []byte("PULSAR-COMMITTEE-V1"))
 	for _, id := range s.OldCommittee {
 		parts = append(parts, id[:])
 	}
@@ -445,7 +445,7 @@ func (s *ReshareSession) commitOldCommitteeRoot() []byte {
 // new committee.
 func (s *ReshareSession) commitNewCommitteeRoot() []byte {
 	parts := make([][]byte, 0, len(s.NewCommittee)+1)
-	parts = append(parts, []byte("PULSAR-M-COMMITTEE-V1"))
+	parts = append(parts, []byte("PULSAR-COMMITTEE-V1"))
 	for _, id := range s.NewCommittee {
 		parts = append(parts, id[:])
 	}
