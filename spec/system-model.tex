@@ -1,0 +1,46 @@
+% Pulsar-M system model — included by pulsar-m.tex §"System model"
+
+\section*{System model}
+
+% TODO. Cover:
+%
+% Network model
+%   - synchronous vs asynchronous (Pulsar-M assumes synchronous broadcast
+%     within the round window; partially-synchronous is future work)
+%   - broadcast channel: authenticated, eventual delivery
+%   - point-to-point channel: authenticated, encrypted
+%   - public bulletin: authenticated, append-only (consensus-anchored)
+%
+% Setup assumptions
+%   - PKI: each party has a long-term verification key advertised on the
+%     public bulletin (e.g. lux/consensus identity record per HIP-0077)
+%   - Random beacon: shared randomness oracle for reshare quorum selection
+%     (lux consensus randomness layer)
+%
+% Trust model
+%   - Up to t-1 corrupted parties (static), t-1 per epoch (mobile)
+%   - Honest majority of (n - t + 1) needed for liveness
+%
+% Abort model
+%   - Identifiable abort: protocol surfaces a signed complaint when a
+%     deviation is detected, with the deviating party ID
+%   - Slashing: governance layer consumes complaints (out of scope here)
+%
+% Preprocessing
+%   - DKG runs once per validator-set epoch
+%   - Reshare runs at epoch boundary (typical cadence: hours to days)
+%   - Sign runs per-message; preprocessing-free if combined with non-cached
+%     sampler, or with optional Round-0 mask precomputation per Pulsar's
+%     offline/online split
+%
+% Rotation
+%   - Reshare protocol updates shares without changing pk (per HJKY97)
+%   - Members may join / leave between epochs subject to (n', t') constraint
+%
+% Monitoring
+%   - Public artifacts: pk, commitments, signed complaints, signature outputs
+%   - Private artifacts: shares, blinds, masks, samples — never logged
+%
+% Deployment surface
+%   - Reference assumes pure software
+%   - HSM integration is future work (out of scope for round 1 MPTC)

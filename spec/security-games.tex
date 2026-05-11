@@ -1,0 +1,567 @@
+% Pulsar-M security game definitions --- included by pulsar-m.tex
+% \section{Security analysis}
+%
+% Standard cryptographic-game style. Each game pins the challenger
+% setup, the adversary's oracle interface, the winning condition, and
+% the advantage; reductions are stated to the underlying assumption.
+
+\subsection{Adversary model and notation}
+\label{sec:sec-notation}
+
+Throughout this section the adversary $\mathcal{A}$ is probabilistic
+polynomial-time (PPT) and is parameterised by the corruption
+threshold $t-1$ (the largest number of parties $\mathcal{A}$ may
+corrupt). Honest parties' channels are authenticated; corrupted
+parties act under $\mathcal{A}$'s control. We write $\mathcal{H}
+\subseteq \{1, \dots, n\}$ for the honest-party set and
+$\mathcal{C} = \{1, \dots, n\} \setminus \mathcal{H}$ for the corrupted
+set; $|\mathcal{C}| \le t-1$.
+
+The challenger maintains a transcript log
+$\mathcal{T}$ recording every message visible to $\mathcal{A}$
+(broadcast messages, point-to-point messages into corrupted parties,
+public bulletin entries). The adversary's oracle interface depends on
+the game; we specify it inline.
+
+We write $\mathcal{H}_{\mathsf{RO}}$ for the random oracle used to model the
+hash family $\{\SHAKE, \cSHAKE, \KMAC, \TupleHash\}$ in the ROM
+analysis. Distinct customisation tags yield independent random
+oracles by the indifferentiability argument of
+SP~800-185~\cite{nist-sp800-185}.
+
+% =====================================================================
+\subsection{Game TS-UF (threshold strong unforgeability)}
+\label{sec:game-tsuf}
+% =====================================================================
+
+\begin{game}[TS-UF]
+\label{game:tsuf}
+The challenger:
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+\item Runs $\DKG$ honestly across $n$ simulated parties; the adversary
+sees every transcript message and learns the shares
+$\{(\mathbf{s}_i, \mathbf{u}_i)\}_{i \in \mathcal{C}}$ of corrupted
+parties. The group public key $\mathit{pk}$ is announced.
+\item Exposes a $\Sign$ oracle $\mathcal{O}_{\Sign}(\mu, T)$: the
+adversary chooses a message $\mu$ and a quorum
+$T \subseteq \{1, \dots, n\}$ with $|T| = t$ and
+$|T \cap \mathcal{C}| \le t-1$. The challenger simulates honest
+parties' contributions to $\Sign(\mu, T)$ and returns the full
+transcript including the final FIPS~204 signature $\sigma$.
+\item Exposes a $\mathcal{H}_{\mathsf{RO}}$ oracle for all FIPS~202 / SP~800-185 hash
+calls.
+\end{enumerate}
+
+The adversary outputs a forgery $(\mu^*, \sigma^*)$. $\mathcal{A}$
+wins if:
+\begin{enumerate}[label=(\roman*), leftmargin=*, itemsep=0pt]
+\item $\texttt{ML-DSA.Verify}(\mathit{pk}, \mu^*, \sigma^*) = \mathit{accept}$,
+\item $\mathcal{A}$ did not query $\mathcal{O}_{\Sign}(\mu^*, \cdot)$ with
+the same $\mu^*$ producing $\sigma^*$, and
+\item $|\mathcal{C}| \le t-1$ (the corruption budget was respected).
+\end{enumerate}
+$\mathcal{A}$'s advantage is
+$\Adv^{\mathsf{TS\textsf{-}UF}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{A}) = \Pr[\mathcal{A} \text{ wins}]$.
+\end{game}
+
+\begin{theorem}[TS-UF security]
+\label{thm:tsuf}
+For every $\PPT$ adversary $\mathcal{A}$ against \Cref{game:tsuf} with
+$q_S$ signing queries and $q_H$ random-oracle queries, there exist
+efficient reductions $\mathcal{B}_{\MLWE}, \mathcal{B}_{\MSIS},
+\mathcal{B}_{\mathrm{ML\text{-}DSA}}$ such that
+\[
+\Adv^{\mathsf{TS\textsf{-}UF}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{A})
+\;\le\;
+\Adv^{\MLWE}_{q, k, \ell, \eta}(\mathcal{B}_{\MLWE})
++ \Adv^{\MSIS}_{q, k, 2\ell, \beta_{\mathrm{bind}}}(\mathcal{B}_{\MSIS})
++ \Adv^{\mathsf{EUF\textsf{-}CMA}}_{\mathrm{ML\text{-}DSA}}(\mathcal{B}_{\mathrm{ML\text{-}DSA}})
++ \frac{q_S \cdot q_H}{2^\lambda}.
+\]
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+We argue via a sequence of hybrids:
+
+\paragraph{Hybrid $H_0$.} The real TS-UF experiment.
+
+\paragraph{Hybrid $H_1$.} The challenger simulates the $\Sign$ oracle
+without using the honest parties' shares. Specifically, the
+simulator chooses the final signature $\sigma = (\tilde c, \mathbf{z},
+\mathbf{h})$ by running \texttt{ML-DSA.Sign} against $\mathit{pk}$
+\emph{as if it knew the secret key}, then programs the per-party
+transcript so the aggregation lands on the chosen $\sigma$. The
+honest-party Round-1 commits are set to $\mathbf{w}_j^{(\mathrm{sim})} =
+\mathbf{A}\mathbf{y}_j^{(\mathrm{sim})}$ for simulated masks $\mathbf{y}_j^{(\mathrm{sim})}$
+drawn uniformly under the $U_{\gamma_1}$ constraint and consistent with
+the chosen $\mathbf{z}$ via
+$\sum_j \mathbf{y}_j^{(\mathrm{sim})} = \mathbf{z} - c\mathbf{s}_1$.
+Random-oracle programming sets the $\bar{\mathbf{w}}$-derived challenge to
+the chosen $\tilde c$. The distinguishing advantage between $H_0$
+and $H_1$ is bounded by $q_S \cdot q_H / 2^\lambda$ (probability of a
+collision in the RO programming).
+
+\paragraph{Hybrid $H_2$.} The challenger replaces the Pedersen commit
+matrix $\mathbf{B}$'s structure --- $\mathbf{B}$ is now a fresh
+uniform matrix \emph{independent} of $\mathbf{A}$. This is identical
+to $H_1$ because $\mathbf{B}$ was already derived from a separate
+domain-separated seed in the construction; the hybrid is a no-op
+distributionally and is included only for proof clarity.
+
+\paragraph{Hybrid $H_3$.} The challenger replaces the DKG-time
+Pedersen blinding $\mathbf{u}$ with a uniform sample from $\Rq^\ell$
+(rather than $\chi_\eta^\ell$). Distinguishing advantage is bounded
+by $\Adv^{\MLWE}_{q, k, \ell, \eta}(\mathcal{B}_{\MLWE})$ via the
+hiding property of the Pedersen commitment
+(\Cref{thm:pedersen-hiding}).
+
+\paragraph{Hybrid $H_4$ (reduction to ML-DSA EUF-CMA).} In $H_4$ the
+simulator obtains $\mathit{pk}$ from a single-party ML-DSA EUF-CMA
+challenger; it answers $\mathcal{O}_{\Sign}(\mu, T)$ queries by
+relaying the signing query to the ML-DSA challenger and using $H_1$'s
+simulator to expand the resulting $\sigma$ into a per-party
+transcript. Any adversary that wins TS-UF against this hybrid
+produces a forgery $(\mu^*, \sigma^*)$ that wins the ML-DSA EUF-CMA
+game (since the Pulsar-M $\Verify$ is unmodified ML-DSA
+$\Verify$). Distinguishing advantage between $H_3$ and $H_4$ is
+absorbed into the MSIS binding term: any deviation by the simulator
+from the honest-party transcript shape is detected by binding of the
+Pedersen commitment, contributing
+$\Adv^{\MSIS}_{q, k, 2\ell, \beta_{\mathrm{bind}}}(\mathcal{B}_{\MSIS})$.
+
+Summing the hybrid advantages gives the bound. \qed
+\end{proof}
+
+\begin{remark}[Tightness]
+The reduction is tight modulo the standard $q_S q_H / 2^\lambda$
+random-oracle programming penalty. For ML-DSA-65 ($\lambda = 192$),
+this term is negligible for any practical $(q_S, q_H)$. The MSIS
+term governs the Pedersen-binding side of the argument; the MLWE
+term governs the hiding side; the ML-DSA term governs the underlying
+single-party unforgeability. Pulsar-M inherits ML-DSA's EUF-CMA
+bound verbatim modulo these threshold-protocol-specific terms.
+\end{remark}
+
+% =====================================================================
+\subsection{Game OUT-IND (output indistinguishability from FIPS~204)}
+\label{sec:game-outind}
+% =====================================================================
+
+\begin{game}[OUT-IND]
+\label{game:outind}
+The challenger flips a fair bit $b \in \{0, 1\}$ at setup and exposes
+two oracles to $\mathcal{A}$:
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item If $b = 0$: $\DKG$ produces $\mathit{pk}$ honestly, and
+$\mathcal{O}_{\Sign}(\mu, T)$ runs Pulsar-M $\Sign$ honestly and
+returns only the final $\sigma$ (transcript is hidden).
+\item If $b = 1$: $\mathit{pk}$ is generated by single-party
+\texttt{ML-DSA.KeyGen}, and $\mathcal{O}_{\Sign}(\mu, T)$ ignores the
+quorum $T$ and runs single-party \texttt{ML-DSA.Sign}, returning
+$\sigma$.
+\end{itemize}
+$\mathcal{A}$ outputs a guess $\hat b$. Advantage:
+$\Adv^{\mathsf{OUT\textsf{-}IND}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{A})
+= |\Pr[\hat b = b] - 1/2|$.
+\end{game}
+
+\begin{theorem}[Output indistinguishability]
+\label{thm:outind}
+For every $\PPT$ adversary $\mathcal{A}$ against \Cref{game:outind},
+\[
+\Adv^{\mathsf{OUT\textsf{-}IND}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{A})
+\;\le\;
+\Adv^{\MLWE}_{q, k, \ell, \eta}(\mathcal{B}_{\MLWE}) +
+\frac{1}{2^{2\lambda}}.
+\]
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+\textbf{$\mathit{pk}$ indistinguishability.}
+A FIPS~204 public key is $\mathit{pk}_{\mathrm{F}} = (\rho, \Power(\mathbf{A}\mathbf{s}_1 + \mathbf{s}_2, d))$ with $\mathbf{s}_1, \mathbf{s}_2 \gets \chi_\eta$.
+A Pulsar-M public key is $\mathit{pk}_{\mathrm{P}} = (\rho, \Power(\mathbf{A}\mathbf{s}_1 + \mathbf{B}\mathbf{u}, d))$ with $\mathbf{s}_1, \mathbf{u} \gets \chi_\eta$ (centred binomial) and $\mathbf{B}$ uniform.
+The two distributions are identical except in the $\mathbf{s}_2$ vs.\ $\mathbf{B}\mathbf{u}$ component. Under $\MLWE_{q, k, \ell, \eta}$ in $\mathbf{B}$, $\mathbf{B}\mathbf{u}$ is computationally indistinguishable from a uniform $\mathbf{w} \in \Rq^k$; conditioned on uniformity, the post-$\Power$ projection is uniform over the range of $\Power$. Single-party ML-DSA's $\mathbf{s}_2 \sim \chi_\eta^k$ also projects through $\Power$ to a distribution that is statistically close to uniform over the $\Power$ image. The total distance between the two $\mathit{pk}$ distributions is therefore bounded by $\Adv^{\MLWE}_{q, k, \ell, \eta}(\mathcal{B}_{\MLWE})$ plus a negligible statistical term from the $\Power$ rounding.
+
+\textbf{$\sigma$ indistinguishability.}
+By correctness (\Cref{thm:sign-correct}), the Pulsar-M aggregated
+$\sigma$ is the FIPS~204 signature on $(\mathit{pk}, \mu, \mathbf{y})$ where $\mathbf{y} = \sum_j \mathbf{y}_j$ is the aggregated mask. The marginal distribution of $\mathbf{y}$ (sum of $t$ uniform-interval samples) is a discrete convolution; FIPS~204's single-party mask is a single uniform-interval sample. The two distributions differ in their concentration profile but are projected through the rejection-sampling acceptance condition $\|\mathbf{z}\|_\infty < \gamma_1 - \beta$, which forces the accepted distribution into the same FIPS~204 acceptance region. Conditioned on acceptance, the per-coordinate distribution of $\mathbf{z}$ is uniform on $[-\gamma_1 + \beta + 1, \gamma_1 - \beta - 1]$ in both cases (this is the FIPS~204 rejection-sampling invariant). Therefore the post-rejection distribution is identical between Pulsar-M and FIPS~204, and the output $\sigma$ is distributionally identical given the same $\tilde c$ and $\mathbf{h}$.
+
+The statistical term $1/2^{2\lambda}$ accounts for the negligible
+probability of a $\tilde c$ collision in the RO. \qed
+\end{proof}
+
+\begin{remark}[Caveat on signature byte equality]
+\Cref{thm:outind} states distributional equivalence. For \emph{byte
+equality} on a specific signature, the Pulsar-M $\Sign$
+implementation MUST emit exactly the FIPS~204 byte encoding of
+$(\tilde c, \mathbf{z}, \mathbf{h})$ with the same canonicalisation
+(coefficient lifting, sign convention, packing). This is an
+implementation-level requirement, not a cryptographic theorem; the
+encoding section (\S\ref{sec:encodings}) pins it. The byte-equality
+property is what unlocks Class~N1.
+\end{remark}
+
+% =====================================================================
+\subsection{Game ROB (robustness / identifiable abort)}
+\label{sec:game-rob}
+% =====================================================================
+
+\begin{game}[ROB]
+\label{game:rob}
+$\mathcal{A}$ corrupts up to $t-1$ parties and chooses one of the
+following deviation strategies:
+\begin{enumerate}[label=(\alph*), leftmargin=*, itemsep=0pt]
+\item Send distinct DKG commit vectors to distinct recipients (equivocation).
+\item Send a private DKG share that fails Pedersen verification.
+\item Send a Round-1 sign commit with an invalid MAC.
+\item Send a Round-2 sign response that, combined with honest contributions, would push the aggregate $\mathbf{z}$ outside the FIPS~204 norm.
+\item Refuse to participate at any round boundary.
+\end{enumerate}
+$\mathcal{A}$ wins if any honest party either (i) completes the
+protocol against the deviation \emph{without} producing a valid
+complaint identifying a corrupted deviator, or (ii) the honest
+party's resulting state is inconsistent with at least one other
+honest party's state (no recovery).
+\end{game}
+
+\begin{theorem}[Robustness]
+\label{thm:rob}
+For every $\PPT$ adversary $\mathcal{A}$ against \Cref{game:rob}, the
+honest parties either produce a valid \textsc{Complaint}
+record identifying a corrupted deviator, or successfully complete
+the protocol. Formally,
+$\Adv^{\mathsf{ROB}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{A})$ is
+bounded by the signature-forgery advantage on the parties' long-term
+identity-key scheme (e.g.\ Ed25519) plus
+$\Adv^{\MSIS}_{q, k, 2\ell, \beta_{\mathrm{bind}}}(\mathcal{B}_{\MSIS})$ for
+deviation~(a),
+plus the random-oracle collision term $q_H / 2^{256}$ for the
+commit-digest binding.
+\end{theorem}
+
+\begin{proof}[Sketch]
+For deviation (a), the Round-1.5 commit digest broadcast by every
+honest recipient binds each sender to one commit vector across the
+cohort (under collision-resistance of $\cSHAKE$). Two distinct
+commits would produce two distinct digests, observable to every
+recipient as a digest mismatch; the recipient signs a
+\textsc{ComplaintEquivocation} carrying the two signed broadcasts as
+evidence. The signature soundness of the accused party's long-term
+identity key prevents the accused from repudiating its own
+broadcasts; forging two broadcasts requires breaking the identity
+signature.
+
+For deviation (b), the Pedersen identity check
+(\Cref{thm:pedersen-binding}) fails with probability $1 - \negl$ if
+$\mathcal{A}$ deviates from a valid (share, blind, commit) triple.
+The failing recipient signs a \textsc{ComplaintBadDelivery}
+carrying the triple as evidence; the complaint is verifiable by any
+third party because the public Pedersen check is determined by
+$(\mathbf{A}, \mathbf{B})$.
+
+For deviations (c), (d), (e): MAC verification, Round-2 norm
+verification (against the public broadcast of $\bar{\mathbf{w}}_i,
+\mathbf{z}_i, \mathbf{r}_i$), and round-window timeouts respectively
+produce \textsc{ComplaintMACFailure}, \textsc{ComplaintRangeFailure},
+\textsc{ComplaintTimeout} records, signed by the detecting party. Each
+complaint is publicly verifiable from the transcript and the
+accuser's identity-key signature. \qed
+\end{proof}
+
+% =====================================================================
+\subsection{Game ADAPT (adaptive corruption)}
+\label{sec:game-adapt}
+% =====================================================================
+
+\begin{game}[ADAPT]
+\label{game:adapt}
+Identical to \Cref{game:tsuf} except $\mathcal{A}$ may issue
+\emph{adaptive} corruption queries: at any point during the protocol
+execution, $\mathcal{A}$ chooses a previously-honest party $i$ to
+corrupt; the challenger reveals party $i$'s entire current state
+including secret share, current per-round randomness, and PRNG
+seeds. The total number of corrupted parties at any time is bounded
+by $t-1$.
+\end{game}
+
+\begin{theorem}[Adaptive corruption --- sketch only]
+\label{thm:adapt-sketch}
+\emph{Statement deferred to round-2 MPTC.} A formal
+adaptive-corruption proof requires either (i) a complexity-leveraging
+argument that loses a $\binom{n}{t-1}$ factor in the security
+parameter and is therefore loose for practical $(n, t)$, or (ii) a
+trapdoor-based simulation argument compatible with the Pedersen
+commit structure. \cite{ringtail2024} sketches direction (i) for the
+Ring-LWE setting; the module-shaped adaptation is structural but
+non-trivial.
+\end{theorem}
+
+\begin{openq}[Adaptive corruption]
+Tight adaptive corruption for module-shaped two-round
+threshold lattice signatures is an open research question. Pulsar-M
+defers a formal proof to round 2; under the static-corruption model
+\Cref{thm:tsuf} suffices for round 1.
+\end{openq}
+
+% =====================================================================
+\subsection{Game MOB (mobile-adversary security, proactive resharing)}
+\label{sec:game-mob}
+% =====================================================================
+
+\begin{game}[MOB]
+\label{game:mob}
+Multi-epoch experiment with epoch counter $e \in \{1, 2, \dots, E\}$.
+At each epoch $e$:
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+\item $\mathcal{A}$ chooses a corruption set $\mathcal{C}_e \subseteq \{1, \dots, n\}$ with $|\mathcal{C}_e| \le t-1$. Corruptions are independent across epochs: a party in $\mathcal{C}_e \cap \mathcal{C}_{e+1}$ is corrupted across both epochs, but a party in $\mathcal{C}_e \setminus \mathcal{C}_{e+1}$ \emph{uncorrupts} between epochs (forgets its epoch-$e$ secrets but retains its identity-key state).
+\item The challenger reveals the epoch-$e$ shares and per-round randomness of every party in $\mathcal{C}_e$.
+\item $\mathcal{A}$ may issue $\mathcal{O}_{\Sign}$ queries within the epoch.
+\item At the epoch boundary, the challenger runs $\Reshare$ honestly with a fresh beacon $\beta_{e+1}$. The beacon is unbiasable: $\mathcal{A}$ sees $\beta_{e+1}$ \emph{after} committing to $\mathcal{C}_{e+1}$.
+\end{enumerate}
+At the end of epoch $E$, $\mathcal{A}$ outputs a forgery
+$(\mu^*, \sigma^*)$. $\mathcal{A}$ wins under the TS-UF winning
+condition.
+\end{game}
+
+\begin{theorem}[Mobile-adversary security]
+\label{thm:mob}
+For every $\PPT$ adversary $\mathcal{A}$ against \Cref{game:mob} over
+$E$ epochs,
+\[
+\Adv^{\mathsf{MOB}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{A})
+\;\le\;
+E \cdot \Adv^{\mathsf{TS\textsf{-}UF}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{B})
++ E \cdot \Adv^{\mathsf{beacon\textsf{-}unbias}}_{\mathrm{chain}}(\mathcal{B}_{\mathrm{beacon}}) +
+E \cdot \Adv^{\MLWE}_{q, k, \ell, \eta}(\mathcal{B}_{\MLWE}).
+\]
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+The proof proceeds by induction on epochs. The base case $e = 1$ is
+TS-UF directly. For the inductive step, assume the master secret
+$\mathbf{s}_1$ is hidden from $\mathcal{A}$ through epoch $e$. At the
+epoch boundary:
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+\item The reshare quorum $\mathcal{Q}_{e+1}$ is selected from the
+beacon $\beta_{e+1}$. Under the beacon-unbiasability assumption, the
+event \(\mathcal{Q}_{e+1} \cap \mathcal{C}_{e+1}\) is a uniform random
+sample from the size-$(t_{\mathrm{old}})$ subsets of $\mathcal{O}$;
+the probability that $\mathcal{A}$'s
+$|\mathcal{C}_{e+1}| \le t-1$ corruption covers $\mathcal{Q}_{e+1}$ entirely
+is at most
+$\binom{t-1}{t}\binom{n}{t}^{-1} = 0$ (corruption budget is strictly less than $t$).
+\item By \Cref{thm:reshare-pkinv}, $\mathit{pk}$ is invariant.
+\item By the resharing privacy theorem
+(\Cref{thm:reshare-priv} below), the joint view of $\mathcal{A}$
+across $(\mathcal{C}_e, \mathcal{C}_{e+1})$ is independent of the
+master secret $\mathbf{s}_1$.
+\item Forgery in epoch $e+1$ reduces to TS-UF in epoch $e+1$ against
+the (independently distributed) new committee shares.
+\end{enumerate}
+The union bound over $E$ epochs gives the stated advantage. \qed
+\end{proof}
+
+% =====================================================================
+\subsection{Games DKG-SOUND and DKG-PRIV}
+\label{sec:game-dkg}
+% =====================================================================
+
+\begin{game}[DKG-SOUND]
+\label{game:dkg-sound}
+$\mathcal{A}$ corrupts up to $t-1$ parties at DKG start. The
+challenger runs $\DKG$ honestly across the remaining parties;
+$\mathcal{A}$'s corrupted parties act under its control.
+$\mathcal{A}$ wins if the output $\mathit{pk}$ is \emph{not} a valid
+FIPS~204 public key (i.e., it does not deserialise correctly, or it
+does not satisfy the FIPS~204 public-key range checks).
+\end{game}
+
+\begin{theorem}[DKG soundness]
+\label{thm:dkg-sound}
+For every $\PPT$ adversary,
+$\Adv^{\mathsf{DKG\textsf{-}SOUND}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{A}) \le \Adv^{\MSIS}_{q, k, 2\ell, \beta_{\mathrm{bind}}}(\mathcal{B}_{\MSIS}) + q_H / 2^{256}$.
+\end{theorem}
+
+\begin{proof}[Sketch]
+Honest parties verify Pedersen identities at Round~2. A corrupted
+party that contributes a malformed share triggers
+\textsc{ComplaintBadDelivery}, removing its contribution from the
+aggregation. The remaining honest contributions are
+$\chi_\eta$-distributed, so $\mathbf{s}_1 = \sum_{i \in \mathcal{H}}
+\mathbf{c}_{i,0}$ has a distribution that is statistically close to
+$\chi_\eta^\ell$ scaled by $|\mathcal{H}|$ (which we re-randomise to
+$\chi_\eta^\ell$ via the FIPS~204 secret-key sampling discipline).
+The Pedersen binding bound prevents the adversary from substituting a
+different $\mathbf{c}_{i,0}$ between commit and reveal. The remaining
+RO term is the random-oracle collision bound for the commit-digest
+binding. \qed
+\end{proof}
+
+\begin{game}[DKG-PRIV]
+\label{game:dkg-priv}
+$\mathcal{A}$ corrupts up to $t-1$ parties and runs $\DKG$ honestly;
+the challenger flips a bit $b$. If $b = 0$, $\mathcal{A}$ sees the
+real DKG transcript including the corrupted parties' shares. If
+$b = 1$, the challenger simulates the corrupted parties' shares from
+the public $\mathit{pk}$ using a $\Sigma$-protocol-style simulator
+that re-randomises the commits without knowledge of the honest
+secrets. $\mathcal{A}$ outputs a guess $\hat b$.
+\end{game}
+
+\begin{theorem}[DKG share privacy]
+\label{thm:dkg-priv}
+$\Adv^{\mathsf{DKG\textsf{-}PRIV}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{A}) \le \Adv^{\MLWE}_{q, k, \ell, \eta}(\mathcal{B})$.
+\end{theorem}
+
+\begin{proof}[Sketch]
+The Pedersen commitments are computationally hiding
+(\Cref{thm:pedersen-hiding}). The simulator chooses corrupted-party
+shares uniformly from the simulation distribution induced by
+$\mathit{pk}$, then programs the commits via the Pedersen-hiding
+simulator. Distinguishing real from simulated commits reduces to
+$\MLWE$. \qed
+\end{proof}
+
+% =====================================================================
+\subsection{Games RESHARE-SOUND and RESHARE-PRIV}
+\label{sec:game-reshare}
+% =====================================================================
+
+\begin{game}[RESHARE-SOUND]
+\label{game:reshare-sound}
+$\mathcal{A}$ has corrupted up to $t-1$ parties of the old
+committee and up to $t-1$ of the new committee. The challenger runs
+$\Reshare$ with an honest beacon. $\mathcal{A}$ wins if the new
+committee's resulting shares do \emph{not} reconstruct to
+$\mathbf{s}_1$ via Lagrange interpolation at $X = 0$.
+\end{game}
+
+\begin{theorem}[Reshare soundness]
+\label{thm:reshare-sound}
+$\Adv^{\mathsf{RESHARE\textsf{-}SOUND}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{A}) \le \Adv^{\MSIS}_{q, k, 2\ell, \beta_{\mathrm{bind}}}(\mathcal{B})$.
+\end{theorem}
+
+\begin{proof}[Sketch]
+The reshare polynomials $g_i, h_i$ commit to constant terms
+$\lambda_i^{\mathcal{Q}_e} \mathbf{s}_i, \lambda_i^{\mathcal{Q}_e} \mathbf{u}_i$
+under Pedersen commit. Pedersen binding prevents a deviating
+$i \in \mathcal{Q}_e \cap \mathcal{C}$ from substituting a different
+constant term. The remaining honest parties' constant terms sum
+under Lagrange interpolation to $\mathbf{s}_1$ exactly
+(\Cref{thm:reshare-pkinv}). Therefore the master secret is preserved
+modulo binding. \qed
+\end{proof}
+
+\begin{game}[RESHARE-PRIV]
+\label{game:reshare-priv}
+$\mathcal{A}$ corrupts up to $t-1$ parties of $\mathcal{O}$ and up to
+$t-1$ of $\mathcal{N}$ (allowing distinct corruption sets per epoch,
+matching the mobile adversary model). The challenger runs $\Reshare$
+honestly with an honest beacon. $\mathcal{A}$ outputs a guess for
+$\mathbf{s}_1$. Advantage = probability of correct guess.
+\end{game}
+
+\begin{theorem}[Reshare share privacy]
+\label{thm:reshare-priv}
+For an unbiased beacon $\beta_e$,
+$\Adv^{\mathsf{RESHARE\textsf{-}PRIV}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{A}) \le \Adv^{\MLWE}_{q, k, \ell, \eta}(\mathcal{B}) + \Adv^{\mathsf{beacon\textsf{-}unbias}}_{\mathrm{chain}}(\mathcal{B}_{\mathrm{beacon}}) + q^{-1}$.
+\end{theorem}
+
+\begin{proof}[Sketch]
+The old committee's leaked shares $\{\mathbf{s}_i\}_{i \in
+\mathcal{C}_{\mathrm{old}}}$ alone leak no information about
+$\mathbf{s}_1$ by Shamir security. The new shares
+$\{\mathbf{s}'_j\}_{j \in \mathcal{C}_{\mathrm{new}}}$ similarly leak
+nothing on their own. The cross-leakage from the dealing step
+contributes $\{g_i(j) : i \in \mathcal{Q}_e, j \in
+\mathcal{C}_{\mathrm{new}}\}$. Conditioned on $\mathbf{s}_i$ (which
+$\mathcal{A}$ already knows if $i \in \mathcal{C}_{\mathrm{old}}$,
+otherwise hidden), the distribution of $g_i(j)$ for $|\{j\}| < t_{\mathrm{new}}$ is uniform in $\Rq^\ell$ by the high-degree
+random coefficients of $g_i$; therefore the dealing-step view admits
+a simulator that draws the leaked $g_i(j)$ values uniformly without
+knowing $\mathbf{s}_1$.
+
+The beacon-unbiasability assumption ensures
+$\mathcal{Q}_e \cap \mathcal{C}_{\mathrm{old}}$ is a fresh uniform
+sample with respect to $\mathbf{s}_1$, preventing adversarial gaming
+of the quorum.
+
+The $q^{-1}$ term is the negligible probability that a Lagrange
+denominator collides in the beacon-induced ordering. \qed
+\end{proof}
+
+% =====================================================================
+\subsection{Game RESTART-NL (rejection-restart non-leakage)}
+\label{sec:game-restart-nl}
+% =====================================================================
+
+We re-state \Cref{thm:restart-non-leak} from the main text as an
+explicit game for completeness and so the reduction to $\KMAC$'s
+PRF security is recorded alongside the other games.
+
+\begin{game}[RESTART-NL]
+\label{game:restart-nl}
+$\mathcal{A}$ corrupts up to $t-1$ parties of a fixed quorum $T$.
+The challenger runs $\Sign$ on a fixed honest target $(\mathit{pk}, \mu, T)$.
+$\mathcal{A}$ requests $K$ distinct rejection-restart attempts
+(distinct $\kappa = 1, \dots, K$); the challenger executes each
+attempt and reveals the full per-attempt transcript. $\mathcal{A}$
+outputs a guess for $\mathbf{s}_i$ for some honest party $i \in T
+\setminus \mathcal{C}$.
+\end{game}
+
+\begin{theorem}[Restart non-leakage]
+\label{thm:restart-nl-game}
+For every $\PPT$ adversary against \Cref{game:restart-nl},
+\[
+\Adv^{\mathsf{RESTART\textsf{-}NL}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{A})
+\;\le\;
+K \cdot \Adv^{\mathsf{PRF}}_{\KMAC}(\mathcal{B})
++ \Adv^{\mathsf{TS\textsf{-}UF}}_{\mathrm{Pulsar\text{-}M}}(\mathcal{A}').
+\]
+\end{theorem}
+
+The proof is the hybrid argument of the main-text
+\Cref{thm:restart-non-leak} restated formally. The cross-message
+extension --- replacing the fixed $\mu$ with adversarially-chosen
+$\mu^{(\kappa)}$ between restarts --- is recorded as open in
+\S\ref{sec:knownlimits}.
+
+% =====================================================================
+\subsection{Summary of reductions}
+\label{sec:sec-summary}
+% =====================================================================
+
+\begin{center}
+\begin{tabular}{l l}
+\toprule
+game & reduction target \\
+\midrule
+TS-UF (static unforgeability) & $\MLWE_{q,k,\ell,\eta}$ + $\MSIS_{q,k,2\ell,\beta_{\mathrm{bind}}}$ + EUF-CMA(ML-DSA) \\
+OUT-IND (FIPS~204 interchangeability) & $\MLWE_{q,k,\ell,\eta}$ \\
+ROB (identifiable abort) & Pedersen binding ($\MSIS$) + Ed25519 signature soundness \\
+ADAPT (adaptive corruption) & open --- deferred to round-2 \\
+MOB (mobile-adversary) & TS-UF + RESHARE-PRIV + beacon unbiasability \\
+DKG-SOUND & $\MSIS$ + RO collision \\
+DKG-PRIV & $\MLWE$ \\
+RESHARE-SOUND & $\MSIS$ \\
+RESHARE-PRIV & $\MLWE$ + beacon unbiasability \\
+RESTART-NL (rejection-restart) & PRF($\KMAC$) + TS-UF \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The dominant terms across all games are $\MLWE_{q, k, \ell, \eta}$
+and ML-DSA EUF-CMA, both of which take the FIPS~204
+parameter-pinned values (see \S\ref{sec:parameters}). Pulsar-M
+inherits ML-DSA's security level modulo the threshold-protocol
+overhead, which is dominated by the Pedersen-binding $\MSIS$ term
+and the random-oracle programming penalty.
+
+\paragraph{Forward-security note.}
+The MOB game (\Cref{game:mob}) implies forward security at the epoch
+granularity: revealing all shares at epoch $e$ leaks no information
+about $\mathbf{s}_1$ in epoch $e' > e$ provided fewer than $t-1$
+parties have leaked their epoch-$e'$ shares. Combined with $\Reshare$
+at the epoch boundary, this gives the standard
+proactive-secret-sharing forward-security guarantee.

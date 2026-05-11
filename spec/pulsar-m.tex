@@ -1,0 +1,1536 @@
+% Pulsar-M Technical Specification --- NIST MPTC submission
+% Target deadline: 2026-Nov-16
+%
+% Compile: latexmk -pdf pulsar-m.tex
+%
+% Status: cryptographic body drafted. Encoding section is intentionally
+% structural only --- byte-level wire formats freeze at DD-008
+% (end of August 2026).
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{algorithm, algpseudocode}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{cleveref}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  citecolor=blue!50!black,
+  urlcolor=blue!50!black,
+}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{game}{Game}
+\newtheorem{construction}{Construction}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+\newtheorem{sketch}{Proof sketch}
+\newtheorem{openq}{Open question}
+
+\crefname{theorem}{Theorem}{Theorems}
+\crefname{lemma}{Lemma}{Lemmas}
+\crefname{proposition}{Proposition}{Propositions}
+\crefname{corollary}{Corollary}{Corollaries}
+\crefname{definition}{Definition}{Definitions}
+\crefname{game}{Game}{Games}
+\crefname{construction}{Construction}{Constructions}
+\crefname{remark}{Remark}{Remarks}
+\crefname{openq}{Open question}{Open questions}
+\crefname{algorithm}{Algorithm}{Algorithms}
+
+\newcommand{\Rq}{R_q}
+\newcommand{\Zq}{\mathbb{Z}_q}
+\newcommand{\Tq}{\mathbb{T}_q}
+\newcommand{\negl}{\mathsf{negl}}
+\newcommand{\poly}{\mathsf{poly}}
+\newcommand{\PPT}{\mathsf{PPT}}
+\newcommand{\Adv}{\mathsf{Adv}}
+% \Pr is provided by LaTeX as a math operator; we use it directly.
+\newcommand{\MLWE}{\mathsf{MLWE}}
+\newcommand{\MSIS}{\mathsf{MSIS}}
+\newcommand{\SHAKE}{\mathrm{SHAKE256}}
+\newcommand{\cSHAKE}{\mathrm{cSHAKE256}}
+\newcommand{\KMAC}{\mathrm{KMAC256}}
+\newcommand{\TupleHash}{\mathrm{TupleHash256}}
+\newcommand{\NTT}{\mathrm{NTT}}
+\newcommand{\INTT}{\mathrm{NTT}^{-1}}
+\newcommand{\HighBits}{\mathsf{HighBits}}
+\newcommand{\LowBits}{\mathsf{LowBits}}
+\newcommand{\MakeHint}{\mathsf{MakeHint}}
+\newcommand{\UseHint}{\mathsf{UseHint}}
+\newcommand{\Power}{\mathsf{Power2Round}}
+\newcommand{\Decompose}{\mathsf{Decompose}}
+\newcommand{\Sign}{\textsc{Sign}}
+\newcommand{\Verify}{\textsc{Verify}}
+\newcommand{\Setup}{\textsc{Setup}}
+\newcommand{\DKG}{\textsc{DKG}}
+\newcommand{\Reshare}{\textsc{Reshare}}
+\newcommand{\Refresh}{\textsc{Refresh}}
+\newcommand{\Comm}{\mathsf{Comm}}
+
+\title{Pulsar-M:\\
+       \large A Threshold Implementation of FIPS 204 ML-DSA\\
+       NIST MPTC Class N1 + N4 Candidate}
+\author{Lux Industries Inc.\\
+        \texttt{security@lux.network}}
+\date{Draft \today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Pulsar-M is a $t$-of-$n$ threshold implementation of NIST FIPS 204
+(ML-DSA)~\cite{nist-fips204} signing and distributed key generation.
+The threshold ceremony emits signatures byte-equal to single-party
+FIPS~204 ML-DSA signatures: Pulsar-M signatures verify under
+unmodified \texttt{ML-DSA.Verify}. The protocol structure is the
+two-round threshold scheme of Boschini, Kaviani, Lai, Malavolta,
+Takahashi, and Tibouchi (``Ringtail''~\cite{ringtail2024}), retargeted
+from Ring-LWE ($\Rq$, single polynomial) to Module-LWE ($\Rq^k$,
+polynomial vectors) so the protocol's algebraic shape matches
+FIPS~204.
+
+This document is the technical specification submitted to the NIST
+Multi-Party Threshold Cryptography first call (NIST IR
+8214C,~\cite{nist-ir-8214c}). We claim Class~N1 (signing) and Class~N4
+(ML keygen / DKG): output interchangeability with FIPS~204 is the
+headline contribution.
+
+\paragraph{Status.} Draft. Encoding freeze targeted for end-August
+2026; package submission targeted for 2026-Nov-16. Sections on
+encodings and concrete benchmarks are intentionally structural only
+in this draft --- the byte-level wire formats freeze at the
+encoding-freeze gate.
+\end{abstract}
+
+\tableofcontents
+
+% =====================================================================
+\section{Introduction}
+% =====================================================================
+
+\paragraph{FIPS~204 ML-DSA.}
+FIPS~204~\cite{nist-fips204} standardises the Module-Lattice-Based
+Digital Signature Algorithm (ML-DSA), a derandomised variant of
+CRYSTALS-Dilithium. ML-DSA is a Fiat--Shamir-with-Aborts scheme over
+the cyclotomic ring $\Rq = \Zq[X]/(X^{256}+1)$ with prime modulus
+$q = 2^{23} - 2^{13} + 1 = 8\,380\,417$. Three parameter sets ---
+ML-DSA-44, ML-DSA-65, ML-DSA-87 --- target NIST PQ categories
+$2$, $3$, and $5$ respectively. The signature format is a triple
+$\sigma = (\tilde c, z, h)$ where $\tilde c \in \{0,1\}^{2\lambda}$
+is the commitment hash, $z \in \Rq^\ell$ is the masked response, and
+$h \in \{0,1\}^{\omega + k}$ encodes hint bits.
+
+\paragraph{Threshold signing.}
+A $t$-of-$n$ threshold signature scheme replaces the single signing
+party with a quorum: any subset of at least $t$ parties from a fixed
+group of $n$ can jointly produce a signature, while any subset of
+size strictly less than $t$ learns no useful information about the
+secret key and cannot forge. Threshold deployments are mandatory for
+high-value systems where single-key custody is unacceptable
+(consensus validators, custodial-key cold storage, root-CA signing).
+NIST IR~8214C~\cite{nist-ir-8214c} structures the design space into
+\emph{Class~S} (special threshold-friendly primitives, no output
+interchangeability requirement) and \emph{Class~N} (threshold
+implementations \emph{of} a specified NIST primitive whose outputs
+are interchangeable with the non-threshold primitive's outputs).
+
+\paragraph{Output interchangeability is the headline claim.}
+The Class~N positioning is strictly stronger: a threshold signature
+produced by Pulsar-M verifies against the same group public key
+$\mathit{pk}$ under unmodified \texttt{ML-DSA.Verify}. Any deployed
+FIPS-validated ML-DSA verifier --- BoringSSL FIPS, AWS-LC, OpenSSL~3,
+liboqs, or any future module conforming to FIPS~204 --- consumes
+Pulsar-M signatures with no code change. This collapses the
+threshold/non-threshold split at the wire format: a relying party
+who can verify ML-DSA can verify Pulsar-M.
+
+\paragraph{Why Pulsar-M alongside Pulsar.}
+The companion scheme Pulsar~\cite{ringtail2024} (R-LWE) is a
+Class~S candidate over the single-polynomial ring $\Rq$. Pulsar's
+construction is faster, simpler, and produces a different wire
+format (the verifier is \emph{not} FIPS~204; it is a Pulsar-specific
+verifier). Pulsar-M ports that protocol's $2$-round signing structure
+to the Module-LWE setting $\Rq^k$ in which FIPS~204 operates so that
+the output byte string is exactly an ML-DSA signature. We retain
+Pulsar's Pedersen DKG (over $\Rq^k$ rather than $\Rq$) and Pulsar's
+HJKY97-style proactive resharing, modulo:
+
+\begin{itemize}[leftmargin=*]
+\item \textbf{DD-002 (hash family).} The NIST profile uses
+exclusively FIPS~202~\cite{nist-fips202} +
+SP~800-185~\cite{nist-sp800-185}: $\SHAKE$, $\cSHAKE$, $\KMAC$,
+$\TupleHash$. No BLAKE3. The same SHAKE-256 sponge is used
+internally by ML-DSA-65 (FIPS~204~\S5.1).
+\item \textbf{DD-003 (lattice shape).} The protocol operates on
+$\Rq^k$ with the FIPS~204 parameters $(k, \ell, \eta, \tau, \gamma_1,
+\gamma_2, \omega, \beta, d, \lambda)$ inherited verbatim per
+parameter level.
+\item \textbf{DD-006 (reshare quorum selection).} Long-lived
+deployments select the reshare quorum from the chain's randomness
+beacon rather than deterministically (smallest-ID). The deterministic
+selection used by the Pulsar reference implementation lets a mobile
+adversary game the corrupt-set positioning across epochs; the beacon
+selection blocks that line of attack.
+\end{itemize}
+
+\paragraph{High-level construction.}
+Pulsar-M consists of four protocols and one verifier:
+
+\begin{itemize}[leftmargin=*]
+\item $\DKG$: Pedersen distributed key generation over $\Rq^k$.
+Three rounds. Output: a group public key $\mathit{pk}$ distributed
+exactly as a fresh ML-DSA public key, and a per-party Shamir share
+$(s_i, u_i)$ where $s_i$ shares the secret $s$ under the FIPS~204
+secret distribution and $u_i$ is the blinding share used for
+Pedersen binding.
+\item $\Sign$: Two-round threshold signing. Inputs: shares
+$(s_i, u_i)$ and message $\mu$. Output: a single FIPS~204
+$\sigma = (\tilde c, z, h)$ that verifies under \texttt{ML-DSA.Verify}.
+\item $\Verify$: literally \texttt{ML-DSA.Verify} from FIPS~204
+\S6.3; we quote and \emph{do not modify} the verifier.
+\item $\Reshare$: HJKY97-style proactive resharing, with
+beacon-randomised quorum selection. Inputs: old committee shares,
+new committee identity set, fresh beacon randomness.
+Output: new committee shares producing the \emph{same} $\mathit{pk}$.
+\item Identifiable abort: every protocol stage emits signed evidence
+of any detected deviation, suitable for slashing.
+\end{itemize}
+
+\paragraph{Document map.}
+\S\ref{sec:notation} pins notation. \S\ref{sec:prelim} states the
+hardness assumption (M-LWE), Pedersen commitments over $\Rq^k$,
+Shamir secret sharing over $\Rq^k$, and the FIPS~204 sampling
+primitives we re-use verbatim. \S\ref{sec:algorithms} specifies
+$\DKG$, $\Sign$, the verifier, and $\Reshare$.
+\S\ref{sec:security} defines the security games and reduces each to
+either M-LWE / MSIS or to the FIPS~204 EUF-CMA argument; the formal
+game definitions live in the companion file
+\texttt{spec/security-games.tex} included verbatim.
+\S\ref{sec:parameters} specifies three parameter sets matching
+ML-DSA-44/65/87 with lattice-estimator commitments.
+\S\ref{sec:encodings} is structural only in this draft; byte-level
+wire formats freeze at DD-008.
+\S\ref{sec:system-model}--\ref{sec:deployment} cover the system model,
+implementation considerations, and operational deployment guidance.
+
+% =====================================================================
+\section{Notation}
+\label{sec:notation}
+% =====================================================================
+
+\paragraph{Rings.} For a prime $q$ and positive power-of-two $n$, let
+$\Rq = \Zq[X]/(X^n + 1)$ be the cyclotomic ring of degree $n$ over
+$\Zq$. Pulsar-M operates over $\Rq$ with $(q, n) = (8\,380\,417, 256)$
+matching FIPS~204. Lower-case Latin letters denote ring elements;
+bold or vector arrows denote elements of $\Rq^k$ or $\Rq^\ell$.
+
+\paragraph{NTT.} The number-theoretic transform
+$\NTT : \Rq \to \Zq^n$ is the FIPS~204 NTT
+(FIPS~204~\S7.5). $\NTT$ is a ring isomorphism; for $a, b \in \Rq$,
+$\NTT(a \cdot b) = \NTT(a) \odot \NTT(b)$ where $\odot$ denotes
+coordinate-wise multiplication in $\Zq^n$. Multiplication of ring
+elements is computed by transporting both factors to NTT form,
+multiplying coordinate-wise, and inverse-transforming. Throughout
+this specification we adopt the convention that all matrix and
+vector multiplications are computed in NTT representation unless
+explicitly noted; this is the same convention as FIPS~204.
+
+\paragraph{Module shape.} The FIPS~204 ML-DSA parameter sets are
+indexed by a pair $(k, \ell)$ giving the dimensions of the public
+matrix $\mathbf{A} \in \Rq^{k \times \ell}$ and the secret vector
+$\mathbf{s}_1 \in \Rq^\ell$. The three FIPS~204 parameter sets fix
+$(k, \ell) \in \{(4, 4), (6, 5), (8, 7)\}$ for ML-DSA-44, ML-DSA-65,
+ML-DSA-87 respectively (FIPS~204~\S4 Table~1).
+
+\paragraph{Threshold parameters.} A threshold scheme has total party
+count $n$ and reconstruction threshold $t$, with $1 \le t \le n$ and
+$n \ge 2t - 1$ (so a $t$-element quorum exists alongside up to $t-1$
+faulty parties). Each party is identified by a $1$-indexed integer
+$i \in \{1, \dots, n\}$. We forbid the index $0$ because $0$ is the
+Shamir evaluation point of the secret. We re-use the symbol $n$ for
+both the ring degree and the party count where context disambiguates;
+where a clash would be confusing we write $\nu$ for the ring degree
+(matching FIPS~204's variable name).
+
+\paragraph{Hash family.} All hashing uses the FIPS~202 +
+SP~800-185 family: $\SHAKE$ (FIPS~202~\S6.3), $\cSHAKE$
+(SP~800-185~\S3), $\KMAC$ (SP~800-185~\S4), $\TupleHash$
+(SP~800-185~\S5). Each call is parameterised by a customisation
+string. The canonical customisation tags used by Pulsar-M are:
+
+\begin{center}\small
+\begin{tabular}{l l}
+\toprule
+purpose & SP~800-185 customisation tag \\
+\midrule
+DKG commit-digest (Round~1.5)            & \texttt{PULSAR-M-DKG-COMMIT-V1} \\
+DKG transcript hash                       & \texttt{PULSAR-M-DKG-TRANSCRIPT-V1} \\
+Sign Round-1 transcript (sid hash $H_1$)  & \texttt{PULSAR-M-SIGN-R1-V1} \\
+Sign Round-2 challenge (FIPS~204 $\tilde c$) & FIPS~204 inner SHAKE-256 \\
+Sign per-party PRNG (round-keyed)         & \texttt{PULSAR-M-SIGN-PRNG-V1} \\
+Sign PRF for mask cancellation            & \texttt{PULSAR-M-SIGN-PRF-V1} \\
+Reshare commit digest                      & \texttt{PULSAR-M-RESHARE-COMMIT-V1} \\
+Reshare transcript                         & \texttt{PULSAR-M-RESHARE-TRANSCRIPT-V1} \\
+Reshare beacon binding                     & \texttt{PULSAR-M-RESHARE-BEACON-V1} \\
+Public matrix $\mathbf{A}$ derivation       & FIPS~204 \texttt{ExpandA} (no change) \\
+Public matrix $\mathbf{B}$ derivation       & \texttt{PULSAR-M-EXPANDB-V1} \\
+Complaint signing transcript               & \texttt{PULSAR-M-COMPLAINT-V1} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The bound on customisation-string length is governed by
+SP~800-185~\S3.2 ($\le 2^{2040}$ bits); all Pulsar-M tags above are
+short-form ASCII strings well within the bound. Version
+suffixes (\texttt{-V1}) are reserved for future rotation; rotating any
+tag invalidates every test vector pinned at that tag.
+
+\paragraph{Sampling.} Five distributions appear in this specification:
+
+\begin{itemize}[leftmargin=*]
+\item \emph{Uniform mod $q$}, written $a \gets \Zq$ (per coefficient
+slot). The FIPS~204 rejection-based uniform sampler is reused
+verbatim; see FIPS~204~\S7.3.
+\item \emph{Centred binomial $B_\eta$} over the integers, written
+$a \gets B_\eta$. Secret coefficients have this distribution;
+FIPS~204~\S7.4 (\texttt{SampleInBall} is unrelated --- the secret
+sampler is the centred binomial of \S7.4 with the parameter
+$\eta$ given per parameter set).
+\item \emph{Ternary with Hamming weight $\tau$}, written
+$c \gets B_\tau$. Used for the challenge polynomial $c$; FIPS~204
+\texttt{SampleInBall} (\S7.6).
+\item \emph{Discrete Gaussian with parameter $\sigma$}, written
+$a \gets D_\sigma$. Used only inside the Pedersen DKG round-1
+sampling; see \S\ref{sec:prelim-gauss}.
+\item \emph{Uniform interval} $[-\gamma_1 + 1, \gamma_1]$, written
+$y \gets U_{\gamma_1}$. Used for masking the response polynomial in
+the FIPS~204 signer; FIPS~204~\S7.7.
+\end{itemize}
+
+\paragraph{Norms.} Coefficients of $\Zq$ are canonically lifted to
+$(-q/2, q/2]$ before any infinity-norm or two-norm is taken; we
+write $\|a\|_\infty$ and $\|a\|_2$ throughout. For a vector
+$\mathbf{v} \in \Rq^k$, $\|\mathbf{v}\|_\infty = \max_i \|v_i\|_\infty$,
+the maximum entry over all coefficient slots of all components.
+
+\paragraph{FIPS~204 macros.} We retain the FIPS~204 names
+$\HighBits, \LowBits, \Decompose, \Power, \MakeHint, \UseHint$ for the
+high-bits and hint extraction routines (FIPS~204~\S7.4--7.5); their
+behaviour and parameterisation by $\gamma_2$ and $d$ are inherited
+unchanged.
+
+% =====================================================================
+\section{Mathematical preliminaries}
+\label{sec:prelim}
+% =====================================================================
+
+\subsection{Module-LWE assumption}
+\label{sec:prelim-mlwe}
+
+The hardness assumption underlying Pulsar-M is identical to the
+hardness assumption underlying FIPS~204 ML-DSA: the decisional
+Module-LWE problem over $\Rq^k$.
+
+\begin{definition}[Decisional Module-LWE]
+\label{def:mlwe}
+Fix $(q, n, k, \ell, \eta) \in \mathbb{N}^5$. Let $\chi_\eta$ denote the
+centred binomial distribution of parameter $\eta$ over $\Zq$, applied
+coefficient-wise to elements of $\Rq$. The decisional
+$\MLWE_{q, k, \ell, \eta}$ problem is to distinguish, with
+non-negligible advantage, the distribution
+\[
+\bigl(\mathbf{A},\,\mathbf{A} \cdot \mathbf{s}_1 + \mathbf{s}_2\bigr)
+\quad \text{where } \mathbf{A} \gets \Rq^{k \times \ell},\;
+\mathbf{s}_1 \gets \chi_\eta^\ell,\;
+\mathbf{s}_2 \gets \chi_\eta^k,
+\]
+from the uniform distribution
+$\bigl(\mathbf{A},\,\mathbf{b}\bigr) \gets \Rq^{k \times \ell} \times \Rq^k$.
+The advantage of an adversary $\mathcal{B}$ is
+\[
+\Adv^{\MLWE}_{q, k, \ell, \eta}(\mathcal{B})
+=
+\bigl|\Pr[\mathcal{B}(\mathbf{A}, \mathbf{A}\mathbf{s}_1+\mathbf{s}_2) = 1]
+- \Pr[\mathcal{B}(\mathbf{A}, \mathbf{b}) = 1]\bigr|.
+\]
+\end{definition}
+
+The standard search-to-decision reduction (Langlois--Stehl\'e
+\cite{lattice-estimator} cite-tree from FIPS~204~\S2 references) gives
+the corresponding search hardness. The parameter sets in
+\S\ref{sec:parameters} fix the concrete instances at NIST PQ
+categories $2$, $3$, $5$.
+
+\subsection{Pedersen commitments over $\Rq^k$}
+\label{sec:prelim-pedersen}
+
+Pulsar-M's DKG and reshare protocols build on a module-shaped
+Pedersen commitment. The construction is the natural lift of the
+$\Rq$ Pedersen commitment used by the Pulsar reference
+implementation~\cite{ringtail2024} to the module
+ring $\Rq^k$.
+
+\begin{construction}[Module Pedersen commitment]
+\label{con:pedersen}
+Let $\mathbf{A}, \mathbf{B} \in \Rq^{k \times \ell}$ be two independent
+uniformly distributed public matrices. The Pedersen commitment to a
+secret vector $\mathbf{c} \in \Rq^\ell$ with binding randomness
+$\mathbf{r} \in \Rq^\ell$ is
+\[
+\Comm_{\mathbf{A}, \mathbf{B}}(\mathbf{c}; \mathbf{r}) \;=\;
+\mathbf{A} \cdot \mathbf{c} + \mathbf{B} \cdot \mathbf{r} \pmod q.
+\]
+$\mathbf{r}$ is drawn from the FIPS~204 centred binomial $\chi_\eta^\ell$ in
+the DKG instantiation. The commitment is $k$-vector valued in
+$\Rq^k$.
+\end{construction}
+
+\begin{theorem}[Computational hiding]
+\label{thm:pedersen-hiding}
+Under $\MLWE_{q, k, \ell, \eta}$ in the matrix $\mathbf{B}$,
+$\Comm_{\mathbf{A}, \mathbf{B}}$ is computationally hiding. Formally,
+for any $\PPT$ adversary $\mathcal{A}$ choosing
+$\mathbf{c}_0, \mathbf{c}_1 \in \Rq^\ell$,
+\[
+\Adv^{\mathrm{hide}}_{\mathbf{A}, \mathbf{B}}(\mathcal{A})
+\le
+\Adv^{\MLWE}_{q, k, \ell, \eta}(\mathcal{B})
+\]
+for an efficient reduction $\mathcal{B}$.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+Identical to the BDLOP18~\cite{ringtail2024} commitment-hiding
+argument applied per Shamir-coordinate slot of the module ring.
+Given an M-LWE instance $(\mathbf{B}, \mathbf{B}\mathbf{r} + \mathbf{e})$
+vs.\ $(\mathbf{B}, \mathbf{u})$, the reduction sets
+$\Comm_{\mathbf{A}, \mathbf{B}}(\mathbf{c}_b; \mathbf{r})
+= \mathbf{A}\mathbf{c}_b + (\mathbf{B}\mathbf{r} + \mathbf{e})$, embeds
+the bit $b$ into the choice of plaintext, and uses $\mathcal{A}$'s
+guess. The noise term $\mathbf{e}$ is added back into the commitment
+because the FIPS~204 noise distribution is fixed and the simulator
+must produce exactly that distribution. The advantage
+relationship is tight. \qed
+\end{proof}
+
+\begin{theorem}[Computational binding]
+\label{thm:pedersen-binding}
+Under $\MSIS_{q, k, 2\ell, \beta_{\mathrm{bind}}}$ in the wide
+concatenation $[\mathbf{A} \,|\, \mathbf{B}]$, the Pedersen commitment
+is computationally binding. The binding norm bound
+$\beta_{\mathrm{bind}}$ is bounded by the maximum norm of any
+honestly-produced opening:
+$\beta_{\mathrm{bind}} \ge 2\eta\sqrt{n \cdot \ell}$.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+Suppose $\mathcal{A}$ produces
+$(\mathbf{c}_0, \mathbf{r}_0) \ne (\mathbf{c}_1, \mathbf{r}_1)$ with
+$\Comm_{\mathbf{A},\mathbf{B}}(\mathbf{c}_0;\mathbf{r}_0)
+= \Comm_{\mathbf{A},\mathbf{B}}(\mathbf{c}_1;\mathbf{r}_1)$. Then
+$[\mathbf{A}\,|\,\mathbf{B}] \cdot
+(\mathbf{c}_0 - \mathbf{c}_1,\,\mathbf{r}_0 - \mathbf{r}_1)^\top = 0$,
+producing a short solution to MSIS in the concatenation, of norm
+at most $2 \cdot \max(\|\mathbf{c}\|_\infty, \|\mathbf{r}\|_\infty)$,
+which is bounded under the openings of interest. \qed
+\end{proof}
+
+\paragraph{Public matrix derivation.}
+$\mathbf{A}$ is derived exactly as in FIPS~204 via
+\texttt{ExpandA} (FIPS~204~\S7.1): \(\mathbf{A} = \texttt{ExpandA}(\rho)\),
+$\rho \in \{0,1\}^{256}$ a public seed. $\mathbf{B}$ is derived from
+a separate nothing-up-my-sleeve seed
+$\rho_B = \cSHAKE(\text{empty}, 256, \text{`Pulsar-M'},
+\text{`PULSAR-M-EXPANDB-V1'}\,)$. The two derivations are
+domain-separated so that $\mathbf{A}$ and $\mathbf{B}$ are independent
+even with shared randomness, satisfying the independence
+requirement of \Cref{thm:pedersen-hiding}.
+
+\subsection{Shamir secret sharing over $\Rq^k$}
+\label{sec:prelim-shamir}
+
+Shamir secret sharing extends to $\Rq^k$ slot-wise: each $\Zq$
+coefficient of each polynomial of each module entry is shared
+independently. Concretely, for a secret $\mathbf{s} \in \Rq^\ell$,
+the dealer chooses a vector polynomial
+\[
+P(X) = \mathbf{s} + \mathbf{a}_1 X + \cdots + \mathbf{a}_{t-1} X^{t-1}
+\in \bigl(\Rq^\ell\bigr)[X], \qquad \mathbf{a}_d \gets \Rq^\ell,
+\]
+and assigns party $i \in \{1, \dots, n\}$ the share $\mathbf{s}_i = P(i)$.
+Reconstruction at $X = 0$ uses standard Lagrange interpolation in
+$\Zq$ per coefficient slot:
+\[
+\mathbf{s} = \sum_{i \in T} \lambda_i^T \cdot \mathbf{s}_i, \qquad
+\lambda_i^T = \prod_{j \in T,\, j \ne i} \frac{-j}{i - j} \pmod q,
+\]
+for any threshold subset $T \subseteq \{1, \dots, n\}$ with
+$|T| = t$. Because the Lagrange coefficients $\lambda_i^T$ live in
+$\Zq$, they act on $\mathbf{s}_i \in \Rq^\ell$ as scalar
+multiplication --- the ring structure is preserved trivially. The
+information-theoretic security of $(t-1)$-Shamir over $\Zq$ gives
+the corresponding security over $\Rq^k$ per slot.
+
+\paragraph{Dual sharing $(\mathbf{s}_i, \mathbf{u}_i)$.}
+Pulsar-M's DKG produces a Shamir share of the FIPS~204 secret
+$\mathbf{s}_1$ alongside a Shamir share of the Pedersen blinding
+randomness $\mathbf{u}$. We denote the per-party share pair by
+$(\mathbf{s}_i, \mathbf{u}_i)$. Both are shared at the same threshold
+$t$ over the same evaluation-point set. The pair is bound to the
+party's identity by the Pedersen commit verification at DKG Round~2.
+
+\subsection{Discrete Gaussian sampling}
+\label{sec:prelim-gauss}
+
+Pulsar-M's signing protocol re-uses every distribution from FIPS~204
+verbatim: the mask $\mathbf{y} \gets U_{\gamma_1}^\ell$ (uniform interval),
+the secret centred binomial $\chi_\eta$, the challenge ternary
+$B_\tau$. The Pedersen DKG additionally uses the centred binomial
+$\chi_\eta$ for the blinding factor $\mathbf{r}$ to match
+FIPS~204's secret distribution.
+
+\paragraph{Why no Gaussian in $\Sign$.}
+FIPS~204 uses uniform-interval masking, not Gaussian masking (this is
+the Dilithium variant, not the rounded-Gaussian variant of
+Falcon-like schemes). To produce byte-equal FIPS~204 signatures,
+Pulsar-M must produce a $z$ vector with the same distribution as
+\texttt{ML-DSA.Sign}'s $z$ vector --- which means uniform-interval
+masking. We do \emph{not} use the Gaussian sampler of FIPS~204 \S3.3
+in the threshold $\Sign$ path. We \emph{do} use the centred binomial
+for the DKG blinding randomness $\mathbf{r}$ inside Pedersen
+commitments; this distribution choice is internal to the DKG and is
+not visible in the output FIPS~204 signature.
+
+\paragraph{Constant-time samplers.}
+All samplers used in Pulsar-M must be constant-time in their inputs.
+The FIPS~204 reference rejection samplers are constant-time provided
+the bound check is performed with branchless arithmetic; this is
+discussed further in \S\ref{sec:impl-ct}.
+
+\subsection{Rejection sampling in FIPS~204}
+\label{sec:prelim-rejection}
+
+FIPS~204~\S6.1 specifies the rejection-with-restart structure of
+ML-DSA signing. The signer samples a fresh $\mathbf{y}$ each
+iteration, computes $\mathbf{w} = \mathbf{A}\mathbf{y}$, derives the
+challenge $c$ from the high-bits of $\mathbf{w}$ and the message
+hash $\mu$, computes the candidate response
+$\mathbf{z} = \mathbf{y} + c \cdot \mathbf{s}_1$, and either accepts
+or restarts depending on two norm checks: $\|\mathbf{z}\|_\infty$
+must lie in the bounded interval
+$[-\gamma_1 + \beta + 1, \gamma_1 - \beta - 1]$, and
+$\|\LowBits(\mathbf{w} - c\mathbf{s}_2, 2\gamma_2)\|_\infty$ must lie
+in $[-\gamma_2 + \beta + 1, \gamma_2 - \beta - 1]$. On a fail, the
+signer restarts with a fresh $\mathbf{y}$.
+
+This restart structure interacts subtly with threshold signing: each
+restart consumes fresh masking randomness, but the per-party masking
+randomness must be domain-separated across restarts so that an
+attacker observing multiple restarts on the same $(\mathit{pk}, \mu)$
+learns nothing more than from a single attempt. We address this in
+\S\ref{sec:impl-rejection-restart}.
+
+% =====================================================================
+\section{Algorithms}
+\label{sec:algorithms}
+% =====================================================================
+
+\subsection{Distributed key generation \texorpdfstring{$\DKG$}{DKG}}
+\label{sec:dkg}
+
+The DKG produces a group public key $\mathit{pk}$ jointly distributed
+as a fresh FIPS~204 ML-DSA public key, plus per-party Shamir shares
+$(\mathbf{s}_i, \mathbf{u}_i)$ of the secret $\mathbf{s}_1$ and the
+Pedersen blinding $\mathbf{u}$ respectively. Three rounds. Pedersen
+commitments give verifiable secret sharing.
+
+\paragraph{Setup (out of band).}
+Before $\DKG$, all parties agree on the common public parameters
+$(q, n_{\mathrm{ring}}, k, \ell, \eta, \tau, \gamma_1, \gamma_2, \omega, \beta, d, \lambda)$
+matching the chosen FIPS~204 parameter set (one of $\{44, 65, 87\}$),
+plus the threshold pair $(n, t)$ with $n \ge 2t-1$.
+
+\paragraph{Public matrices.}
+$\mathbf{A} = \texttt{ExpandA}(\rho)$ from a public seed $\rho$
+(typically the chain genesis seed bound to the validator-set epoch),
+and $\mathbf{B}$ from the domain-separated derivation in
+\S\ref{sec:prelim-pedersen}.
+
+\paragraph{Round 1 (commit and deal).}
+Each party $i \in \{1, \dots, n\}$:
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+\item Samples a degree-$(t-1)$ polynomial in $X$ over $\Rq^\ell$:
+\[
+f_i(X) = \mathbf{c}_{i,0} + \mathbf{c}_{i,1} X + \cdots + \mathbf{c}_{i,t-1} X^{t-1},
+\]
+with $\mathbf{c}_{i,k} \gets \chi_\eta^\ell$ for each $k$. ($\mathbf{c}_{i,0}$ is party $i$'s contribution to the master secret $\mathbf{s}_1$.)
+\item Samples a degree-$(t-1)$ polynomial in $X$ over $\Rq^\ell$:
+\[
+g_i(X) = \mathbf{r}_{i,0} + \mathbf{r}_{i,1} X + \cdots + \mathbf{r}_{i,t-1} X^{t-1},
+\]
+with $\mathbf{r}_{i,k} \gets \chi_\eta^\ell$ for each $k$.
+\item Computes the Pedersen commitment to each coefficient pair:
+\[
+\mathbf{C}_{i,k} = \mathbf{A} \cdot \mathbf{c}_{i,k} + \mathbf{B} \cdot \mathbf{r}_{i,k}
+\in \Rq^k, \quad k \in \{0, 1, \dots, t-1\}.
+\]
+\item Broadcasts $\{\mathbf{C}_{i,k}\}_{k=0}^{t-1}$ to all parties.
+\item Privately sends $(\text{share}_{i \to j}, \text{blind}_{i \to j}) = (f_i(j), g_i(j))$ to each party $j \ne i$ over an authenticated point-to-point channel.
+\end{enumerate}
+
+\paragraph{Round 1.5 (cross-party commitment consistency).}
+Each party broadcasts the commit digest
+\[
+H_i = \cSHAKE(\,\text{empty},\,256,\,\text{`Pulsar-M'},\,
+\text{`PULSAR-M-DKG-COMMIT-V1'}\,||\,\mathit{encode}(\{\mathbf{C}_{i,k}\}_{k=0}^{t-1})\,).
+\]
+Parties compare digests received from every sender across the cohort.
+Mismatch $\Rightarrow$ equivocation: the sender broadcast distinct
+commitment vectors to distinct recipients. A signed
+\textsc{ComplaintEquivocation} disqualifies the sender. This step is
+load-bearing for identifiable abort.
+
+\paragraph{Round 2 (verification and aggregation).}
+Each party $j$ verifies, for every sender $i$:
+\[
+\mathbf{A} \cdot f_i(j) + \mathbf{B} \cdot g_i(j) \;\stackrel{?}{=}\;
+\sum_{k=0}^{t-1} j^k \cdot \mathbf{C}_{i,k} \pmod q.
+\]
+The check is exact (both sides are $\Zq$-linear) and is performed
+with a constant-time module-level comparison (no early exit on the
+first mismatched coefficient slot --- see
+\S\ref{sec:impl-ct}). Mismatch $\Rightarrow$ a signed
+\textsc{ComplaintBadDelivery} naming sender $i$ and carrying the
+(share, blind, commits) as evidence.
+
+On success, party $j$ aggregates:
+\[
+\mathbf{s}_j = \sum_{i=1}^n f_i(j), \qquad
+\mathbf{u}_j = \sum_{i=1}^n g_i(j), \qquad
+\mathbf{t} = \sum_{i=1}^n \mathbf{C}_{i,0}.
+\]
+$\mathbf{s}_j$ and $\mathbf{u}_j$ are party $j$'s share of $\mathbf{s}_1$
+and the Pedersen blinding $\mathbf{u}$, respectively. The aggregated
+Pedersen commitment $\mathbf{t} \in \Rq^k$ identifies with the FIPS~204
+public-key inner vector by construction:
+\[
+\mathbf{t} = \mathbf{A} \cdot \mathbf{s}_1 + \mathbf{B} \cdot \mathbf{u}
+\;\equiv_{\mathrm{dist}}\;
+\mathbf{A} \cdot \mathbf{s}_1 + \mathbf{s}_2,
+\]
+where the substitution $\mathbf{s}_2 = \mathbf{B}\mathbf{u}$ is
+computationally indistinguishable from a fresh
+$\chi_\eta^k$ sample under $\MLWE_{q,k,\ell,\eta}$ in $\mathbf{B}$
+(\Cref{thm:outind}).
+
+\paragraph{Output: FIPS~204-shaped $\mathit{pk}$.}
+The group public key follows the FIPS~204 layout
+(FIPS~204~\S5.1, Algorithm~5):
+\[
+\mathit{pk} = \bigl(\rho,\,\mathbf{t}_1\bigr), \qquad
+(\mathbf{t}_1, \mathbf{t}_0) = \Power(\mathbf{t}, d).
+\]
+The high-bits component $\mathbf{t}_1$ is in $\mathit{pk}$; the low-bits
+$\mathbf{t}_0$ is required by every signer at Round-2 aggregation
+(Algorithm~\ref{alg:sign-agg} line~3 uses it in the FIPS~204 hint
+formula) and is therefore stored alongside the aggregated public key
+by every party. $\mathbf{t}_0$ does \emph{not} leak the secret
+$\mathbf{s}_1$: it is the low-bits of a uniform-modulus quantity and
+behaves as a public protocol parameter.
+
+The aggregated Pedersen blinding $\mathbf{u} = \sum_i \mathbf{r}_{i,0}$
+is reconstructable by any threshold quorum via Lagrange interpolation
+on the $\{\mathbf{u}_j\}_{j \in T}$. In the strict FIPS~204 layout
+$\mathbf{s}_2$ is part of the private signing key; in Pulsar-M
+$\mathbf{u}$ is Shamir-shared with the same threshold structure as
+$\mathbf{s}_1$.
+
+\begin{remark}[$\mathbf{s}_2$ as derived quantity]
+The FIPS~204 specification treats $\mathbf{s}_1$ and $\mathbf{s}_2$
+as independent samples from $\chi_\eta$ (FIPS~204~\S5.1). Pulsar-M's
+construction derives $\mathbf{s}_2$ from the Pedersen blinding
+$\mathbf{u}$ via the structural identity
+$\mathbf{s}_2 = \mathbf{B} \cdot \mathbf{u}$. Because $\mathbf{B}$ is
+uniformly distributed and $\mathbf{u}$ is from $\chi_\eta^\ell$,
+$\mathbf{s}_2$ is computationally indistinguishable from a fresh
+$\chi_\eta^k$ sample under $\MLWE_{q, k, \ell, \eta}$; this is the
+content of the output-indistinguishability theorem
+(\Cref{thm:outind} below).
+\end{remark}
+
+\paragraph{Identifiable abort.}
+Round~1.5 and Round~2 each produce signed complaint records as a
+side-effect of detected deviations. The signing key is the party's
+long-term identity key (e.g.\ the Ed25519 key advertised in the
+chain's validator-set record). Complaint aggregation rules are
+specified per the system model (\S\ref{sec:system-model}).
+
+\subsection{Threshold signing \texorpdfstring{$\Sign$}{Sign}}
+\label{sec:sign}
+
+The threshold $\Sign$ protocol takes:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item the group public key $\mathit{pk}$,
+\item the quorum $T \subseteq \{1, \dots, n\}$ with $|T| = t$,
+\item per-party shares $\{(\mathbf{s}_i, \mathbf{u}_i)\}_{i \in T}$,
+\item a message $\mu$ (after FIPS~204 message hash binding $\mathrm{tr}$),
+\item a session id $\mathit{sid}$ unique per signature attempt,
+\end{itemize}
+
+and produces a FIPS~204 ML-DSA signature
+$\sigma = (\tilde c, \mathbf{z}, \mathbf{h})$.
+
+The protocol runs in two rounds plus a possibly-iterated rejection-restart
+outer loop. The inner rejection-restart loop is parameterised by an
+attempt counter $\kappa$; each new attempt advances $\kappa$ and
+re-domain-separates all sampler PRNG seeds (see
+\S\ref{sec:impl-rejection-restart}).
+
+\begin{algorithm}[H]
+\caption{$\Sign$ Round~1 (party $i$, attempt $\kappa$)}
+\label{alg:sign-r1}
+\begin{algorithmic}[1]
+\State \textbf{Input:} $\mathit{pk}$, $\mathit{sid}$, $\kappa$, share $\mathbf{s}_i$,
+quorum $T$, party-pair PRF keys $\{K_{i,j}\}_{j \in T \setminus \{i\}}$,
+message hash $\mu$.
+\State $\tau_1 \gets (\mathit{sid}, \kappa, T, i, \mathit{pk}, \mu)$
+\Comment{Round-1 transcript binding}
+\State $\text{seed}_i \gets \KMAC(K_i^{\mathrm{prng}},\,\tau_1,\,256,\,\text{`PULSAR-M-SIGN-PRNG-V1'})$
+\Comment{Per-round PRNG seed (\S\ref{sec:impl-rejection-restart})}
+\State Sample $\mathbf{y}_i \gets U_{\gamma_1}^\ell$ from the PRNG keyed by $\text{seed}_i$
+\State Compute commit $\mathbf{w}_i = \mathbf{A} \mathbf{y}_i \in \Rq^k$
+\State Compute high-bits commit $\bar{\mathbf{w}}_i = \HighBits(\mathbf{w}_i,\,2\gamma_2)$
+\State Compute commit digest $D_i = \cSHAKE(\bar{\mathbf{w}}_i,\,256,\,\text{`Pulsar-M'},\,\text{`PULSAR-M-SIGN-R1-V1'} \| \tau_1)$
+\State \textbf{For each} $j \in T \setminus \{i\}$ \textbf{do}
+$\;\mathrm{MAC}_{i \to j} \gets \KMAC(K_{i,j},\,D_i \| \tau_1,\,256,\,\text{`PULSAR-M-SIGN-R1-MAC-V1'})$
+\State \textbf{Broadcast:} $(D_i, \{\mathrm{MAC}_{i \to j}\}_{j \in T \setminus \{i\}})$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{$\Sign$ Round~2 (party $i$, attempt $\kappa$)}
+\label{alg:sign-r2}
+\begin{algorithmic}[1]
+\State \textbf{Input:} the received $\{D_j\}_{j \in T}$ and corresponding MACs, plus all Round-1 state from party $i$.
+\State Verify every MAC received from each $j$ against the locally-known $K_{i,j}$. Abort with $\textsc{ComplaintMACFailure}(j)$ on mismatch.
+\State Compute the aggregated commit hash $\bar D = \cSHAKE(\text{empty},\,256,\,\text{`Pulsar-M'},\,\text{`PULSAR-M-SIGN-R2-V1'} \,\|\, D_1 \| D_2 \| \cdots \| D_n)$
+\State Recover the aggregated $\bar{\mathbf{w}} = \HighBits(\sum_{j \in T} \mathbf{w}_j,\,2\gamma_2)$ by summing per-party Round-1 commits (each party transmits its raw $\bar{\mathbf{w}}_i$ alongside the commit digest in Round~2 for verification --- the digest's role is binding under MAC, not concealment).
+\State Compute the FIPS~204 challenge $\tilde c \gets \SHAKE(\mu \,\|\, \bar{\mathbf{w}},\,2\lambda)$ and expand to $c \in \Rq$ via $c = \texttt{SampleInBall}(\tilde c)$.
+\State Compute the Lagrange coefficient $\lambda_i^T \in \Zq$ for party $i$ in the quorum $T$.
+\State Compute party $i$'s response contribution:
+$\mathbf{z}_i = \mathbf{y}_i + c \cdot \lambda_i^T \cdot \mathbf{s}_i \pmod q$
+\State Compute party $i$'s low-bits contribution to the hint vector:
+$\mathbf{r}_i = c \cdot \lambda_i^T \cdot \mathbf{u}_i$ \Comment{used in $\mathbf{h}$ computation by the aggregator}
+\State \textbf{Broadcast:} $(\bar{\mathbf{w}}_i, \mathbf{z}_i, \mathbf{r}_i)$ alongside an integrity hash bound to the Round-2 transcript.
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{$\Sign$ Aggregation and rejection (any honest party in $T$)}
+\label{alg:sign-agg}
+\begin{algorithmic}[1]
+\State Compute aggregate $\mathbf{z} = \sum_{j \in T} \mathbf{z}_j$ and aggregate $c\mathbf{s}_2 = \sum_{j \in T} \mathbf{r}_j$. By Lagrange linearity, $c\mathbf{s}_2 = c \cdot \mathbf{B}\mathbf{u}$ where $\mathbf{u} = \sum_{j} \lambda_j^T \mathbf{u}_j$ is the master Pedersen blinding (\S\ref{sec:dkg}).
+\State Compute the FIPS~204 high-bits delta: let $\mathbf{w} = \sum_{j \in T} \mathbf{w}_j$ and $\mathbf{w}' = \mathbf{w} - c\mathbf{s}_2$.
+\State Compute the candidate hint $\mathbf{h} = \MakeHint(-\langle c\mathbf{t}_0 \rangle,\,\mathbf{w}' + \langle c\mathbf{t}_0 \rangle,\,2\gamma_2)$ following FIPS~204~\S6.1 line 16, where $\mathbf{t}_0$ is the low-bits component of the public Pedersen-recovered commit (carried in $\mathit{pk}$'s private companion held by every party).
+\State Compute the FIPS~204 rejection-check predicates (FIPS~204~\S6.1.1):
+\State \quad $R_1$: $\|\mathbf{z}\|_\infty \stackrel{?}{<} \gamma_1 - \beta$
+\State \quad $R_2$: $\|\LowBits(\mathbf{w}',\,2\gamma_2)\|_\infty \stackrel{?}{<} \gamma_2 - \beta$
+\State \quad $R_3$: $\|\langle c\mathbf{t}_0\rangle\|_\infty \stackrel{?}{<} \gamma_2$
+\State \quad $R_4$: $|\mathbf{h}|_{\mathrm{count}} \stackrel{?}{\le} \omega$
+\State Compute the combined accept bit $\mathrm{accept} = R_1 \wedge R_2 \wedge R_3 \wedge R_4$, evaluating all $R_i$ unconditionally (constant-time, \S\ref{sec:impl-ct}).
+\If{$\neg\mathrm{accept}$}
+\State Restart: increment $\kappa$ and re-run from Round~1 with new PRNG seeds (\S\ref{sec:impl-rejection-restart}). \textbf{Crucially}: no per-round state is preserved across the restart boundary other than $(\mathit{sid}, \kappa, \mathit{pk}, \mu, T)$ and the long-term shares.
+\Else
+\State Output $\sigma = (\tilde c, \mathbf{z}, \mathbf{h})$.
+\EndIf
+\end{algorithmic}
+\end{algorithm}
+
+\begin{theorem}[Correctness of $\Sign$]
+\label{thm:sign-correct}
+If all parties in $T$ are honest and the rejection conditions
+accept, then the aggregated $\sigma = (\tilde c, \mathbf{z}, \mathbf{h})$
+satisfies $\texttt{ML-DSA.Verify}(\mathit{pk}, \mu, \sigma) = \mathit{accept}$.
+\end{theorem}
+
+\begin{proof}
+By Lagrange-interpolation linearity:
+\[
+\mathbf{z}
+= \sum_{j \in T} \bigl(\mathbf{y}_j + c \cdot \lambda_j^T \cdot \mathbf{s}_j\bigr)
+= \mathbf{y} + c \cdot \mathbf{s}_1
+\]
+where $\mathbf{y} = \sum_{j \in T} \mathbf{y}_j$ is the aggregate
+mask (distributed as uniform interval over the per-coordinate sum,
+and within the FIPS~204 acceptance interval by the rejection
+check) and $\sum_{j \in T} \lambda_j^T \mathbf{s}_j = \mathbf{s}_1$
+by Lagrange interpolation at $X = 0$. This is exactly the FIPS~204
+single-signer $\mathbf{z}$. The challenge $\tilde c$ is the
+FIPS~204 challenge computed on the same
+$(\mu, \HighBits(\mathbf{A}\mathbf{y}, 2\gamma_2))$ input. The hint
+$\mathbf{h}$ is the FIPS~204 hint computed against the same
+$(\mathbf{w}, c\mathbf{s}_2, 2\gamma_2)$ inputs. Therefore the triple
+$(\tilde c, \mathbf{z}, \mathbf{h})$ is identical to what
+single-signer FIPS~204 would output on the same
+$(\mathit{pk}, \mu, \mathbf{y})$. Verification follows from FIPS~204's
+correctness. \qed
+\end{proof}
+
+\begin{remark}[Round-1 commit-digest binding]
+The Round-1 commit digest $D_i$ is bound under MAC, not concealment:
+its purpose is to commit each party to its
+$\bar{\mathbf{w}}_i$ before learning the challenge $c$. The
+plaintext $\bar{\mathbf{w}}_i$ is transmitted in Round~2 alongside
+the response; recipients re-derive $D_i$ from the received plaintext
+and check equality. This is the standard MAC-and-commit pattern
+inherited from Pulsar's $\Sign$ in \texttt{pulsar/sign/sign.go}.
+\end{remark}
+
+\subsection{Verification \texorpdfstring{$\Verify$}{Verify}}
+\label{sec:verify}
+
+$\Verify$ is \texttt{ML-DSA.Verify} from FIPS~204~\S6.3, verbatim. No
+threshold-specific changes; no per-threshold extension fields; no
+side parameters. We quote FIPS~204 for completeness:
+
+\begin{algorithm}[H]
+\caption{$\Verify$ (\texttt{ML-DSA.Verify} per FIPS~204 \S6.3)}
+\label{alg:verify}
+\begin{algorithmic}[1]
+\State \textbf{Input:} $\mathit{pk} = (\rho, \mathbf{t}_1)$, message $\mu$, signature $\sigma = (\tilde c, \mathbf{z}, \mathbf{h})$.
+\State $\mathbf{A} \gets \texttt{ExpandA}(\rho)$
+\State $\mu' \gets \SHAKE(\mathrm{tr} \| \mu, 512)$ where $\mathrm{tr}$ is the FIPS~204 public-key fingerprint
+\State $c \gets \texttt{SampleInBall}(\tilde c)$
+\State $\mathbf{w}' \gets \UseHint(\mathbf{h},\,\mathbf{A}\mathbf{z} - c \cdot 2^d \mathbf{t}_1,\,2\gamma_2)$
+\State $\tilde c' \gets \SHAKE(\mu' \| \mathbf{w}', 2\lambda)$
+\State \textbf{Output:}
+$\mathit{accept}$ iff
+$\|\mathbf{z}\|_\infty < \gamma_1 - \beta$
+and
+$\tilde c = \tilde c'$
+and
+$|\mathbf{h}|_{\mathrm{count}} \le \omega$.
+\end{algorithmic}
+\end{algorithm}
+
+Note that line 3's $\mu'$ definition --- the public-key fingerprint
+prefixing --- is exactly the FIPS~204 binding. Pulsar-M's $\Sign$
+must compute its challenge over the \emph{same} $\mu'$ for the
+verifier to accept; this is the $\mu$ used in
+Algorithm~\ref{alg:sign-r2} step 5.
+
+This is the entire Class~N point: any FIPS-validated ML-DSA
+verifier (BoringSSL FIPS, AWS-LC, OpenSSL~3, liboqs) consumes
+Pulsar-M signatures without modification.
+
+\subsection{Proactive resharing \texorpdfstring{$\Reshare$}{Reshare}}
+\label{sec:reshare}
+
+$\Reshare$ rotates the share distribution from an old committee
+$\mathcal{O}$ with threshold $t_{\mathrm{old}}$ to a new committee
+$\mathcal{N}$ with threshold $t_{\mathrm{new}}$ without (i) reconstructing
+the master secret $\mathbf{s}_1$ in any party's memory, and (ii)
+changing the public key $\mathit{pk}$. The construction is HJKY97-style
+(\cite{hjky97}) lifted to $\Rq^k$.
+
+\paragraph{Beacon-randomised quorum selection (DD-006).}
+A na\"ive deterministic quorum selection (e.g.\ smallest-ID
+$t_{\mathrm{old}}$ subset of $\mathcal{O}$) lets a mobile adversary
+\emph{game} the corrupt-set positioning: the adversary, knowing in
+advance which parties will be quorum members at each reshare, can
+schedule its $t-1$ corruption budget to maximally cover the quorum.
+The HIP-0077 red-review finding F10 made this concrete for Pulsar's
+reshare layer. Pulsar-M mitigates by deriving the quorum from the
+chain's randomness beacon $\beta_e$ for epoch $e$:
+\[
+\mathcal{Q}_e
+\;=\;
+\bigl\{\text{the } t_{\mathrm{old}} \text{ smallest-ID members of }
+\mathcal{O}\text{ in the permutation induced by }
+\cSHAKE(\beta_e, 256\cdot|\mathcal{O}|, \text{`Pulsar-M'},
+\text{`PULSAR-M-RESHARE-BEACON-V1'})\bigr\}.
+\]
+The beacon $\beta_e$ must be unpredictable in advance to the
+adversary; the Lux consensus randomness layer (Quasar) provides this
+unpredictability. With an unbiasable beacon, the adversary's optimal
+strategy reduces to randomly guessing which corrupted parties will be
+selected, giving negligible advantage over uniform.
+
+\paragraph{Protocol.}
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+\item Compute $\mathcal{Q}_e \subseteq \mathcal{O}$ as above with
+$|\mathcal{Q}_e| = t_{\mathrm{old}}$.
+\item Compute Lagrange coefficients $\lambda_i^{\mathcal{Q}_e}$ at
+$X = 0$ for each $i \in \mathcal{Q}_e$.
+\item Each $i \in \mathcal{Q}_e$ samples a degree-$(t_{\mathrm{new}} - 1)$
+polynomial in $X$ over $\Rq^\ell$:
+\[
+g_i(X) = (\lambda_i^{\mathcal{Q}_e} \cdot \mathbf{s}_i) + \mathbf{r}_{i,1} X + \cdots + \mathbf{r}_{i, t_{\mathrm{new}}-1} X^{t_{\mathrm{new}}-1},
+\]
+with $\mathbf{r}_{i,d} \gets \Rq^\ell$ uniform for $d \ge 1$, and
+similarly an independent polynomial $h_i(X)$ with constant term
+$\lambda_i^{\mathcal{Q}_e} \mathbf{u}_i$ for the blinding share.
+\item Each $i$ commits to $g_i, h_i$ via Pedersen commitments
+$\mathbf{C}^g_{i,k}, \mathbf{C}^h_{i,k}$, broadcasts them, and
+privately delivers $(g_i(j), h_i(j))$ to each $j \in \mathcal{N}$.
+\item Each new party $j$ verifies, for every $i \in \mathcal{Q}_e$:
+$\mathbf{A} g_i(j) + \mathbf{B} h_i(j) \stackrel{?}{=}
+\sum_k j^k \mathbf{C}^g_{i,k} + \sum_k j^k \mathbf{C}^h_{i,k}$, with
+the same constant-time module-level comparison as in
+\S\ref{sec:dkg}.
+\item Each $j$ aggregates
+$\mathbf{s}'_j = \sum_{i \in \mathcal{Q}_e} g_i(j)$ and
+$\mathbf{u}'_j = \sum_{i \in \mathcal{Q}_e} h_i(j)$.
+\item All new parties produce an \textsc{ActivationCertificate}: a
+threshold signature of the reshare transcript hash under the
+\emph{unchanged} $\mathit{pk}$, proving the new committee is
+operational. The chain accepts the new epoch only on activation
+certificate verification.
+\end{enumerate}
+
+\begin{theorem}[Public-key invariance]
+\label{thm:reshare-pkinv}
+Let $\mathbf{s}'_j$ and $\mathbf{u}'_j$ be the shares produced by
+$\Reshare$. For every threshold subset
+$T' \subseteq \mathcal{N}$ with $|T'| = t_{\mathrm{new}}$,
+\[
+\sum_{j \in T'} \lambda_j^{T'} \mathbf{s}'_j = \mathbf{s}_1 \quad\text{and}\quad
+\sum_{j \in T'} \lambda_j^{T'} \mathbf{u}'_j = \mathbf{u} \pmod q.
+\]
+Therefore $\mathit{pk}$ is invariant under $\Reshare$.
+\end{theorem}
+
+\begin{proof}
+Define $G(X) = \sum_{i \in \mathcal{Q}_e} g_i(X)$. $G$ has degree at
+most $t_{\mathrm{new}} - 1$ and constant term
+\[
+G(0) = \sum_{i \in \mathcal{Q}_e} g_i(0)
+= \sum_{i \in \mathcal{Q}_e} \lambda_i^{\mathcal{Q}_e} \mathbf{s}_i
+= \mathbf{s}_1,
+\]
+where the last equality is Lagrange interpolation over the old
+quorum. The new shares are $\mathbf{s}'_j = G(j)$ for $j \in \mathcal{N}$,
+so $\{\mathbf{s}'_j\}_{j \in \mathcal{N}}$ are valid Shamir shares of
+$G(0) = \mathbf{s}_1$ with threshold $t_{\mathrm{new}}$. The same argument
+applies to $\{\mathbf{u}'_j\}_{j \in \mathcal{N}}$. \qed
+\end{proof}
+
+\paragraph{Same-committee refresh.}
+We also specify a $\Refresh$ primitive (HJKY97 zero-polynomial form)
+for periodic mobile-adversary hygiene within a stable validator set.
+$\Refresh$ is structurally identical to $\Reshare$ with the
+substitution $g_i(0) = 0, h_i(0) = 0$ (zero constant term), the same
+committee on both sides, and an updated activation certificate. Its
+correctness and security arguments are direct corollaries of
+\Cref{thm:reshare-pkinv} (every honest party's polynomial vanishes at
+$X = 0$, so the master secret is preserved).
+
+\subsection{Identifiable abort}
+\label{sec:abort}
+
+Every detected deviation in $\DKG$, $\Sign$, or $\Reshare$ produces
+a signed complaint. A complaint is a tuple
+$(\text{kind}, \text{accuser}, \text{accused}, \text{epoch}, \text{evidence})$
+where:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \textsc{ComplaintEquivocation}: the accused party broadcast distinct commitment vectors to distinct recipients. Evidence: two commits and the signed broadcast from the accused.
+\item \textsc{ComplaintBadDelivery}: the accused party's private share/blind to the accuser fails Pedersen verification. Evidence: (share, blind, commits) showing the verification fails.
+\item \textsc{ComplaintMACFailure}: a MAC from the accused fails verification. Evidence: the failing MAC and the recipient's key.
+\item \textsc{ComplaintRangeFailure}: the accused party's contribution would have caused the aggregated signature to fail the FIPS~204 norm check by an amount inconsistent with honest behaviour. Evidence: the per-party transcript line.
+\end{itemize}
+
+All complaints are signed under the accuser's long-term identity key
+(e.g.\ Ed25519). The system model's slashing layer
+(\S\ref{sec:system-model}) consumes complaints; a quorum of distinct
+accusers against the same accused is a disqualification event.
+
+% =====================================================================
+\section{Security analysis}
+\label{sec:security}
+% =====================================================================
+
+The formal game definitions are stated in the companion file
+\texttt{spec/security-games.tex}, included below:
+
+\input{security-games}
+
+% =====================================================================
+\section{Concrete parameters}
+\label{sec:parameters}
+% =====================================================================
+
+\input{parameters}
+
+% =====================================================================
+\section{Encodings}
+\label{sec:encodings}
+% =====================================================================
+
+This section specifies the \emph{structure} of every wire-level
+message. Byte-level layouts (offsets, lengths, endianness) freeze at
+the encoding-freeze gate (DD-008, end of August 2026). Until that
+gate, the structural commitments below are normative; byte offsets
+within them are not.
+
+\paragraph{Common conventions.}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item Every wire message starts with a fixed-length version tag:
+$(\text{`PULSAR-M-1'}, \text{kind\_byte}, \text{epoch\_u32})$.
+Tag length: TBD at freeze.
+\item Lengths are big-endian unsigned. Length-prefixed for every
+variable-size field.
+\item Polynomials in $\Rq$ are encoded coefficient-by-coefficient
+using the FIPS~204 byte-packing for the per-poly bit width (see
+FIPS~204~\S7.1, \texttt{bitlen}). Pulsar-M re-uses the FIPS~204
+packings verbatim for $\mathbf{s}_1, \mathbf{s}_2, \mathbf{z}, \mathbf{w}$.
+\item Module vectors are encoded as their entries concatenated in
+order. Module matrices are encoded row-major.
+\item All multi-party transcripts include the
+$(\mathit{pk}, \text{epoch}, \mathit{sid}, T)$ tuple as a
+prefix before the message body, bound under a $\cSHAKE$ transcript
+hash with the appropriate customisation tag.
+\end{itemize}
+
+\paragraph{$\DKG$ Round-1 message.}
+\(\{\mathbf{C}_{i,k}\}_{k=0}^{t-1}\) followed by the per-recipient
+private channel envelope containing $(f_i(j), g_i(j))$ for each
+$j \ne i$. The broadcast portion (commits) is length-pinned because
+$t$ and the module shape are known at the start of the protocol.
+
+\paragraph{$\DKG$ Round-1.5 broadcast.}
+$(i, H_i)$ where $H_i$ is the 32-byte commit digest.
+
+\paragraph{$\DKG$ Round-2 message.}
+$(i, \mathbf{s}_i^{\mathrm{aggregated}}, \mathbf{u}_i^{\mathrm{aggregated}})$
+\emph{never appears on the wire}: aggregation is local. The Round-2
+artifact is a per-party acceptance signature on the aggregated
+$(\mathbf{t}, \mathit{pk})$ value, signed under the party's long-term
+identity key.
+
+\paragraph{$\Sign$ Round-1 broadcast.}
+$(\mathit{sid}, \kappa, i, D_i, \{\mathrm{MAC}_{i \to j}\}_{j \in T \setminus \{i\}})$.
+
+\paragraph{$\Sign$ Round-2 broadcast.}
+$(\mathit{sid}, \kappa, i, \bar{\mathbf{w}}_i, \mathbf{z}_i, \mathbf{r}_i, \text{Round2integrity})$.
+
+\paragraph{$\Sign$ output (final signature).}
+The FIPS~204 ML-DSA signature triple $(\tilde c, \mathbf{z}, \mathbf{h})$,
+encoded \emph{exactly} per FIPS~204~\S7.2. \textbf{No Pulsar-M envelope.}
+
+\paragraph{$\Reshare$ messages.}
+Structurally identical to $\DKG$ except the commit constant terms
+are $\lambda_i^{\mathcal{Q}_e} \mathbf{s}_i$ rather than fresh; and the
+broadcast carries the beacon $\beta_e$ to bind the quorum choice.
+
+\paragraph{Complaint records.}
+$(\text{kind}\,\text{u8},\,\text{accuser}\,\text{u32},\,\text{accused}\,\text{u32},\,\text{epoch}\,\text{u32},\,\text{evidence-blob}\,\text{var},\,\text{signature}\,\text{64B})$.
+Length-pinned per kind.
+
+\paragraph{Activation certificate.}
+A FIPS~204 ML-DSA signature on the reshare transcript hash under the
+unchanged $\mathit{pk}$. The hash is bound under the
+\texttt{PULSAR-M-RESHARE-TRANSCRIPT-V1} customisation tag.
+
+\paragraph{Open at freeze.}
+Outstanding decisions for the encoding freeze:
+(i) the exact version tag layout for cross-implementation feature
+gating,
+(ii) the exact embedding of $\bar{\mathbf{w}}_i$ in the Round-2
+broadcast (compressed vs.\ uncompressed FIPS~204
+\texttt{w1Encode}),
+(iii) the byte layout of the per-party MAC bundle (sparse vs.\
+dense indexing),
+(iv) the exact ordering and field widths for complaint evidence blobs.
+
+% =====================================================================
+\section{System model}
+\label{sec:system-model}
+% =====================================================================
+
+\input{system-model}
+
+% =====================================================================
+\section{Implementation considerations}
+\label{sec:impl}
+% =====================================================================
+
+\subsection{Constant-time signing}
+\label{sec:impl-ct}
+
+All secret-dependent comparisons MUST be constant-time. In
+particular:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item Pedersen-identity verification (\S\ref{sec:dkg} Round~2 and
+\S\ref{sec:reshare}) compares full module vectors in $\Rq^k$. The
+comparison MUST iterate over every coefficient slot of every entry
+unconditionally and reduce the per-slot equality bit into a single
+accumulator (e.g.\ \texttt{subtle.ConstantTimeCompare} over a
+serialised view, as in
+\texttt{pulsar/dkg2/dkg2.go: constTimePolyEqual}).
+\item FIPS~204 norm checks ($\|\mathbf{z}\|_\infty < \gamma_1 - \beta$
+etc.) MUST be performed with branchless arithmetic. The
+\texttt{pulsar/sign/sign.go: CheckL2Norm} implementation is the
+reference (modulo Pulsar-M's switch from L2 norm to L-infty per
+FIPS~204).
+\item Rejection-restart MUST NOT short-circuit on the first failing
+norm: all norms are evaluated, then the accept/restart decision is
+made from the accumulated result. This prevents timing leakage of
+\emph{which} bound failed.
+\item No \texttt{log.*}, \texttt{fmt.Print*}, or panic in any
+secret-touching function (DD-007). The Pulsar reference's
+pre-fix \texttt{log.Println(Bsquare, sumSquares)} (HIP-0077 F8) is
+exactly the failure mode this rule prevents; the Pulsar-M reference
+implementation will be CI-gated against any logging call inside
+\texttt{ref/go/sign/}, \texttt{ref/go/dkg/}, \texttt{ref/go/reshare/}.
+\end{itemize}
+
+\subsection{Rejection-sampling restart without secret leakage}
+\label{sec:impl-rejection-restart}
+
+This is the hardest cryptographic engineering problem in Pulsar-M.
+FIPS~204 ML-DSA's rejection-with-restart structure (\S\ref{sec:prelim-rejection})
+interacts with threshold signing in three load-bearing places.
+
+\paragraph{The threat.}
+A na\"ive port of Pulsar's Round-1 PRNG keying would seed party
+$i$'s PRNG from the secret share $\mathbf{s}_i$ alone:
+\(
+\text{seed}_i \gets \text{Hash}(\mathbf{s}_i)
+\).
+Two distinct sign attempts with the same $(\mathit{pk}, \mu)$ would
+then sample byte-identical $\mathbf{y}_i$ values, and an attacker
+who saw the resulting $\mathbf{z}$ values from two attempts could
+compute
+\[
+\mathbf{z}^{(1)} - \mathbf{z}^{(2)} = c^{(1)} \mathbf{s}_1 - c^{(2)} \mathbf{s}_1
+= (c^{(1)} - c^{(2)}) \mathbf{s}_1,
+\]
+and \emph{recover the secret} by dividing by the (low-norm,
+small-coefficient) difference $c^{(1)} - c^{(2)}$ over $\Rq$. This is
+the CRIT-1 vulnerability flagged in Pulsar's pre-fix code
+(\texttt{pulsar/primitives/hash.go: PRNGKey}) and addressed
+2026-05-03 in coordination with the C++ port at
+\texttt{luxcpp/crypto}. The fix is the
+\texttt{PRNGKeyForRound} function: the PRNG seed mixes
+$(\mathbf{s}_i, \mathit{sid})$ so distinct sessions get distinct
+seeds.
+
+\paragraph{The Pulsar-M domain separation.}
+Pulsar-M extends the Pulsar fix to handle three orthogonal
+domains:
+
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+\item \textbf{Across signatures} (distinct $\mathit{sid}$). Each
+sign attempt gets a fresh $\mathit{sid}$, monotonically advanced
+by the protocol layer above (Lux consensus uses the block height
+plus the within-block signature index as $\mathit{sid}$).
+\item \textbf{Across rejection-restart attempts within one
+$\mathit{sid}$} (distinct $\kappa$). Each restart advances the
+attempt counter. The per-attempt PRNG seed is derived as:
+\[
+\text{seed}_i^{(\kappa)} \;=\;
+\KMAC(\,K_i^{\mathrm{prng}},\,
+(\mathit{sid}, \kappa, T, i, \mathit{pk}, \mu),\,
+256,\,
+\text{`PULSAR-M-SIGN-PRNG-V1'}\,),
+\]
+where $K_i^{\mathrm{prng}}$ is a per-party PRNG key derived at DKG
+time from $\mathbf{s}_i$ via $\cSHAKE$ with the customisation tag
+\texttt{`PULSAR-M-SIGN-PRNGKEY-V1'}. Both $\mathit{sid}$ and $\kappa$
+are bound into the seed.
+\item \textbf{Across quorums on the same $\mathit{sid}$} (distinct
+$T$). If two distinct quorums coordinate on the same $\mathit{sid}$
+(e.g.\ a network split followed by reconciliation), the seed must
+diverge so that the two attempts use independent masks. The
+quorum set $T$ is bound into the seed as above.
+\end{enumerate}
+
+\paragraph{Cross-restart state.}
+Across a rejection-sampling restart boundary, only the following
+state is preserved:
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item the long-term shares $(\mathbf{s}_i, \mathbf{u}_i, K_i^{\mathrm{prng}}, \{K_{i,j}\})$,
+\item the public coordination state $(\mathit{sid}, \mathit{pk}, T, \mu)$,
+\item the attempt counter $\kappa$.
+\end{itemize}
+\textbf{Everything else} is recomputed: PRNG seeds, masks
+$\mathbf{y}_i$, commits $\mathbf{w}_i$, MACs, per-party response
+contributions $(\mathbf{z}_i, \mathbf{r}_i)$. There is no
+``cached'' per-round value that crosses the boundary. This
+discipline is the cryptographic justification for the next theorem.
+
+\begin{theorem}[Restart non-leakage]
+\label{thm:restart-non-leak}
+Let $\mathcal{A}$ be an adversary that observes a transcript of $K$
+rejection-sampling attempts on the same $(\mathit{pk}, \mu, T)$
+(distinct $\kappa = 1, \dots, K$) and outputs a guess
+$\hat{\mathbf{s}}_i$ for some honest party $i \in T \setminus
+\mathrm{corrupt}$. Under the assumption that $\KMAC$ is a PRF in its
+key, $\mathcal{A}$'s advantage in recovering $\mathbf{s}_i$ from $K$
+attempts is at most $K \cdot \Adv^{\mathrm{prf}}_{\KMAC}(\mathcal{B})$
+plus the single-attempt advantage:
+\[
+\Pr[\mathcal{A}(\mathrm{transcript}_{1..K}) = \mathbf{s}_i]
+\;\le\;
+K \cdot \Adv^{\mathrm{prf}}_{\KMAC}(\mathcal{B})
++ \Pr[\mathcal{A}'(\mathrm{transcript}_{1}) = \mathbf{s}_i],
+\]
+for some efficient $\mathcal{B}$ and an equally-capable
+$\mathcal{A}'$ restricted to a single transcript.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+The PRF assumption on $\KMAC$ implies that
+$\{\text{seed}_i^{(\kappa)}\}_{\kappa=1}^K$ is computationally
+indistinguishable from $K$ independent uniform samples in
+$\{0,1\}^{256}$, with distinguishing advantage at most
+$\Adv^{\mathrm{prf}}_{\KMAC}(\mathcal{B})$ per call (i.e.\
+total $\le K \cdot \Adv^{\mathrm{prf}}_{\KMAC}(\mathcal{B})$ by a
+standard hybrid). Once we condition on $K$ independent seeds, the
+$K$ masks $\{\mathbf{y}_i^{(\kappa)}\}_{\kappa=1}^K$ are independent
+uniform-interval samples, and the $K$ responses
+$\{\mathbf{z}_i^{(\kappa)}\}$ are $K$ independent functions of
+$\mathbf{s}_i$ each with the same distribution as a single
+honest-party response. The adversary thus gains no more information
+than from $K$ \emph{independently sampled} signatures, which is the
+same as from a single signature plus $K-1$ ``free'' instances under
+M-LWE. The single-attempt advantage bound completes the
+inequality. \qed
+\end{proof}
+
+\begin{remark}[Stronger statement deferred]
+A stronger statement would replace the right-hand side
+single-attempt advantage with the EUF-CMA advantage of FIPS~204
+against $K$-fold signing queries on the same message. This is
+straightforward in the single-message setting but requires a careful
+hybrid for cross-message correlations (e.g.\ if $\mathcal{A}$
+chooses adaptive messages between restarts). We mark this as
+Round-2-MPTC work in \S\ref{sec:knownlimits}.
+\end{remark}
+
+\paragraph{Implementation discipline.}
+The Pulsar-M reference implementation enforces the cross-restart
+state discipline structurally:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item The per-attempt state is a fresh struct allocated at the top
+of each restart iteration. No cross-iteration field carries forward.
+\item The PRNG seeding routine takes
+$(\mathit{sid}, \kappa, T, i, \mathit{pk}, \mu)$ as inputs and is
+the unique source of per-attempt randomness. Any attempt to use
+\texttt{crypto/rand} inside the inner loop is a CI failure.
+\item Constant-time discipline (\S\ref{sec:impl-ct}) is preserved
+across restarts: the restart decision itself is constant-time in
+the failure mode (which norm check failed is leaked only via the
+fact of failure, not via timing).
+\end{itemize}
+
+\subsection{Performance characteristics}
+\label{sec:impl-perf}
+
+Concrete benchmarks defer to the experimental-evaluation report
+(\texttt{bench/results/REPORT.md}, frozen at submission). Pulsar-M's
+expected complexity scales as follows for parameter set ML-DSA-65,
+$(n, t) = (7, 4)$:
+
+\begin{center}
+\begin{tabular}{l l l l}
+\toprule
+operation & messages & local compute & per-party state \\
+\midrule
+$\DKG$ (3 rounds)
+& $O(n^2)$ broadcast + $O(n)$ per recipient
+& $O(n \cdot k \ell)$ per party
+& $O(t \cdot k \ell)$ \\
+$\Sign$ (2 rounds, no restart)
+& $O(t^2)$ MACs + $O(t)$ broadcast
+& $O(k \ell)$ per party
+& $O(\ell)$ \\
+$\Sign$ (avg.\ FIPS~204 restart count $\approx 5$)
+& $5 \times$ above
+& $5 \times$ above
+& unchanged \\
+$\Reshare$ (3 rounds)
+& $O(t_{\mathrm{old}} \cdot |\mathcal{N}|)$ private + $O(n)$ broadcast
+& $O(t_{\mathrm{old}} \cdot k \ell)$
+& $O(t_{\mathrm{new}} \cdot k \ell)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Signature size.} The output is a single FIPS~204
+signature: ML-DSA-44 (2420 B), ML-DSA-65 (3309 B), ML-DSA-87
+(4627 B). \emph{No threshold envelope.}
+
+\subsection{Side-channel resistance}
+\label{sec:impl-sidechannel}
+
+The reference implementation targets constant-time semantics as
+specified in \S\ref{sec:impl-ct}. Physical side-channel resistance
+(power analysis, EM, fault injection, cache timing) is out of scope
+for the round-1 MPTC submission; see
+\texttt{docs/known-limitations.md} for the deferred mitigations and
+\S\ref{sec:knownlimits} for the round-2 roadmap.
+
+% =====================================================================
+\section{Test vectors}
+\label{sec:vectors}
+% =====================================================================
+
+The KAT suite (frozen at submission) lives in
+\texttt{vectors/kat-v1.\{json,rsp\}}. Each entry encodes a complete
+ceremony:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item Setup: $(q, n_{\mathrm{ring}}, k, \ell, \eta, \tau, \gamma_1, \gamma_2, \omega, \beta, d, \lambda, n, t)$.
+\item DKG: per-party seeds (deterministic), Round-1 outputs (commits and dealt shares), Round-2 verification results, final $\mathit{pk}$.
+\item Sign: $(\mathit{sid}, T, \mu, K_i^{\mathrm{prng}})$, per-party Round-1 and Round-2 transcripts, per-attempt $\kappa$ trace, final $\sigma$, FIPS~204 \texttt{ML-DSA.Verify} result.
+\item Reshare: old shares, new committee, beacon $\beta_e$, per-party transcripts, new shares, activation certificate, $\mathit{pk}$-invariance proof.
+\end{itemize}
+
+Cross-implementation KAT replay: the Go reference (\texttt{ref/go/})
+and the eventual C reference (\texttt{ref/c/}) MUST produce
+byte-equal outputs from the same seeded inputs. The KAT generation
+oracle is locked at \texttt{cmd/pulsar-m-oracle}.
+
+% =====================================================================
+\section{Complexity analysis}
+\label{sec:complexity}
+% =====================================================================
+
+\paragraph{Communication.}
+$\DKG$: $O(n^2 \cdot t \cdot k)$ bits broadcast (commits) plus
+$O(n^2 \cdot t \cdot \ell)$ bits private (shares and blinds).
+$\Sign$: $O(t^2)$ MAC bits plus $O(t \cdot (k + \ell))$ bits
+broadcast per round. $\Reshare$: $O(t_{\mathrm{old}} \cdot
+(t_{\mathrm{new}} \cdot k + |\mathcal{N}| \cdot \ell))$.
+
+\paragraph{Computation.}
+$\DKG$: $O(n \cdot t \cdot k\ell)$ ring operations per party.
+$\Sign$: $O(k\ell)$ ring operations per party per round (one matrix
+multiplication, plus the Lagrange-scalar response). The aggregator
+performs an additional $O(t \cdot \ell)$ sum.
+$\Reshare$: $O(t_{\mathrm{old}} \cdot t_{\mathrm{new}})$ per old quorum
+member, $O(t_{\mathrm{old}})$ per new committee member.
+
+\paragraph{Memory.}
+Per-party state: $O(t \cdot k\ell)$ (shares plus DKG commitment
+backlog). $\Sign$ holds an $O(\ell)$ working set within the inner
+loop.
+
+\paragraph{Round count.}
+$\DKG$: 3. $\Sign$: 2 per attempt; the FIPS~204 acceptance
+probability is approximately $1 - e^{-\beta\tau/2\gamma_1}$ per
+attempt (FIPS~204~\S6.1.1), giving an expected $\sim 2.4$ attempts at
+ML-DSA-65. $\Reshare$: 3.
+
+% =====================================================================
+\section{Deployment considerations}
+\label{sec:deployment}
+% =====================================================================
+
+\paragraph{Network model.}
+The protocols assume synchronous broadcast within the round window:
+all honest parties receive all honest broadcast messages within a
+bounded $\Delta$. Partially synchronous (eventual delivery within a
+sufficient round window) is acceptable in practice; full
+asynchrony is not within scope for round-1 MPTC.
+
+\paragraph{Abort and recovery.}
+On any complaint that reaches the disqualification threshold, the
+chain layer removes the disqualified party from the validator set
+and triggers a $\Reshare$ to a new committee. Liveness is preserved
+provided fewer than $t-1$ parties are disqualified per epoch.
+
+\paragraph{Rotation cadence.}
+Production deployments are expected to run $\Refresh$ every
+$\sim$ hour (background hygiene against mobile adversary) and
+$\Reshare$ at every validator-set change (typically hours to days
+between epochs).
+
+\paragraph{Monitoring.}
+Public artifacts safe for observability: $\mathit{pk}$, commitments,
+signed complaints, signature outputs, beacon values, per-party
+identity-key signatures. Private artifacts that MUST NOT be logged:
+shares, blinds, masks, samples, PRNG seeds, per-round derived state,
+norm-check intermediate values.
+
+\paragraph{HSM integration.}
+The reference implementation is software. HSM integration --- where
+each party's share lives in an HSM and the HSM exposes only the
+$\Sign$ Round-2 contribution --- is out of scope for round-1 MPTC
+and is the canonical roadmap item for round-2 hardening.
+
+% =====================================================================
+\section{Comparison with related work}
+\label{sec:related}
+% =====================================================================
+
+\paragraph{Pulsar (R-LWE), Class~S~\cite{ringtail2024}.}
+The companion Lux scheme over $\Rq$, single polynomial. Faster,
+simpler, but \emph{not} output-interchangeable with any NIST primitive.
+Different wire format. Pulsar-M shares Pulsar's protocol structure
+(2-round signing, Pedersen DKG, HJKY97 reshare) lifted from $\Rq$ to
+$\Rq^k$.
+
+\paragraph{GKS24~\cite{gks24}, PQCrypto 2024.}
+Two-round threshold lattice signatures from threshold homomorphic
+encryption (G\"ur--Katz--Silde). Output is a TFHE-shaped artefact, not
+ML-DSA. Class~S. Higher signature size than ML-DSA but tighter
+proofs.
+
+\paragraph{DOTT21~\cite{dott21}, PKC 2021.}
+The foundational Damg\aa rd--Orlandi--Takahashi--Tibouchi two-round
+$n$-out-of-$n$ multisignature from lattices. Inspires the
+commit-and-aggregate structure of Pulsar/Pulsar-M. Restricted to
+$n$-out-of-$n$; Pulsar-M extends to $t$-out-of-$n$ via Shamir.
+
+\paragraph{Olingo~\cite{olingo2025}, ePrint 2025/1789.}
+Concurrent threshold ML-DSA candidate. Comparison points: round
+count, output interchangeability claim, DKG soundness, side-channel
+posture. Full comparison table deferred to the experimental
+evaluation report; structural comparison: Olingo and Pulsar-M both
+target Class N1, both use $\Rq^k$, with differing rejection-restart
+strategies.
+
+\paragraph{THED~\cite{thed2026}, ePrint 2026/638.}
+Threshold extension of FIPS~204. Comparison deferred to round-1
+preview; THED was not public at Pulsar-M's draft cut-off.
+
+\paragraph{HJKY97~\cite{hjky97}.}
+The foundational proactive-resharing model. Pulsar-M's $\Reshare$
+protocol is the natural lift of the HJKY97 construction to the M-LWE
+setting, with the beacon-randomised quorum selection (DD-006) as the
+Pulsar-M-specific strengthening for mobile-adversary attacks.
+
+% =====================================================================
+\appendix
+\section{Notation summary}
+\label{sec:notation-table}
+% =====================================================================
+
+\begin{center}
+\begin{tabular}{l l}
+\toprule
+symbol & meaning \\
+\midrule
+$q$ & prime modulus, $q = 2^{23} - 2^{13} + 1 = 8\,380\,417$ \\
+$n_{\mathrm{ring}}$ & ring degree, $n_{\mathrm{ring}} = 256$ \\
+$\Rq$ & $\Zq[X]/(X^{n_{\mathrm{ring}}} + 1)$ \\
+$(k, \ell)$ & module dimensions, FIPS~204 dependent \\
+$(\eta, \tau, \gamma_1, \gamma_2, \omega, \beta, d, \lambda)$ & FIPS~204 parameter set \\
+$(n, t)$ & threshold parameters, $n \ge 2t-1$ \\
+$\mathbf{A} \in \Rq^{k \times \ell}$ & public matrix, derived from $\rho$ via FIPS~204 \texttt{ExpandA} \\
+$\mathbf{B} \in \Rq^{k \times \ell}$ & Pedersen blinding matrix, derived via \texttt{PULSAR-M-EXPANDB-V1} \\
+$\mathbf{s}_1 \in \Rq^\ell$ & master secret, $\chi_\eta$-distributed \\
+$\mathbf{u} \in \Rq^\ell$ & Pedersen blinding, $\chi_\eta$-distributed \\
+$\mathbf{s}_2 \in \Rq^k$ & FIPS~204 noise, $= \mathbf{B}\mathbf{u}$ in Pulsar-M \\
+$\mathbf{t} = \mathbf{A}\mathbf{s}_1 + \mathbf{B}\mathbf{u}$ & FIPS~204 public-key inner vector (Pedersen-shaped) \\
+$(\mathbf{t}_1, \mathbf{t}_0) = \Power(\mathbf{t}, d)$ & FIPS~204 public/private decomposition \\
+$\mathit{pk} = (\rho, \mathbf{t}_1)$ & FIPS~204 public key \\
+$(\mathbf{s}_i, \mathbf{u}_i)$ & party $i$'s Shamir share pair \\
+$\lambda_i^T$ & Lagrange coefficient at $X = 0$ for $i \in T$ \\
+$\mathbf{y}_i$ & party $i$'s mask, uniform interval $U_{\gamma_1}^\ell$ \\
+$\mathbf{w}_i = \mathbf{A}\mathbf{y}_i$ & party $i$'s commit, in $\Rq^k$ \\
+$\bar{\mathbf{w}}_i = \HighBits(\mathbf{w}_i, 2\gamma_2)$ & high-bits commit \\
+$c \in \Rq$ & FIPS~204 challenge, $\texttt{SampleInBall}(\tilde c)$ \\
+$\mathbf{z} \in \Rq^\ell$ & aggregated response, $\mathbf{y} + c\mathbf{s}_1$ \\
+$\mathbf{h}$ & FIPS~204 hint vector \\
+$\sigma = (\tilde c, \mathbf{z}, \mathbf{h})$ & FIPS~204 signature triple \\
+$\mathit{sid}$ & per-attempt session id \\
+$\kappa$ & per-attempt rejection-restart counter \\
+$T \subseteq \{1, \dots, n\}$ & quorum, $|T| = t$ \\
+$\mathcal{Q}_e$ & beacon-selected reshare quorum at epoch $e$ \\
+$\beta_e$ & chain randomness beacon at epoch $e$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Patent claims}
+\label{sec:patent}
+Final patent disclosure assembled from
+\texttt{docs/patent-notes-draft.md} at the submission freeze. Lux
+Industries Inc.\ asserts no patent claims on the cryptographic body
+of Pulsar-M; the threshold protocol is a port of the publicly-known
+Ringtail~\cite{ringtail2024} construction with the beacon-quorum
+strengthening of DD-006, both of which are explicitly placed into
+the public domain by this submission.
+
+\section{Known limitations}
+\label{sec:knownlimits}
+Mirror of \texttt{docs/known-limitations.md}, frozen at submission.
+Round-1 MPTC limitations and round-2 roadmap items:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \textbf{Adaptive corruption proof.} Round-1 proves
+TS-UF under static corruption only; the formal adaptive-corruption
+proof is deferred to round-2 (Game ADAPT, \texttt{security-games.tex}).
+\item \textbf{Asynchronous network model.} Round-1 assumes synchronous
+broadcast within the round window. Partial synchrony is acceptable
+in practice; full asynchrony requires structural protocol changes
+(threshold encryption of round-1 commits is one direction).
+\item \textbf{HSM integration.} Software-only reference; HSM-backed
+share custody is a round-2 hardening item.
+\item \textbf{Physical side-channel resistance.} Constant-time
+arithmetic is in scope; physical side channels (power, EM, fault) are
+out of scope for round-1.
+\item \textbf{Cross-message restart hybrid.} \Cref{thm:restart-non-leak}
+proves the restart non-leakage statement for a single $(\mathit{pk},
+\mu)$. A stronger cross-message-adaptive hybrid is round-2 work.
+\item \textbf{Lattice estimator parameter pins.} Concrete bit-security
+estimates from the lattice estimator (\texttt{estimator/}) are
+pinned at submission; the underlying estimator commit hash is
+recorded in \texttt{estimator/README.md}.
+\end{itemize}
+
+\begin{openq}[Adaptive corruption tightness]
+The static-to-adaptive corruption gap for two-round threshold
+lattice signatures is an active research direction. The
+\cite{ringtail2024} paper's adaptive variant uses a complexity
+leveraging argument that loses a multiplicative
+$\binom{n}{t}$ factor in the security parameter. Can a tighter
+adaptive reduction be constructed for the module-shaped
+Pulsar-M variant without architectural changes? \emph{Unresolved.}
+\end{openq}
+
+\begin{openq}[Restart cross-message hybrid]
+\Cref{thm:restart-non-leak} proves restart non-leakage for a single
+$(\mathit{pk}, \mu)$. A full cross-message-adaptive hybrid would
+extend to the case where the adversary chooses $\mu^{(\kappa+1)}$
+based on the transcript of attempts on $\mu^{(\kappa)}$. We
+conjecture this holds under M-LWE without structural changes, but
+the formal hybrid is round-2 work. \emph{Unresolved.}
+\end{openq}
+
+\begin{openq}[Beacon-quorum binding for proactive resharing]
+The DD-006 beacon-randomised quorum selection assumes the chain
+beacon is unbiasable against the adversary. The Lux Quasar
+consensus randomness layer provides this property; the formal
+binding to the Pulsar-M reshare MOB game requires a separate
+hybrid argument bridging the consensus randomness assumption to
+the Pulsar-M MOB game. \emph{Sketched in security-games.tex; full
+proof round-2.}
+\end{openq}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
