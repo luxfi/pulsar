@@ -1,10 +1,10 @@
-# Pulsar-M
+# Pulsar
 
 > **Threshold ML-DSA** — a 2-round threshold signing and DKG system whose
 > generated signatures are verifiable by **unmodified FIPS 204 ML-DSA
 > verification**. Targeting NIST MPTC Class N1 (signing) + N4 (ML keygen / DKG).
 
-`Pulsar-M` is the Module-LWE sibling of [Pulsar](https://github.com/luxfi/pulsar)
+`Pulsar` is the Module-LWE sibling of [Pulsar](https://github.com/luxfi/pulsar)
 (Ring-LWE). Pulsar's 2-round threshold protocol structure is transplanted onto
 ML-DSA-65's polynomial-vector-over-`R_q` algebra so the per-party-aggregated
 signature is bit-identical to a single-party FIPS 204 signature on the same
@@ -22,22 +22,22 @@ NIST's [Multi-Party Threshold Cryptography](https://csrc.nist.gov/projects/thres
 project is collecting them now (IR 8214C, January 2026; first call package
 deadline expected 2026-Nov-16).
 
-Pulsar-M aims to enter that process with a credible, output-interchangeable
+Pulsar aims to enter that process with a credible, output-interchangeable
 threshold ML-DSA candidate — built from the production-tested protocol
 machinery already shipping in `luxfi/pulsar` (R-LWE), retargeted to the
 M-LWE primitives ML-DSA itself uses.
 
-The win, if Pulsar-M's Sign output is byte-equal to FIPS 204 Sign:
+The win, if Pulsar's Sign output is byte-equal to FIPS 204 Sign:
 - Threshold-produced signatures verify under unmodified FIPS 204 verifiers.
 - Existing FIPS-validated ML-DSA modules (BoringSSL FIPS, AWS-LC, OpenSSL
-  3.0 PQ provider) consume Pulsar-M certs without code changes.
+  3.0 PQ provider) consume Pulsar certs without code changes.
 - The threshold layer can be Class-N-claimed at NIST without a parallel
   algorithm standardization track.
 
 ## Repository layout
 
 ```
-pulsar-m/
+pulsar/
 ├── docs/                     human-readable design notes
 │   ├── threat-model.md
 │   ├── nist-mptc-category.md
@@ -45,7 +45,7 @@ pulsar-m/
 │   ├── known-limitations.md
 │   └── patent-notes-draft.md
 ├── spec/                     LaTeX technical specification (MPTC package)
-│   ├── pulsar-m.tex          main spec
+│   ├── pulsar.tex          main spec
 │   ├── security-games.tex    EUF-CMA / TS-UF / robustness / adaptive corr.
 │   ├── system-model.tex      network / setup / abort / preprocessing
 │   ├── parameters.tex        concrete parameter sets, lattice-estimator
@@ -70,13 +70,13 @@ pulsar-m/
 
 ## Quickstart
 
-> **Pulsar-M is in pre-spec stage.** Reference impl, vectors, and bench harness
+> **Pulsar is in pre-spec stage.** Reference impl, vectors, and bench harness
 > ship after the spec freezes. Track [spec/known-limitations.tex](spec/known-limitations.tex)
 > for what's stable vs in-flight.
 
 ```bash
-git clone https://github.com/luxfi/pulsar-m
-cd pulsar-m
+git clone https://github.com/luxfi/pulsar
+cd pulsar
 ./scripts/build.sh       # checks spec compile + Go build
 ./scripts/test.sh        # runs unit + KAT suite (when available)
 ./scripts/bench.sh       # reproduces bench/results/ (when available)
@@ -87,7 +87,7 @@ cd pulsar-m
 
 | package element | location | status |
 |---|---|---|
-| Technical Specification | `spec/pulsar-m.pdf` (built from `spec/pulsar-m.tex`) | draft |
+| Technical Specification | `spec/pulsar.pdf` (built from `spec/pulsar.tex`) | draft |
 | Reference Implementation | `ref/go/` | skeleton |
 | Report on Experimental Evaluation | `bench/results/REPORT.md` | TBD |
 | Notes on Patent Claims | `spec/patent-notes.tex` | TBD |
@@ -105,7 +105,7 @@ Target dates:
 |---|---|---|
 | [luxfi/ringtail](https://github.com/luxfi/ringtail) | academic R-LWE 2-round threshold sig (Boschini–Kaviani–Lai–Malavolta–Takahashi–Tibouchi, ePrint 2024/1113) | BLAKE3 |
 | [luxfi/pulsar](https://github.com/luxfi/pulsar) | production fork of Ringtail with Pedersen DKG + proactive resharing | SHA-3 / cSHAKE256 (canonical), BLAKE3 (legacy) |
-| **luxfi/pulsar-m** (this repo) | **Module-LWE sibling: threshold ML-DSA** | **SHA-3 / SHAKE256** (NIST profile) only |
+| **luxfi/pulsar** (this repo) | **Module-LWE sibling: threshold ML-DSA** | **SHA-3 / SHAKE256** (NIST profile) only |
 
 ## Security
 
