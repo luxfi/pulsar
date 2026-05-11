@@ -1,0 +1,22 @@
+# Build artefacts
+bench/results/*.txt
+bench/results/*.json
+spec/*.pdf
+spec/*.aux
+spec/*.bbl
+spec/*.blg
+spec/*.fdb_latexmk
+spec/*.fls
+spec/*.log
+spec/*.out
+spec/*.toc
+spec/*.synctex.gz
+
+# Editor / OS
+.DS_Store
+*.swp
+*~
+
+# Go workspace
+go.work
+go.work.sum

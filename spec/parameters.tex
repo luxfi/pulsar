@@ -1,0 +1,54 @@
+% Pulsar-M concrete parameter sets — included by pulsar-m.tex §"Concrete parameters"
+
+\subsection*{Parameter sets}
+
+% Three parameter sets, mirroring FIPS 204 ML-DSA's three security levels.
+% Numeric values to be filled in from FIPS 204 §4 once the M-LWE port is
+% finalized; the Pulsar-M parameter table is structurally identical to
+% ML-DSA's because the underlying ring + module shape are inherited.
+
+\begin{center}
+\begin{tabular}{l r r r}
+\hline
+parameter & Pulsar-M-44 & Pulsar-M-65 & Pulsar-M-87 \\
+\hline
+NIST PQ category               & TBD (Cat 2) & TBD (Cat 3) & TBD (Cat 5) \\
+classical security (bits)      & TBD ($\geq128$) & TBD ($\geq192$) & TBD ($\geq256$) \\
+quantum security (bits)        & TBD             & TBD             & TBD             \\
+modulus $q$                    & 8380417    & 8380417    & 8380417 \\
+ring degree $n$                & 256        & 256        & 256 \\
+module dimension $k$           & 4          & 6          & 8 \\
+secret dimension $\ell$        & 4          & 5          & 7 \\
+secret coefficient bound $\eta$& 2          & 4          & 2 \\
+challenge weight $\tau$        & 39         & 49         & 60 \\
+hint bound $\omega$            & 80         & 55         & 75 \\
+threshold $(n, t)$             & runtime    & runtime    & runtime \\
+\hline
+signature size (bytes)         & 2420       & 3309       & 4627    \\
+public key size (bytes)        & 1312       & 1952       & 2592    \\
+\hline
+\end{tabular}
+\end{center}
+
+% TODO. Fill in security-level numbers from a lattice-estimator run.
+% Pin the script in estimator/params.sage and the result table in
+% estimator/results.md. Cite the estimator commit hash.
+
+\subsection*{Lattice-estimator inputs}
+
+% TODO. Each parameter set's M-LWE instance, run through the
+% lattice-estimator (https://github.com/malb/lattice-estimator) for
+% classical and quantum cost estimates. Reproducible from
+% estimator/params.sage.
+
+\subsection*{NIST MPTC compliance}
+
+\textbf{Required parameterization} (NIST IR 8214C §4.5): at least one
+parameter set with classical $\geq 128$ bits, NIST PQ category $\geq 1$,
+statistical $\geq 40$ bits. Pulsar-M-44 satisfies this.
+
+\textbf{Suggested parameterization}: at least one parameter set with
+classical $\geq 192$ bits, NIST PQ category $\geq 3$, statistical
+$\geq 64$ bits. Pulsar-M-65 satisfies this.
+
+Pulsar-M-87 covers the highest NIST PQ category for completeness.
