@@ -3,7 +3,7 @@
 
 package pulsarm
 
-// luxround.go -- Wave-driven metastable threshold signing.
+// round.go -- Wave-driven metastable threshold signing.
 //
 // For validator pools above the GF(257) Pulsar-M cap of n=256, the
 // canonical Lux deployment does NOT run one large Pulsar-M ceremony.
@@ -27,13 +27,14 @@ package pulsarm
 
 import (
 	"encoding/binary"
+	"math"
 )
 
-// LuxRoundContext is the per-Lux-round binding context. Each Wave
-// Tick produces a fresh context whose bytes are committed into every
+// RoundContext is the per-Lux-round binding context. Each Wave Tick
+// produces a fresh context whose bytes are committed into every
 // Pulsar-M transcript-hash so cross-round Round-1 commits cannot be
 // replayed against a different Wave round.
-type LuxRoundContext struct {
+type RoundContext struct {
 	// Epoch is the validator-set epoch identifier (e.g. block height
 	// divided by the epoch length).
 	Epoch uint64
@@ -48,10 +49,10 @@ type LuxRoundContext struct {
 	CommitteeRoot [32]byte
 }
 
-// Encode returns the canonical wire encoding of a LuxRoundContext.
-// The encoding is consumed by transcripts; changing the layout
+// Encode returns the canonical wire encoding of a RoundContext. The
+// encoding is consumed by transcripts; changing the layout
 // invalidates every KAT pinned at this version.
-func (c LuxRoundContext) Encode() []byte {
+func (c RoundContext) Encode() []byte {
 	out := make([]byte, 0, 8+8+32+32)
 	var u [8]byte
 	binary.BigEndian.PutUint64(u[:], c.Epoch)
@@ -63,24 +64,24 @@ func (c LuxRoundContext) Encode() []byte {
 	return out
 }
 
-// LuxRoundSessionID derives a deterministic per-Lux-round Pulsar-M
-// SessionID from a LuxRoundContext. The session-id binds the Pulsar-M
+// RoundSessionID derives a deterministic per-Lux-round Pulsar-M
+// SessionID from a RoundContext. The session-id binds the Pulsar-M
 // per-round PRNG (PULSAR-M-SIGN-PRNG-V1 customisation tag in
 // transcript.go) to the unique (epoch, round, item, committee) tuple,
 // closing the CRIT-1 replay vector that del Pino-Niot's PRNGKeyForRound
 // addresses in the small-committee path.
-func LuxRoundSessionID(ctx LuxRoundContext) [16]byte {
+func RoundSessionID(ctx RoundContext) [16]byte {
 	digest := cshake256(ctx.Encode(), 16, tagSignPRNG)
 	var out [16]byte
 	copy(out[:], digest)
 	return out
 }
 
-// LuxRoundCommitteeRoot returns the canonical 32-byte digest of a
+// RoundCommitteeRoot returns the canonical 32-byte digest of a
 // Wave-sampled K-committee (sorted ascending NodeID). Both the
 // per-round Pulsar-M transcript and the Wave protocol's per-round
 // commitments bind to this digest.
-func LuxRoundCommitteeRoot(committee []NodeID) [32]byte {
+func RoundCommitteeRoot(committee []NodeID) [32]byte {
 	sorted := make([]NodeID, len(committee))
 	copy(sorted, committee)
 	for i := 1; i < len(sorted); i++ {
@@ -96,16 +97,16 @@ func LuxRoundCommitteeRoot(committee []NodeID) [32]byte {
 	return transcriptHash32(tagDKGCommit, parts...)
 }
 
-// LuxRoundSigShare is the per-validator Pulsar-M signature
-// contribution emitted in one Lux round. It rides alongside the
-// validator's Wave preference vote on the Photon wire. The
-// aggregator at the Quasar layer collects β rounds worth of these,
-// passes them to LargeCombine (or the small-committee Combine), and
-// emits one FIPS 204 ML-DSA signature that the P3Q rollup attests
-// to as part of the final block certificate.
-type LuxRoundSigShare struct {
+// RoundSigShare is the per-validator Pulsar-M signature contribution
+// emitted in one Lux round. It rides alongside the validator's Wave
+// preference vote on the Photon wire. The aggregator at the Quasar
+// layer collects β rounds worth of these, passes them to LargeCombine
+// (or the small-committee Combine), and emits one FIPS 204 ML-DSA
+// signature that the P3Q rollup attests to as part of the final
+// block certificate.
+type RoundSigShare struct {
 	// Context binds the share to its Lux round.
-	Context LuxRoundContext
+	Context RoundContext
 	// Round1 is the per-round Pulsar-M Round-1 commit message.
 	Round1 *Round1Message
 	// Round2 is the per-round Pulsar-M Round-2 reveal message.
@@ -113,8 +114,8 @@ type LuxRoundSigShare struct {
 	Round2 *Round2Message
 }
 
-// LuxRoundQuorumPolicy bundles the (alpha, beta) parameters Wave uses
-// to drive Lux-round agreement. These are exposed here so the
+// RoundQuorumPolicy bundles the (alpha, beta) parameters Wave uses to
+// drive Lux-round agreement. These are exposed here so the
 // consensus-layer Wave-driver can synchronise them with the Pulsar-M
 // combiner's expectations.
 //
@@ -123,18 +124,18 @@ type LuxRoundSigShare struct {
 // number of consecutive successful Lux rounds before the Focus
 // tracker fires "decided" -- at which point the aggregator combines
 // β·alpha Pulsar-M shares into one FIPS 204 signature.
-type LuxRoundQuorumPolicy struct {
+type RoundQuorumPolicy struct {
 	K     int
 	Alpha int
 	Beta  int
 }
 
-// DefaultLuxRoundQuorumPolicy matches consensus/protocol/quasar's
+// DefaultRoundQuorumPolicy matches consensus/protocol/quasar's
 // grouped-threshold defaults (DefaultGroupSize=3, DefaultGroupThreshold=2)
 // extended to a metastable K-sample of 21 (Wave's typical K) with a
 // 15-of-21 alpha and 12-round beta. These are starting points; the
 // Quasar config layer (config/pq_mode.go) is the source of truth.
-var DefaultLuxRoundQuorumPolicy = LuxRoundQuorumPolicy{
+var DefaultRoundQuorumPolicy = RoundQuorumPolicy{
 	K:     21,
 	Alpha: 15,
 	Beta:  12,
@@ -151,7 +152,7 @@ var DefaultLuxRoundQuorumPolicy = LuxRoundQuorumPolicy{
 // pool: Pr[X >= alpha when X ~ Bin(K, rho)]. We return the natural
 // logarithm to avoid floating-point precision loss; callers convert
 // to log2 as needed.
-func ApproxRoundSecurity(rho float64, policy LuxRoundQuorumPolicy) float64 {
+func ApproxRoundSecurity(rho float64, policy RoundQuorumPolicy) float64 {
 	// Cumulative binomial Pr[X >= alpha; K, rho] via direct sum.
 	logFactorial := func(n int) float64 {
 		acc := 0.0
@@ -178,9 +179,9 @@ func ApproxRoundSecurity(rho float64, policy LuxRoundQuorumPolicy) float64 {
 	return sum
 }
 
-// logf / expf are stdlib wrappers; pulled out so the file imports a
-// single math symbol (and so unit tests can stub them if needed).
+// logf / expf are stdlib wrappers; pulled behind named indirection so
+// unit tests can stub them if needed.
 var (
-	logf = func(x float64) float64 { return logFloat(x) }
-	expf = func(x float64) float64 { return expFloat(x) }
+	logf = func(x float64) float64 { return math.Log(x) }
+	expf = func(x float64) float64 { return math.Exp(x) }
 )
