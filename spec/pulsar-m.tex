@@ -1417,8 +1417,8 @@ The reference implementation targets constant-time semantics as
 specified in \S\ref{sec:impl-ct}. Physical side-channel resistance
 (power analysis, EM, fault injection, cache timing) is out of scope
 for the round-1 MPTC submission; see
-\texttt{docs/known-limitations.md} for the deferred mitigations and
-\S\ref{sec:knownlimits} for the round-2 roadmap.
+\S\ref{sec:knownlimits} for the deferred mitigations and round-2
+roadmap.
 
 % =====================================================================
 \section{Test vectors}
@@ -1594,20 +1594,40 @@ $\beta_e$ & chain randomness beacon at epoch $e$ \\
 \end{tabular}
 \end{center}
 
+\section{NIST MPTC category targeting}
+\label{sec:nist-mptc-category}
+\input{nist-mptc-category}
+
+\section{Threat model}
+\label{sec:threat-model}
+\input{threat-model}
+
+\section{Design decisions}
+\label{sec:design-decisions}
+\input{design-decisions}
+
+\section{Pulsar family architecture}
+\label{sec:family-architecture}
+\input{family-architecture}
+
 \section{Patent claims}
 \label{sec:patent}
-Final patent disclosure assembled from
-\texttt{docs/patent-notes-draft.md} at the submission freeze. Lux
+Final patent disclosure assembled at the submission freeze. Lux
 Industries Inc.\ asserts no patent claims on the cryptographic body
 of Pulsar-M; the threshold protocol is a port of the publicly-known
 Ringtail~\cite{ringtail2024} construction with the beacon-quorum
 strengthening of DD-006, both of which are explicitly placed into
 the public domain by this submission.
+\input{patent-notes}
 
 \section{Known limitations}
 \label{sec:knownlimits}
-Mirror of \texttt{docs/known-limitations.md}, frozen at submission.
-Round-1 MPTC limitations and round-2 roadmap items:
+Frozen at submission. Round-1 MPTC limitations and round-2 roadmap
+items:
+
+\input{known-limitations}
+
+\subsection{Round-1 / round-2 roadmap (inline)}
 
 \begin{itemize}[leftmargin=*, itemsep=0pt]
 \item \textbf{Adaptive corruption proof.} Round-1 proves

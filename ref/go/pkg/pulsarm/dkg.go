@@ -27,7 +27,7 @@ package pulsarm
 // guarantees under M-LWE hardness (a stronger PQ-safe binding
 // argument). Both targets are Class N4-eligible.
 //
-// See docs/known-limitations.md for the v0.1 → v0.2 path.
+// See spec/known-limitations.tex for the v0.1 → v0.2 path.
 
 import (
 	"crypto/rand"

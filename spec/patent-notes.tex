@@ -1,0 +1,111 @@
+% Pulsar-M Notes on Patent Claims -- included by pulsar-m.tex.
+% Mirrors docs/patent-notes-draft.md (now deleted; this file is the
+% submission-package patent-claims appendix).
+
+\paragraph{Required by NIST MPTC IR 8214C \S5} as a package
+deliverable. This document is collected over the development period
+and finalized for the submission.
+
+\subsection{Status}
+
+\textbf{Draft.} No patent claims have been formally identified. This
+appendix tracks claims as contributors disclose them.
+
+\subsection{Inherited from upstream}
+
+\paragraph{Pulsar (\texttt{luxfi/pulsar}).}
+Pulsar-M reuses Pulsar's protocol structure. Pulsar's IP posture per
+its README:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item Apache-2.0 licensed.
+\item Patent grant per Apache 2.0 \S3 from each contributor.
+\item No known active patent claims as of repository creation.
+\end{itemize}
+
+This applies to Pulsar-M to the extent that Pulsar-M code or
+protocol elements are derivative of Pulsar.
+
+\paragraph{Ringtail (\texttt{luxfi/ringtail}).}
+Pulsar (and therefore Pulsar-M) is a fork of academic Ringtail.
+Ringtail (ePrint 2024/1113) authors: Cecilia Boschini, Darya
+Kaviani, Russell W. F. Lai, Giulio Malavolta, Akira Takahashi, Mehdi
+Tibouchi. Ringtail's open-source repo is Apache-2.0 with no asserted
+patent claims as of mid-2026. Pulsar-M's M-LWE adaptation does not
+import Ringtail code directly but inherits the protocol structure.
+
+\paragraph{ML-DSA / FIPS 204.}
+ML-DSA is a NIST-standardized algorithm. The Dilithium team's IP
+disclosures during NIST PQC standardization are public on the NIST
+PQC website. Pulsar-M targets output interchangeability with
+FIPS~204 but does not assert any rights over FIPS~204 itself.
+
+\subsection{Contributor disclosures}
+
+Per \texttt{CONTRIBUTING.md}, every commit's \texttt{Signed-off-by}
+line is taken as either:
+
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+\item An explicit assertion that the contributor has no relevant
+patent claims, OR
+\item A reference to a disclosed claim listed below.
+\end{enumerate}
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+date & contributor & type & disclosure \\
+\midrule
+2026-05-10 & Lux Industries Inc & initial repo & no claims asserted \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+(Updated as contributions land.)
+
+\subsection{Third-party patents we may need to navigate}
+
+Live concerns to investigate before submission:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item Lattice-estimator usage (we use the open-source estimator;
+license pass-through to MIT).
+\item Gaussian sampler implementation (FIPS~204 references CDT;
+alternate rejection samplers may have IP).
+\item Polynomial multiplication via NTT (standard, no known IP).
+\item Pedersen commitments (1991 paper, expired patents).
+\end{itemize}
+
+The submission's Notes on Patent Claims will explicitly call out
+each of these.
+
+\subsection{NIST MPTC submission requirements}
+
+NIST IR 8214C \S5 (Notes on Patent Claims) requires:
+
+\begin{quote}
+Submitter(s) shall include a statement of any patent claims known
+to them that may be relevant to the submitted package, regardless
+of who owns the claim. Statements of ``no known claims'' are
+acceptable.
+\end{quote}
+
+Our final statement, once the spec freezes:
+
+\begin{quote}
+\emph{To be drafted at spec freeze. Will incorporate every
+disclosure in the contributor table above, every inherited claim
+from Pulsar / Ringtail / ML-DSA, and the third-party investigation
+outcome.}
+\end{quote}
+
+\subsection{Process}
+
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+\item Every PR review checks for new IP-relevant code.
+\item Significant cryptographic additions (new sampling routine, new
+commitment shape, new aggregation step) trigger an explicit IP
+review with one of the sponsor's IP counsel.
+\item Final statement assembled at freeze, included in
+\texttt{spec/pulsar-m.pdf} Appendix~A.
+\end{enumerate}

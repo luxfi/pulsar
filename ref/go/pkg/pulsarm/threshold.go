@@ -28,7 +28,7 @@ package pulsarm
 // pulsar-m.tex §4.2 form. The reconstruction-aggregator path collapses
 // the Lagrange-linearity-of-z computation of §4.2 into a single FIPS
 // 204 Sign call after share Lagrange reconstruction. This trade is
-// documented in docs/known-limitations.md; the v0.2 path implements
+// documented in spec/known-limitations.tex; the v0.2 path implements
 // the pure Lagrange-linearity sign where the secret is never
 // reconstructed in any party's memory.
 
