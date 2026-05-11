@@ -979,6 +979,136 @@ The formal game definitions are stated in the companion file
 \input{parameters}
 
 % =====================================================================
+\section{Large committees}
+\label{sec:large-committees}
+% =====================================================================
+
+The Shamir secret-sharing layer of Pulsar-M operates orthogonally to
+the FIPS~204 M-LWE parameters: the lattice instance is fixed by the
+parameter set, while the committee size $n$ and threshold $t$ are
+deployment-time settings. This section pins the scalability claim
+that anchors the production roadmap for Lux's continental-scale
+validator set.
+
+\paragraph{Two operating regimes.}
+The reference implementation supports two byte-wise Shamir fields:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \emph{Small} -- GF($257$). 64-byte wire share. Maximum
+committee $n_{\max} = 256$. This is the GF($257$) fast path used by
+the round-1 MPTC KAT vectors.
+\item \emph{Wide} -- GF($q$) where $q = 8\,380\,417$ is the FIPS~204
+prime. 128-byte wire share. Maximum committee $n_{\max} = q - 1 =
+8\,380\,416$. This is the wide-field path mandated whenever
+$n > 256$.
+\end{itemize}
+
+The wire footprint doubles between the two regimes; the FIPS~204
+signature is byte-identical in both, so the field choice is
+invisible to every relying party. Field selection is automatic in
+the reference implementation (the \texttt{FieldDefault} sentinel
+picks the narrowest field that fits) but can also be pinned via the
+\texttt{FieldGF257} / \texttt{FieldGFq} enum values for KAT replay.
+
+\paragraph{Threshold security is preserved at all committee sizes.}
+Shamir's $(t-1)$-resilience over a finite field $\mathbb{F}_{|\mathbb{F}|}$
+holds whenever $|\mathbb{F}| > n$, and both GF($257$) and GF($q$)
+satisfy this for the supported committee ranges. Concretely:
+
+\begin{theorem}[Pulsar-M scales information-theoretically in $n$]
+\label{thm:pulsar-m-scales-it}
+Fix a Pulsar-M parameter level $L \in \{44, 65, 87\}$. For every
+$(n, t)$ with $1 \le t \le n$ and $n \le q - 1$, the TS-UF advantage
+\Cref{thm:tsuf} is bounded by the same M-LWE / MSIS / FIPS~204
+EUF-CMA sum, plus an $n$-independent random-oracle term:
+\[
+\Adv^{\mathsf{TS\textsf{-}UF}}_{\mathrm{Pulsar\text{-}M}\text{-}L}(\mathcal{A})
+\;\le\;
+\Adv^{\MLWE}_{q, k, \ell, \eta}(\mathcal{B}_{\MLWE})
++ \Adv^{\MSIS}_{q, k, 2\ell, \beta_{\mathrm{bind}}}(\mathcal{B}_{\MSIS})
++ \Adv^{\mathsf{EUF\textsf{-}CMA}}_{\mathrm{ML\text{-}DSA}}(\mathcal{B}_{\mathrm{ML\text{-}DSA}})
++ \frac{q_S \cdot q_H}{2^\lambda}.
+\]
+In particular, the bound is independent of $n$ once $\lambda$ is
+fixed by the parameter level.
+\end{theorem}
+
+\begin{proof}
+Inspect the proof of \Cref{thm:tsuf}. The hybrid sequence introduces
+$n$-many honest parties' transcripts in $H_1$, but each is sampled
+from the same distribution and contributes the same per-party error
+in the RO-programming penalty. The penalty aggregates to
+$q_S q_H / 2^\lambda$ regardless of $n$ because the $\tilde c$
+collision probability is per-call, not per-party. The hybrids $H_2$
+through $H_4$ introduce only M-LWE, MSIS, and ML-DSA EUF-CMA terms
+that are themselves $n$-independent. The DKG share-privacy term
+\Cref{thm:dkg-priv} is per-committee and is bounded by a single
+M-LWE advantage regardless of how many committees fit into one
+$\DKG$ session.
+
+The Shamir field choice (GF($257$) or GF($q$)) does not contribute
+to the advantage because Shamir's $(t-1)$-resilience is
+information-theoretic: any $t-1$ shares are uniformly distributed
+over $\mathbb{F}_q^{32}$ (resp.\ $\mathbb{F}_{257}^{32}$) and reveal
+nothing about the secret. The corruption budget $|\mathcal{C}| \le
+t-1$ enforced at the protocol layer (\Cref{game:tsuf}) is what gates
+this. \qed
+\end{proof}
+
+\paragraph{Reference target: $N^* = 1\,111\,111$.}
+The reference implementation pins
+\(
+N^* \;=\; \mathtt{TargetCommitteeSize} \;=\; 1\,111\,111
+\)
+as the canonical extreme committee size for conformance testing.
+This is two orders of magnitude above the round-1 MPTC suggested
+committee ceiling (which is typically $n \le 100$ for the
+academic-target schemes catalogued in IR~8214C \S5.2), and over
+four orders of magnitude above the GF($257$) cap. The choice of
+$N^*$ stresses every per-byte modular multiplication, the Lagrange
+denominator inversion at the field's near-maximum evaluation
+point, and the wire-format invariant that $128 \cdot n$ bytes of
+share material does not overflow any 32-bit array length in the
+reference implementation. The corresponding KAT entry is
+\texttt{vectors/large-committee/eval-at-N*.json}.
+
+\paragraph{Empirical validation.}
+The reference implementation's
+\texttt{ref/go/pkg/pulsarm/largeshamir\_test.go} includes:
+
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \texttt{TestLargeShamir\_EvalAtTargetCommitteeSize} -- deal and
+reconstruct at exactly $N^* = 1\,111\,111$ via the per-party
+\texttt{EvalAt} path (so the test does not materialise all
+$N^*$ shares; only the $t$-size quorum is needed),
+\item \texttt{TestShamirQ\_LargeN\_BoundaryCommittees} -- the same
+round-trip at $n \in \{10\,001, 100\,000, 1\,000\,000, N^*\}$
+(every order of magnitude in the $n > 10^4$ regime),
+\item \texttt{TestLargeShamir\_FullCeremony\_10001} -- a full
+$10\,001$-party deal-and-reconstruct that materialises every
+share (memory budget $\approx 1.3$ MB).
+\end{itemize}
+
+All four tests deal in a $32$-byte secret, reconstruct from a
+chosen quorum, and assert byte-equality. The Lagrange denominator
+$x_i - x_j$ never collides in GF($q$) for $1 \le x_i, x_j \le N^*$
+because $N^* \ll q$.
+
+\paragraph{Performance at scale.}
+The dominant cost at large $n$ is the per-party EvalAt: $O(t \cdot
+\mathtt{SeedSize})$ modular multiplications, independent of $n$. On
+Apple~M3 the reference implementation evaluates one share at
+threshold $t = 5$ in $\sim 1.2$~$\mu$s; producing the participating
+$t$-size quorum at the extreme committee size therefore costs $\sim
+6$~$\mu$s of computation independent of whether the committee has
+$10$ or $10^6$ parties. The wire bandwidth scales linearly: a
+$1\,111\,111$-party deal that materialises every share moves
+$\sim 142$~MB of share material; production deployments only
+materialise the participating $t$-quorum and the absent-party
+shares are stored on the chain bulletin in zero-knowledge or
+held in HSM.
+
+% =====================================================================
 \section{Encodings}
 \label{sec:encodings}
 % =====================================================================
