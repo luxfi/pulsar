@@ -13,11 +13,11 @@ points here for the variant table.
 
 ## Variants
 
-| variant   | repo                              | lattice basis | hash family (canonical)        | FIPS 204 verifier interchange? | NIST MPTC class | status                        |
+| variant   | repo (target)                     | lattice basis | hash family (canonical)        | FIPS 204 verifier interchange? | NIST MPTC class | status                        |
 |-----------|-----------------------------------|---------------|--------------------------------|--------------------------------|-----------------|-------------------------------|
-| **Pulsar.R**  | `github.com/luxfi/pulsar`     | Ring-LWE (`R_q`)        | SHA-3 / cSHAKE256 (SP 800-185) | no — special threshold-friendly primitive    | Class S1 + S4 | shipping, hardened, MPTC-ready |
-| **Pulsar.M**  | `github.com/luxfi/pulsar-m`   | Module-LWE (`R_q^k`)    | SHA-3 / cSHAKE256 (SP 800-185) | yes — output is a single FIPS 204 ML-DSA σ   | Class N1 + N4 | bootstrap repo, spec in flight |
-| Pulsar.W (reserved)        | TBD                | TBD           | TBD                            | TBD                            | TBD             | reserved for future lattice variant |
+| **Pulsar** (was Pulsar.M / pulsar-m) | `github.com/luxfi/pulsar` | Module-LWE (`R_q^k`)    | SHA-3 / cSHAKE256 (SP 800-185) | yes — output is a single FIPS 204 ML-DSA σ   | Class N1 + N4 | this repo; reference complete, KAT-pinned |
+| **Corona** (was Pulsar.R / luxfi/pulsar) | `github.com/luxfi/corona` | Ring-LWE (`R_q`) | SHA-3 / cSHAKE256 (SP 800-185) | no — special threshold-friendly primitive    | Class S1 + S4 | production R-LWE fork, lifecycle DKG complete |
+| **Ringtail** (academic upstream + Lux expansions) | `github.com/luxfi/ringtail` | Ring-LWE (`R_q`) | BLAKE3 (academic) / SHA-3 (Lux expansions) | no | academic | upstream + lifecycle DKG expansions in flight |
 
 All variants share:
 
@@ -37,16 +37,23 @@ All variants share:
 
 What differs between variants:
 
-- **Algebra** — Ring-LWE for Pulsar.R, Module-LWE for Pulsar.M. The
+- **Algebra** — Ring-LWE for Corona, Module-LWE for Pulsar. The
   algebraic shape determines parameter sizes, signature sizes, and the
   structure of the Pedersen commitment scheme.
-- **Verification target** — Pulsar.R verifies under its own verifier
-  (a custom 2-round-aggregated check); Pulsar.M verifies under
+- **Verification target** — Corona verifies under its own verifier
+  (a custom 2-round-aggregated check); Pulsar verifies under
   unmodified FIPS 204 ML-DSA.Verify. The latter is the single highest-
   value property of the family.
 - **NIST submission posture** — see Class column above.
 - **Production maturity** — Pulsar.R has a hardened reshare path,
-  KAT suite, deployed code. Pulsar.M has a spec stub and skeleton repo.
+  KAT suite, deployed code. Pulsar.M has a complete spec
+  (`spec/pulsar-m.tex` plus `parameters.tex`, `system-model.tex`,
+  `security-games.tex`), a working Go reference (single-party and
+  threshold paths, both GF(257) and GF(q) Shamir layers), and a
+  KAT suite. The scaling target N* = 1,111,111 is empirically
+  validated. Production hardening (HSM integration, formal CT
+  guarantees, cross-implementation conformance vs. BoringSSL FIPS /
+  AWS-LC / OpenSSL 3) is round-2 work.
 
 ## Why one family
 
@@ -90,19 +97,25 @@ algorithms in Round 3.
 
 ## Naming discipline
 
-- The umbrella name is **Pulsar**. Always capitalised, no hyphen.
-- A specific variant is **Pulsar.X** where X is one uppercase letter
-  identifying the lattice basis: `Pulsar.R` (Ring-LWE), `Pulsar.M`
-  (Module-LWE). The dot is part of the name in prose; in identifiers
-  the canonical machine form is `pulsar-r`, `pulsar-m` (lowercase,
-  hyphen).
-- Variants do **not** carry the lattice basis in the umbrella name.
-  Calling Pulsar.R "Ringtail-Pulsar" or "RPulsar" is wrong. Ringtail
-  is a separate academic upstream (`luxfi/ringtail`) that Pulsar.R
-  forks; Pulsar.R is not Ringtail.
+Three sibling threshold-signature libraries; each is its own NIST
+MPTC submission package (no umbrella package).
+
+- **Pulsar** — the FIPS 204-compatible Module-LWE threshold. Always
+  capitalised, no hyphen, no suffix. Identifier form: `pulsar`.
+- **Corona** — the Ring-LWE production threshold (Lux's hardened fork
+  of Ringtail). Always capitalised. Identifier form: `corona`.
+- **Ringtail** — the academic Ring-LWE upstream plus Lux's lifecycle
+  DKG expansions. Always capitalised. Identifier form: `ringtail`.
+
+Naming rules:
+
+- Do not write "Pulsar.M" or "Pulsar-M" in new prose; both are the
+  pre-rebrand legacy names of the M-LWE threshold (now just "Pulsar").
+- Do not write "Pulsar.R" or "Pulsar-R"; the R-LWE threshold is now
+  "Corona" -- distinct name, distinct repo.
 - HashSuiteID byte (per HIP-0077 §"Lux consensus PQ modes") identifies
-  the **hash family**, not the variant. Pulsar.R and Pulsar.M canonical
-  profiles both use `HashSuiteSHA3 = 2`. A future Pulsar.M with a
+  the **hash family**, not the variant. Pulsar and Corona canonical
+  profiles both use `HashSuiteSHA3 = 2`. A future Pulsar with a
   different hash family (e.g. SHAKE256 only) would claim a new
   HashSuiteID without renaming the variant.
 

@@ -16,6 +16,70 @@ package pulsarm
 // nominal index 0 is rejected by params validation.
 type NodeID [32]byte
 
+// Field identifies which Shamir base field a Pulsar-M instance uses.
+// The choice is committee-size driven: GF(257) (FieldGF257) has the
+// smallest wire footprint and is preferred for committees of at most
+// 256 parties; GF(q) (FieldGFq) supports committees up to q − 1 =
+// 8 380 416 and is mandatory for any committee with more than 256
+// parties.
+//
+// The verifier (Class N1 manifesto) is unaffected by this choice:
+// the output FIPS 204 signature is byte-identical in both cases.
+type Field uint8
+
+const (
+	// FieldDefault asks the constructor to pick the narrowest field
+	// that fits the committee size: GF(257) when n ≤ 256, else GF(q).
+	FieldDefault Field = 0
+
+	// FieldGF257 forces byte-wise Shamir over the prime 257. Wire
+	// share size: 64 bytes. Cap: 256 parties.
+	FieldGF257 Field = 1
+
+	// FieldGFq forces byte-wise Shamir over the FIPS 204 prime
+	// q = 8 380 417. Wire share size: 128 bytes. Cap: q − 1 parties.
+	FieldGFq Field = 2
+)
+
+// String returns the canonical name for use in transcripts.
+func (f Field) String() string {
+	switch f {
+	case FieldGF257:
+		return "GF(257)"
+	case FieldGFq:
+		return "GF(q)"
+	default:
+		return "default"
+	}
+}
+
+// resolveField picks the concrete field for a committee of size n.
+// Callers that pass FieldDefault get the narrowest field that fits;
+// callers that pin a field get that field even if it is wider than
+// strictly necessary (useful for cross-implementation KAT replay).
+func resolveField(want Field, n int) (Field, error) {
+	switch want {
+	case FieldGF257:
+		if n > LargeCommitteeThreshold {
+			return 0, ErrCommitteeTooLarge
+		}
+		return FieldGF257, nil
+	case FieldGFq:
+		if uint64(n) > uint64(MaxCommitteeQ) {
+			return 0, ErrCommitteeTooLargeQ
+		}
+		return FieldGFq, nil
+	default:
+		if n <= LargeCommitteeThreshold {
+			return FieldGF257, nil
+		}
+		if uint64(n) > uint64(MaxCommitteeQ) {
+			return 0, ErrCommitteeTooLargeQ
+		}
+		return FieldGFq, nil
+	}
+}
+
 // PublicKey wraps a FIPS 204 ML-DSA public key. The byte layout is
 // exactly what cloudflare/circl's mldsa{44,65,87}.PublicKey.Pack emits
 // — i.e. a single contiguous (ρ, t1) concatenation per FIPS 204 §5.1.
