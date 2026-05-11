@@ -112,7 +112,7 @@ func (s *LargeDKGSession) Round1() (*LargeDKGRound1Msg, error) {
 
 	committeeRoot := s.commitCommitteeRoot()
 	keyMaterial := []byte{}
-	keyMaterial = append(keyMaterial, []byte("PULSAR-M-DKG-DEALER-V1")...)
+	keyMaterial = append(keyMaterial, []byte("PULSAR-DKG-DEALER-V1")...)
 	keyMaterial = append(keyMaterial, committeeRoot[:]...)
 	keyMaterial = append(keyMaterial, byte(s.myIndex>>8), byte(s.myIndex))
 	keyMaterial = append(keyMaterial, s.myBlind[:]...)
@@ -134,7 +134,7 @@ func (s *LargeDKGSession) Round1() (*LargeDKGRound1Msg, error) {
 		blindMask := cshake256(
 			append(append([]byte{}, s.myBlind[:]...), recipient[:]...),
 			shareWireSizeQ,
-			"PULSAR-M-DKG-BLINDMASK-V1",
+			"PULSAR-DKG-BLINDMASK-V1",
 		)
 		var envShare [shareWireSizeQ]byte
 		copy(envShare[:], shareBytes[:])
@@ -316,7 +316,7 @@ func (s *LargeDKGSession) computeRound2Digest(ordered []*LargeDKGRound1Msg) [32]
 
 func (s *LargeDKGSession) commitCommitteeRoot() [32]byte {
 	parts := make([][]byte, 0, len(s.Committee)+1)
-	parts = append(parts, []byte("PULSAR-M-COMMITTEE-V1"))
+	parts = append(parts, []byte("PULSAR-COMMITTEE-V1"))
 	for _, id := range s.Committee {
 		parts = append(parts, id[:])
 	}
@@ -356,7 +356,7 @@ func committeeRootFromLargeShares(shares []*LargeKeyShare) [32]byte {
 		}
 	}
 	parts := make([][]byte, 0, len(ids)+1)
-	parts = append(parts, []byte("PULSAR-M-COMMITTEE-V1"))
+	parts = append(parts, []byte("PULSAR-COMMITTEE-V1"))
 	for _, id := range ids {
 		parts = append(parts, id[:])
 	}

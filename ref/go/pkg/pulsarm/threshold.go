@@ -456,7 +456,7 @@ func deriveMACKey(a, b NodeID, pk *PublicKey) [32]byte {
 	if pk != nil {
 		parts = append(parts, pk.Bytes)
 	}
-	return transcriptHash32("PULSAR-M-SIGN-MACKEY-V1", parts...)
+	return transcriptHash32("PULSAR-SIGN-MACKEY-V1", parts...)
 }
 
 // committeeRootFromShares reconstructs the DKG committee root from a
@@ -474,7 +474,7 @@ func committeeRootFromShares(shares []*KeyShare) [32]byte {
 		}
 	}
 	parts := make([][]byte, 0, len(ids)+1)
-	parts = append(parts, []byte("PULSAR-M-COMMITTEE-V1"))
+	parts = append(parts, []byte("PULSAR-COMMITTEE-V1"))
 	for _, id := range ids {
 		parts = append(parts, id[:])
 	}
