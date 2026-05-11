@@ -9,12 +9,12 @@ import (
 	"testing"
 )
 
-// TestLuxRoundContext_Encode_Deterministic verifies the wire encoding
-// of a LuxRoundContext is deterministic and per-field unique. Changing
+// TestRoundContext_Encode_Deterministic verifies the wire encoding
+// of a RoundContext is deterministic and per-field unique. Changing
 // any field changes the encoding -- catches accidental field reorder
 // in future refactors.
-func TestLuxRoundContext_Encode_Deterministic(t *testing.T) {
-	base := LuxRoundContext{
+func TestRoundContext_Encode_Deterministic(t *testing.T) {
+	base := RoundContext{
 		Epoch:         1,
 		Round:         2,
 		Item:          [32]byte{0xab},
@@ -26,11 +26,11 @@ func TestLuxRoundContext_Encode_Deterministic(t *testing.T) {
 		t.Fatalf("Encode is non-deterministic")
 	}
 	// Mutate each field; each mutation must change the encoding.
-	for i, mutate := range []func(*LuxRoundContext){
-		func(c *LuxRoundContext) { c.Epoch++ },
-		func(c *LuxRoundContext) { c.Round++ },
-		func(c *LuxRoundContext) { c.Item[0] = 0xff },
-		func(c *LuxRoundContext) { c.CommitteeRoot[0] = 0xff },
+	for i, mutate := range []func(*RoundContext){
+		func(c *RoundContext) { c.Epoch++ },
+		func(c *RoundContext) { c.Round++ },
+		func(c *RoundContext) { c.Item[0] = 0xff },
+		func(c *RoundContext) { c.CommitteeRoot[0] = 0xff },
 	} {
 		mutated := base
 		mutate(&mutated)
@@ -40,31 +40,31 @@ func TestLuxRoundContext_Encode_Deterministic(t *testing.T) {
 	}
 }
 
-// TestLuxRoundSessionID_PerRoundDistinct verifies that two consecutive
+// TestRoundSessionID_PerRoundDistinct verifies that two consecutive
 // Lux rounds get distinct session IDs even when item + committee
 // match -- so the Pulsar-M PRNG is forced to re-seed every round
 // (the CRIT-1 cross-round replay defense from del Pino-Niot).
-func TestLuxRoundSessionID_PerRoundDistinct(t *testing.T) {
-	ctxR1 := LuxRoundContext{Epoch: 7, Round: 1, Item: [32]byte{0x11}, CommitteeRoot: [32]byte{0x22}}
+func TestRoundSessionID_PerRoundDistinct(t *testing.T) {
+	ctxR1 := RoundContext{Epoch: 7, Round: 1, Item: [32]byte{0x11}, CommitteeRoot: [32]byte{0x22}}
 	ctxR2 := ctxR1
 	ctxR2.Round = 2
-	if LuxRoundSessionID(ctxR1) == LuxRoundSessionID(ctxR2) {
+	if RoundSessionID(ctxR1) == RoundSessionID(ctxR2) {
 		t.Fatalf("session IDs collide across Lux rounds")
 	}
 }
 
-// TestLuxRoundCommitteeRoot_OrderIndependent verifies the committee
+// TestRoundCommitteeRoot_OrderIndependent verifies the committee
 // root is canonical under permutation -- Wave's K-sample order is
 // not stable, so the root must be too.
-func TestLuxRoundCommitteeRoot_OrderIndependent(t *testing.T) {
+func TestRoundCommitteeRoot_OrderIndependent(t *testing.T) {
 	a := []NodeID{{0x01}, {0x02}, {0x03}}
 	b := []NodeID{{0x03}, {0x01}, {0x02}}
-	if LuxRoundCommitteeRoot(a) != LuxRoundCommitteeRoot(b) {
+	if RoundCommitteeRoot(a) != RoundCommitteeRoot(b) {
 		t.Fatalf("committee root depends on order")
 	}
 }
 
-// TestLuxRound_E2E_BetaRounds_Pulsar_M is the headline metastable
+// TestRound_E2E_BetaRounds_Pulsar_M is the headline metastable
 // signing test. It simulates:
 //   1. Validator pool of 100 (beyond GF(257) cap not needed; tests math).
 //   2. β = 4 consecutive Lux rounds.
@@ -77,7 +77,7 @@ func TestLuxRoundCommitteeRoot_OrderIndependent(t *testing.T) {
 // the Wave / Focus / Cut wiring (those live in consensus). The
 // test asserts that each per-Lux-round signature verifies under
 // unmodified FIPS 204 ML-DSA.Verify.
-func TestLuxRound_E2E_BetaRounds_Pulsar_M(t *testing.T) {
+func TestRound_E2E_BetaRounds_Pulsar_M(t *testing.T) {
 	const validatorPool = 100
 	const K = 3
 	const T = 2
@@ -102,14 +102,14 @@ func TestLuxRound_E2E_BetaRounds_Pulsar_M(t *testing.T) {
 		for i, idx := range idxs {
 			committee[i] = pool[idx]
 		}
-		committeeRoot := LuxRoundCommitteeRoot(committee)
-		ctx := LuxRoundContext{
+		committeeRoot := RoundCommitteeRoot(committee)
+		ctx := RoundContext{
 			Epoch:         1,
 			Round:         round,
 			Item:          item,
 			CommitteeRoot: committeeRoot,
 		}
-		sessionID := LuxRoundSessionID(ctx)
+		sessionID := RoundSessionID(ctx)
 
 		// Per-round DKG.
 		dkg := make([]*DKGSession, K)
@@ -202,7 +202,7 @@ func TestLuxRound_E2E_BetaRounds_Pulsar_M(t *testing.T) {
 //   2. rho=1 gives 1 (adversary controls everything).
 //   3. monotonically increasing in rho.
 func TestApproxRoundSecurity_BoundsMatchExpectedShape(t *testing.T) {
-	policy := DefaultLuxRoundQuorumPolicy // K=21, alpha=15, beta=12.
+	policy := DefaultRoundQuorumPolicy // K=21, alpha=15, beta=12.
 	if got := ApproxRoundSecurity(0.0, policy); got != 0 {
 		t.Fatalf("rho=0: got %v, want 0", got)
 	}
@@ -228,7 +228,7 @@ func TestApproxRoundSecurity_BoundsMatchExpectedShape(t *testing.T) {
 // compounds to (4e-4)^12 ≈ 2^-135 -- ample security for finality.
 // See proofs/pulsar-m/lux-round-metastable.tex for the full claim.
 func TestApproxRoundSecurity_DefaultPolicyAt1OfThird(t *testing.T) {
-	v := ApproxRoundSecurity(1.0/3.0, DefaultLuxRoundQuorumPolicy)
+	v := ApproxRoundSecurity(1.0/3.0, DefaultRoundQuorumPolicy)
 	if v >= math.Pow(2, -10) {
 		t.Fatalf("at rho=1/3, K=21, alpha=15: per-round adv %v too high (>= 2^-10)", v)
 	}
@@ -236,7 +236,7 @@ func TestApproxRoundSecurity_DefaultPolicyAt1OfThird(t *testing.T) {
 		t.Fatalf("at rho=1/3, K=21, alpha=15: per-round adv %v unexpectedly low (<= 2^-20)", v)
 	}
 	// Amplified bound after beta=12 rounds (assuming independent rounds).
-	amplified := math.Pow(v, float64(DefaultLuxRoundQuorumPolicy.Beta))
+	amplified := math.Pow(v, float64(DefaultRoundQuorumPolicy.Beta))
 	if amplified >= math.Pow(2, -100) {
 		t.Fatalf("beta=12 amplified bound %v too high (>= 2^-100)", amplified)
 	}
