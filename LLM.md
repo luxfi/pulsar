@@ -92,6 +92,60 @@ confirmation per auto-mode safety policy:
 | `luxfi/corona` | Does not exist | Create from current `luxfi/pulsar` R-LWE contents |
 | `luxfi/quasar` | Does not exist | Optional standalone repo |
 
+### Module-pin reconciliation (pre-rename gate)
+
+Silent-swap hazard: `threshold/go.mod` and `warp/go.mod` both pin
+`github.com/luxfi/pulsar v0.1.0-rc1-pq-consensus-freeze` with
+`replace github.com/luxfi/pulsar => ../pulsar`. After the rename
+`../pulsar` will contain M-LWE code (was R-LWE), so existing
+R-LWE-API call sites in threshold/warp will fail to compile. The
+go.mod surgery list below MUST land before any directory rename:
+
+- `threshold/go.mod`:
+  - `require github.com/luxfi/corona v0.2.0` (was: `github.com/luxfi/pulsar v0.1.0-rc1-pq-consensus-freeze`)
+  - `replace github.com/luxfi/corona => ../corona` (was: `=> ../pulsar`)
+  - UPDATE all imports `github.com/luxfi/pulsar/...` → `github.com/luxfi/corona/...` in source.
+- `warp/go.mod`: same pattern as `threshold/go.mod`.
+- `consensus/go.mod`:
+  - `require github.com/luxfi/pulsar v0.2.0` (was: `github.com/luxfi/pulsar-m v0.1.0`)
+  - `require github.com/luxfi/corona v0.2.0` (was: `github.com/luxfi/pulsar v0.1.5`)
+  - UPDATE imports `github.com/luxfi/pulsar-m/...` → `github.com/luxfi/pulsar/...` in source.
+  - UPDATE imports `github.com/luxfi/pulsar/...` (R-LWE) → `github.com/luxfi/corona/...` in source.
+- `node/go.mod`: same as `consensus/go.mod` (indirect deps follow).
+- `precompile/go.mod`:
+  - add `require github.com/luxfi/pulsar v0.2.0` (currently has no pulsar dep — Blue's commit didn't add it because the precompile uses `crypto/mldsa` directly).
+  - no R-LWE Pulsar / Corona dep needed (`precompile/ringtail` covers that path).
+
+### Migration sequence
+
+Exact commit order (each step gated by Verification below):
+
+1. Stand up `luxfi/corona` repo (mirror current `luxfi/pulsar` contents,
+   all tags preserved).
+2. Tag `luxfi/corona v0.2.0`.
+3. In `threshold` / `warp` / `consensus` / `node`: update `go.mod` +
+   imports to point at `luxfi/corona` for R-LWE.
+4. Tag each consumer (`threshold`, `warp`, `consensus`, `node`).
+5. Bump `pulsar-m` → cut as `luxfi/pulsar v0.2.0` (M-LWE code moves into
+   `luxfi/pulsar`; preserve pre-`v0.2.0` tags as historical R-LWE).
+6. In `consensus` / `node` / `precompile`: update `go.mod` imports
+   from `luxfi/pulsar-m` → `luxfi/pulsar`.
+7. Tag each.
+8. Archive `luxfi/pulsar-m` with README redirect.
+
+### Verification gate
+
+After each step in the Migration sequence, the affected consumer repos
+MUST compile + test green before the next step proceeds:
+
+- `go build ./...` exits 0
+- `go test ./...` exits 0
+- `go mod tidy` produces no diff
+- CI green on the tagged commit
+
+A red gate blocks the next step. No silent skips; document the failure
+and resolve before advancing.
+
 ## Purpose (one-liner)
 
 Threshold ML-DSA: 2-round threshold signing and DKG whose generated
