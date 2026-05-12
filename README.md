@@ -49,8 +49,8 @@ deadline expected 2026-Nov-16).
 
 Pulsar aims to enter that process with a credible, output-interchangeable
 threshold ML-DSA candidate — built from the production-tested protocol
-machinery already shipping in `luxfi/pulsar` (R-LWE), retargeted to the
-M-LWE primitives ML-DSA itself uses.
+machinery shipping in `luxfi/corona` (Ring-LWE), retargeted to the
+Module-LWE primitives ML-DSA itself uses.
 
 The win, if Pulsar's Sign output is byte-equal to FIPS 204 Sign:
 - Threshold-produced signatures verify under unmodified FIPS 204 verifiers.
@@ -124,13 +124,40 @@ Target dates:
 - **2026-Jul-20** preview writeup (NIST third preview deadline)
 - **2026-Nov-16** package submission (NIST first call deadline)
 
-## Relationship to upstream
+## Relationship to upstream and siblings
 
-| repo | what | hash family |
-|---|---|---|
-| [luxfi/ringtail](https://github.com/luxfi/ringtail) | academic R-LWE 2-round threshold sig (Boschini–Kaviani–Lai–Malavolta–Takahashi–Tibouchi, ePrint 2024/1113) | BLAKE3 |
-| [luxfi/pulsar](https://github.com/luxfi/pulsar) | production fork of Ringtail with Pedersen DKG + proactive resharing | SHA-3 / cSHAKE256 (canonical), BLAKE3 (legacy) |
-| **luxfi/pulsar** (this repo) | **Module-LWE sibling: threshold ML-DSA** | **SHA-3 / SHAKE256** (NIST profile) only |
+Pulsar is independent of its sibling and academic predecessor — no
+import line, no shared types. The relationship table is provenance,
+not dependency.
+
+| repo | role | lattice basis | hash family | status |
+|---|---|---|---|---|
+| [luxfi/nasua](https://github.com/luxfi/nasua) | **academic** R-LWE 2-round threshold sig (Boschini–Kaviani–Lai–Malavolta–Takahashi–Tibouchi, ePrint 2024/1113); trusted-dealer DKG only | Ring-LWE (`R_q`) | BLAKE3 | historical reference fork (no public-chain use) |
+| [luxfi/corona](https://github.com/luxfi/corona) | **production** R-LWE threshold ML-DSA — Pedersen DKG over `R_q` + proactive resharing | Ring-LWE (`R_q`) | SHA-3 / cSHAKE256 (SP 800-185) | production library |
+| **luxfi/pulsar** (this repo) | **production** Module-LWE threshold ML-DSA; output byte-equal to FIPS 204 ML-DSA | Module-LWE (`R_q^k`) | SHA-3 / cSHAKE256 (SP 800-185) | production library |
+| [luxfi/pulsar-mptc](https://github.com/luxfi/pulsar-mptc) | NIST MPTC submission package (frozen artifact for review) | Module-LWE (`R_q^k`) | SHA-3 / SHAKE256 (NIST profile) | active submission package |
+
+## Composition with Corona as optional layered PQ defense
+
+Pulsar and Corona are independently usable: a chain can pick either as
+its sole PQ threshold layer, no cross-dependency. Lux primary-network
+QuasarCert combines them as a **Double Lattice** layered defence —
+Module-LWE plus Ring-LWE — so a break in one lattice family does not
+break finality:
+
+```
+QuasarCert {
+    BLS         — optional classical fast-path (BLS-12-381 aggregate)
+    Corona      — Ring-LWE threshold ML-DSA   (luxfi/corona)
+    Pulsar      — Module-LWE threshold ML-DSA (this repo)
+    MLDSARollup — per-validator ML-DSA-65 rolled up via STARK/FRI (P3Q)
+}
+```
+
+Each layer is checkable independently with no shared code; selecting
+the layer happens at chain-construction time via the `FinalitySchemeID`
+axis on the chain's `ChainSecurityProfile`. The pure-PQ profile drops
+BLS entirely and runs on `Corona + Pulsar`.
 
 ## Security
 
@@ -139,4 +166,4 @@ bug bounty.
 
 ## License
 
-Apache-2.0 — same as `luxfi/pulsar` and `luxfi/ringtail`. See `LICENSE`.
+Apache-2.0 — same as `luxfi/corona` and `luxfi/nasua`. See `LICENSE`.
