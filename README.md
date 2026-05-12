@@ -67,7 +67,7 @@ pulsar/
 │   ├── threat-model.md
 │   ├── nist-mptc-category.md
 │   ├── design-decisions.md
-│   ├── known-limitations.md
+│   ├── BLOCKERS.md
 │   └── patent-notes-draft.md
 ├── spec/                     LaTeX technical specification (MPTC package)
 │   ├── pulsar.tex          main spec
@@ -96,7 +96,7 @@ pulsar/
 ## Quickstart
 
 > **Pulsar is in pre-spec stage.** Reference impl, vectors, and bench harness
-> ship after the spec freezes. Track [spec/known-limitations.tex](spec/known-limitations.tex)
+> ship after the spec freezes. Track [BLOCKERS.md](BLOCKERS.md)
 > for what's stable vs in-flight.
 
 ```bash
