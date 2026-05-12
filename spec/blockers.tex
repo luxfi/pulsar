@@ -1,0 +1,54 @@
+% Production-go-live blockers + deferred theorems.
+% Mirrors the BLOCKERS.md at the repository root, frozen at submission.
+% Full canonical list with file:line refs and fix sketches: BLOCKERS.md.
+
+\section{Production go-live blockers and deferred theorems}
+\label{sec:blockers}
+
+A 4-red-agent + 1-scientist adversarial audit (2026-05) found 13
+production-go-live blockers across the strict-PQ stack. The earlier
+``known-limitations'' framing was too lenient; the canonical bug list
+is now \texttt{BLOCKERS.md} at the repository root.
+
+\paragraph{Cryptographic gaps that block production deployment.}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item \textbf{DKG commit-opening (CR-6).} The current Round-1 commit
+$\mathrm{cSHAKE256}(c_i \| \mathit{blind}_i)$ is broadcast but
+$(c_i, \mathit{blind}_i)$ are never transmitted in any later round.
+The commit binds nothing the protocol verifies. Fix: include
+$(c_i, \mathit{blind}_i)$ in Round-2 reveal and verify the digest
+opens, or drop \texttt{myCommit} entirely.
+\item \textbf{Sign-round session-key derivation (CR-7).}
+\texttt{deriveMACKey} derives per-pair MAC keys from public inputs.
+Any network observer computes the key and forges Round-1 messages.
+Fix: ephemeral session-key exchange (Noise / X3DH / ML-KEM-768) bound
+to long-term ML-DSA identity.
+\item \textbf{DKG envelope confidentiality (CR-8).} Round-1 envelopes
+carry per-recipient Shamir shares plaintext on the broadcast wire.
+A passive network observer recovers the master key from one DKG
+ceremony. Fix: KEM-wrap envelopes (ML-KEM-768) per recipient.
+\item \textbf{Adaptive corruption proof.} Round-1 proves TS-UF under
+static corruption only; Game ADAPT is the only deferred theorem and
+is the production-deployment blocker for nation-state corruption
+modelling.
+\item \textbf{Cross-domain isolation.} Pulsar (M-LWE) and Corona
+(R-LWE) share the algebraic-lattice hardness substrate; co-deploying
+them is not defense-in-depth. Real DiD requires a hash-based
+(SLH-DSA) layer also wired into the consensus envelope.
+\item \textbf{Verify constant-time.} \Cref{sec:verify} asserts but
+does not measure constant-time behaviour. The \texttt{ct/dudect/}
+harness is scaffolded; results pinned at the submission tag.
+\end{itemize}
+
+\paragraph{Round-1 deferred items.}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+\item Asynchronous network model: Round-1 assumes synchronous broadcast.
+\item HSM-backed share custody: round-2 hardening item.
+\item Physical side channels (power, EM, fault): out of scope round-1.
+\item Cross-message restart hybrid: round-2 work.
+\item Lattice estimator parameter pins: recorded in
+\texttt{estimator/README.md}.
+\end{itemize}
+
+See \texttt{BLOCKERS.md} (repository root) for the canonical list with
+specific file:line references and per-finding fix sketches.

@@ -179,7 +179,7 @@ func TestLarge_DKG_AboveCap(t *testing.T) {
 // small-committee (GF(257)) path. Cross-committee reshare changes
 // the committee root and therefore the cSHAKE256-mixed master seed
 // in the v0.1 reconstruction-aggregator instantiation; see
-// spec/known-limitations.tex.
+// BLOCKERS.md.
 func TestLarge_Reshare_SameCommittee_PubInvariant(t *testing.T) {
 	params := MustParamsFor(ModeP65)
 	committee := makeLargeCommittee(5)
@@ -301,7 +301,7 @@ func TestLarge_Reshare_SameCommittee_PubInvariant(t *testing.T) {
 // is bound to the committee root. This test asserts that the reshare
 // ceremony succeeds (new shares are produced) but not that pk is
 // preserved across the committee change. The pk-preserving cross-
-// committee reshare is on the v0.2 path; see spec/known-limitations.tex.
+// committee reshare is on the v0.2 path; see BLOCKERS.md.
 func TestLarge_Reshare_E2E(t *testing.T) {
 	params := MustParamsFor(ModeP65)
 
