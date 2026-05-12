@@ -1,6 +1,6 @@
 # Pulsar -- Agent Knowledge Base (formerly Pulsar-M)
 
-**Repository (current)**: github.com/luxfi/pulsar-m
+**Repository (current)**: github.com/luxfi/pulsar
 **Repository (target)**: github.com/luxfi/pulsar
 **Latest Tag**: v0.1.0
 **Status**: Research / Reference (not production hardened, not FIPS validated)
@@ -24,7 +24,7 @@ KAT vectors, and FIPS 204 byte-equality guarantees are unchanged.
 
 | Going-forward name | Lattice | Class | Where it lives now | Where it lives after |
 |---|---|---|---|---|
-| **Pulsar** | Module-LWE / FIPS 204 | NIST MPTC N1 + N4 | `github.com/luxfi/pulsar-m` | `github.com/luxfi/pulsar` |
+| **Pulsar** | Module-LWE / FIPS 204 | NIST MPTC N1 + N4 | `github.com/luxfi/pulsar` | `github.com/luxfi/pulsar` |
 | **Corona** | Ring-LWE | NIST MPTC S1 + S4 | `github.com/luxfi/pulsar` (current R-LWE production fork) | `github.com/luxfi/corona` |
 | **Ringtail** | Ring-LWE | academic upstream + Lux lifecycle DKG expansions | `github.com/luxfi/ringtail` | `github.com/luxfi/ringtail` (unchanged) |
 | **Quasar** | composition layer | -- | `consensus/protocol/quasar/` (sub-protocol) | optional standalone `github.com/luxfi/quasar` as the **PQ event horizon** |
@@ -59,7 +59,7 @@ depending on the full consensus stack.
    (preserved in corona), copy M-LWE content from pulsar-m, bump module
    path. Cut as `v0.2.0`. Archive `luxfi/pulsar-m` with README redirect.
 4. Update consumers' go.mod (`luxfi/consensus`, `luxfi/precompile`):
-   replace `github.com/luxfi/pulsar-m v0.1.0` with
+   replace `github.com/luxfi/pulsar v0.1.0` with
    `github.com/luxfi/pulsar v0.2.0`. Update imports + `go mod tidy`.
 5. Optional: stand up `luxfi/quasar` as the PQ event horizon meta-repo.
    Imports `luxfi/pulsar`, `luxfi/corona`, `luxfi/p3q`,
@@ -107,9 +107,9 @@ go.mod surgery list below MUST land before any directory rename:
   - UPDATE all imports `github.com/luxfi/pulsar/...` → `github.com/luxfi/corona/...` in source.
 - `warp/go.mod`: same pattern as `threshold/go.mod`.
 - `consensus/go.mod`:
-  - `require github.com/luxfi/pulsar v0.2.0` (was: `github.com/luxfi/pulsar-m v0.1.0`)
+  - `require github.com/luxfi/pulsar v0.2.0` (was: `github.com/luxfi/pulsar v0.1.0`)
   - `require github.com/luxfi/corona v0.2.0` (was: `github.com/luxfi/pulsar v0.1.5`)
-  - UPDATE imports `github.com/luxfi/pulsar-m/...` → `github.com/luxfi/pulsar/...` in source.
+  - UPDATE imports `github.com/luxfi/pulsar/...` → `github.com/luxfi/pulsar/...` in source.
   - UPDATE imports `github.com/luxfi/pulsar/...` (R-LWE) → `github.com/luxfi/corona/...` in source.
 - `node/go.mod`: same as `consensus/go.mod` (indirect deps follow).
 - `precompile/go.mod`:

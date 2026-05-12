@@ -42,7 +42,7 @@ These reopen post-submission.
 ## Development setup
 
 ```bash
-git clone https://github.com/luxfi/pulsar-m
+git clone https://github.com/luxfi/pulsar
 cd pulsar-m
 ./scripts/build.sh
 ./scripts/test.sh
