@@ -132,7 +132,6 @@ not dependency.
 
 | repo | role | lattice basis | hash family | status |
 |---|---|---|---|---|
-| [luxfi/nasua](https://github.com/luxfi/nasua) | **academic** R-LWE 2-round threshold sig (Boschini–Kaviani–Lai–Malavolta–Takahashi–Tibouchi, ePrint 2024/1113); trusted-dealer DKG only | Ring-LWE (`R_q`) | BLAKE3 | historical reference fork (no public-chain use) |
 | [luxfi/corona](https://github.com/luxfi/corona) | **production** R-LWE threshold ML-DSA — Pedersen DKG over `R_q` + proactive resharing | Ring-LWE (`R_q`) | SHA-3 / cSHAKE256 (SP 800-185) | production library |
 | **luxfi/pulsar** (this repo) | **production** Module-LWE threshold ML-DSA; output byte-equal to FIPS 204 ML-DSA | Module-LWE (`R_q^k`) | SHA-3 / cSHAKE256 (SP 800-185) | production library |
 | [luxfi/pulsar-mptc](https://github.com/luxfi/pulsar-mptc) | NIST MPTC submission package (frozen artifact for review) | Module-LWE (`R_q^k`) | SHA-3 / SHAKE256 (NIST profile) | active submission package |
@@ -166,4 +165,4 @@ bug bounty.
 
 ## License
 
-Apache-2.0 — same as `luxfi/corona` and `luxfi/nasua`. See `LICENSE`.
+Apache-2.0 — same as `luxfi/corona`. See `LICENSE`.
