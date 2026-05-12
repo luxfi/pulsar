@@ -4,11 +4,36 @@
 > generated signatures are verifiable by **unmodified FIPS 204 ML-DSA
 > verification**. Targeting NIST MPTC Class N1 (signing) + N4 (ML keygen / DKG).
 
-`Pulsar` is the Module-LWE sibling of [Pulsar](https://github.com/luxfi/pulsar)
-(Ring-LWE). Pulsar's 2-round threshold protocol structure is transplanted onto
-ML-DSA-65's polynomial-vector-over-`R_q` algebra so the per-party-aggregated
-signature is bit-identical to a single-party FIPS 204 signature on the same
-message + public key.
+`Pulsar` is the Lux **Module-LWE** post-quantum threshold signature library.
+Its 2-round threshold protocol structure operates on ML-DSA-65's polynomial-
+vector-over-`R_q` algebra so the per-party-aggregated signature is bit-
+identical to a single-party FIPS 204 signature on the same message + public
+key. The Ring-LWE sibling library is [`luxfi/corona`](https://github.com/luxfi/corona).
+
+## Version note
+
+This repository previously held the Ring-LWE codebase under tags `v0.1.0`,
+`v0.1.1`, `v0.1.2`, and `v0.1.5`. Following the 2026 Pulsar / Corona split:
+
+- **Ring-LWE** code moved to [`luxfi/corona`](https://github.com/luxfi/corona),
+  inheriting the `v0.1.x` history under the new name.
+- **Module-LWE** code (this repository) starts at `v1.0.0` to signal the
+  identity break.
+
+Use:
+
+```sh
+go get github.com/luxfi/pulsar@v1.0.0          # Module-LWE (this repo)
+go get github.com/luxfi/corona@v0.2.0          # Ring-LWE (sibling repo)
+```
+
+The legacy `v0.1.x` tags on this repository have been retired. If you
+need the historical Ring-LWE code line, pin `luxfi/corona@v0.1.x`.
+
+## Quasar composition
+
+Both libraries are independently complete; `luxfi/consensus/protocol/quasar`
+consumes them as parallel kernels selected per-chain via `FinalitySchemeID`.
 
 > **Status: Research / Reference (not production hardened, not FIPS validated).**
 > NIST-profile vectors use SHAKE / cSHAKE / KMAC. Any BLAKE3 deltas are
