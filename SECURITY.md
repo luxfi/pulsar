@@ -28,7 +28,7 @@ following are in-scope for responsible disclosure:
 - DoS attacks against the reference implementation that don't affect the
   threshold-correctness invariants.
 - Issues exclusively in upstream `luxfi/pulsar` (R-LWE) — file there.
-- Issues exclusively in upstream `luxfi/ringtail` (academic) — file there.
+- Issues exclusively in upstream `luxfi/corona` (academic) — file there.
 
 ## CVE assignment
 

@@ -39,7 +39,7 @@ variant & repo (target) & lattice basis & hash family (canonical) &
   no --- special threshold-friendly primitive &
   Class S1 + S4 &
   production-enabled; Lux R-LWE fork, lifecycle DKG complete \\
-\textbf{Annulus} (archived; was \texttt{Nasua}; tracks Ringtail upstream) &
+\textbf{Annulus} (archived; was \texttt{Nasua}; tracks Corona upstream) &
   \texttt{github.com/luxfi/annulus} &
   Ring-LWE ($\Rq$) &
   BLAKE3 (academic profile) &
@@ -53,8 +53,8 @@ variant & repo (target) & lattice basis & hash family (canonical) &
 \paragraph{Lineage.} Annulus is the archived academic root of the
 family. The Lux fork was originally released under the code-name
 \texttt{Nasua}; the formal-paper name \texttt{Annulus} replaced it
-at the academic-archive cut. Annulus tracks the Ringtail primitive
-of Boschini et~al.~\cite{boschini2024ringtail}, which builds on
+at the academic-archive cut. Annulus tracks the Corona primitive
+of Boschini et~al.~\cite{boschini2024corona}, which builds on
 the Raccoon Fiat--Shamir-without-rejection template~\cite{raccoon2024}.
 Annulus is \emph{not enabled} in Lux production and the repository
 is archived (no further academic-level changes).
@@ -94,7 +94,7 @@ abort with signed complaints.
 \item \textbf{Hash suite} --- NIST SP 800-185 (cSHAKE256, KMAC256,
 TupleHash256) is canonical for every NIST-track variant. BLAKE3
 deltas appear only in legacy / academic profiles
-(\texttt{Pulsar.R-BLAKE3}, upstream Ringtail) and are explicitly
+(\texttt{Pulsar.R-BLAKE3}, upstream Corona) and are explicitly
 out-of-scope for any MPTC submission.
 \item \textbf{Constant-time discipline} --- every secret-touching
 path constant-time via \texttt{crypto/subtle} or local equivalents.
@@ -205,11 +205,11 @@ MPTC submission package (no umbrella package).
 threshold. Always capitalised, no hyphen, no suffix. Identifier
 form: \texttt{pulsar}.
 \item \textbf{Corona} --- the Ring-LWE production threshold (Lux's
-hardened fork of Ringtail). Always capitalised. Identifier form:
+hardened fork of Corona). Always capitalised. Identifier form:
 \texttt{corona}.
-\item \textbf{Ringtail} --- the academic Ring-LWE upstream plus Lux's
+\item \textbf{Corona} --- the academic Ring-LWE upstream plus Lux's
 lifecycle DKG expansions. Always capitalised. Identifier form:
-\texttt{ringtail}.
+\texttt{corona}.
 \end{itemize}
 
 Naming rules:
@@ -231,7 +231,7 @@ would claim a new HashSuiteID without renaming the variant.
 
 \begin{verbatim}
 ~/work/lux/
-|-- pulsar/                <- Pulsar.R (R-LWE, production fork of Ringtail)
+|-- pulsar/                <- Pulsar.R (R-LWE, production fork of Corona)
 |   |-- sign/
 |   |-- primitives/
 |   |-- dkg2/              <- Pedersen DKG over R_q
@@ -243,7 +243,7 @@ would claim a new HashSuiteID without renaming the variant.
 |   |-- spec/              <- own MPTC technical spec PDF
 |   |-- docs/              <- family-architecture moved to spec/
 |   `-- ...
-|-- ringtail/              <- academic upstream (NOT Pulsar; cited as the
+|-- corona/              <- academic upstream (NOT Pulsar; cited as the
 |                             R-LWE 2-round skeleton's origin)
 `-- consensus/
     `-- protocol/quasar/   <- witness orchestrator that consumes Pulsar
