@@ -99,7 +99,7 @@ The threshold ceremony emits signatures byte-equal to single-party
 FIPS~204 ML-DSA signatures: Pulsar-M signatures verify under
 unmodified \texttt{ML-DSA.Verify}. The protocol structure is the
 two-round threshold scheme of Boschini, Kaviani, Lai, Malavolta,
-Takahashi, and Tibouchi (``Ringtail''~\cite{ringtail2024}), retargeted
+Takahashi, and Tibouchi (``Corona''~\cite{boschini2024corona}), retargeted
 from Ring-LWE ($\Rq$, single polynomial) to Module-LWE ($\Rq^k$,
 polynomial vectors) so the protocol's algebraic shape matches
 FIPS~204.
@@ -160,7 +160,7 @@ threshold/non-threshold split at the wire format: a relying party
 who can verify ML-DSA can verify Pulsar-M.
 
 \paragraph{Why Pulsar-M alongside Pulsar.}
-The companion scheme Pulsar~\cite{ringtail2024} (R-LWE) is a
+The companion scheme Corona (R-LWE)~\cite{boschini2024corona} is a
 Class~S candidate over the single-polynomial ring $\Rq$. Pulsar's
 construction is faster, simpler, and produces a different wire
 format (the verifier is \emph{not} FIPS~204; it is a Pulsar-specific
@@ -382,7 +382,7 @@ categories $2$, $3$, $5$.
 Pulsar-M's DKG and reshare protocols build on a module-shaped
 Pedersen commitment. The construction is the natural lift of the
 $\Rq$ Pedersen commitment used by the Pulsar reference
-implementation~\cite{ringtail2024} to the module
+implementation~\cite{boschini2024corona} to the module
 ring $\Rq^k$.
 
 \begin{construction}[Module Pedersen commitment]
@@ -415,7 +415,7 @@ for an efficient reduction $\mathcal{B}$.
 \end{theorem}
 
 \begin{proof}[Proof sketch]
-Identical to the BDLOP18~\cite{ringtail2024} commitment-hiding
+Identical to the BDLOP18~\cite{boschini2024corona} commitment-hiding
 argument applied per Shamir-coordinate slot of the module ring.
 Given an M-LWE instance $(\mathbf{B}, \mathbf{B}\mathbf{r} + \mathbf{e})$
 vs.\ $(\mathbf{B}, \mathbf{u})$, the reduction sets
@@ -1514,7 +1514,7 @@ and is the canonical roadmap item for round-2 hardening.
 \label{sec:related}
 % =====================================================================
 
-\paragraph{Pulsar (R-LWE), Class~S~\cite{ringtail2024}.}
+\paragraph{Corona (R-LWE), Class~S~\cite{boschini2024corona}.}
 The companion Lux scheme over $\Rq$, single polynomial. Faster,
 simpler, but \emph{not} output-interchangeable with any NIST primitive.
 Different wire format. Pulsar-M shares Pulsar's protocol structure
@@ -1615,7 +1615,7 @@ $\beta_e$ & chain randomness beacon at epoch $e$ \\
 Final patent disclosure assembled at the submission freeze. Lux
 Industries Inc.\ asserts no patent claims on the cryptographic body
 of Pulsar-M; the threshold protocol is a port of the publicly-known
-Ringtail~\cite{ringtail2024} construction with the beacon-quorum
+the Boschini et al~\cite{boschini2024corona} construction with the beacon-quorum
 strengthening of DD-006, both of which are explicitly placed into
 the public domain by this submission.
 \input{patent-notes}
@@ -1654,7 +1654,7 @@ recorded in \texttt{estimator/README.md}.
 \begin{openq}[Adaptive corruption tightness]
 The static-to-adaptive corruption gap for two-round threshold
 lattice signatures is an active research direction. The
-\cite{ringtail2024} paper's adaptive variant uses a complexity
+\cite{boschini2024corona} paper's adaptive variant uses a complexity
 leveraging argument that loses a multiplicative
 $\binom{n}{t}$ factor in the security parameter. Can a tighter
 adaptive reduction be constructed for the module-shaped

@@ -13,7 +13,7 @@ Per the Lux family rebrand, the three threshold libraries are:
 |---|---|---|---|
 | **Pulsar** (this repo, was Pulsar-M) | Module-LWE | NIST MPTC N1+N4 | `~/work/lux/pulsar` |
 | **Corona** (was the prior R-LWE Pulsar) | Ring-LWE | NIST MPTC S1+S4 | `~/work/lux/corona` |
-| **Ringtail** (unchanged) | Ring-LWE | academic upstream + Lux lifecycle DKG expansions | `~/work/lux/ringtail` |
+| **Corona** (unchanged) | Ring-LWE | academic upstream + Lux lifecycle DKG expansions | `~/work/lux/corona` |
 
 Until the cross-repo moves land, this repo continues at `luxfi/pulsar-m`
 and the existing `luxfi/pulsar v0.1.5` (R-LWE) keeps shipping. The
@@ -26,7 +26,7 @@ KAT vectors, and FIPS 204 byte-equality guarantees are unchanged.
 |---|---|---|---|---|
 | **Pulsar** | Module-LWE / FIPS 204 | NIST MPTC N1 + N4 | `github.com/luxfi/pulsar` | `github.com/luxfi/pulsar` |
 | **Corona** | Ring-LWE | NIST MPTC S1 + S4 | `github.com/luxfi/pulsar` (current R-LWE production fork) | `github.com/luxfi/corona` |
-| **Ringtail** | Ring-LWE | academic upstream + Lux lifecycle DKG expansions | `github.com/luxfi/ringtail` | `github.com/luxfi/ringtail` (unchanged) |
+| **Corona** | Ring-LWE | academic upstream + Lux lifecycle DKG expansions | `github.com/luxfi/corona` | `github.com/luxfi/corona` (unchanged) |
 | **Quasar** | composition layer | -- | `consensus/protocol/quasar/` (sub-protocol) | optional standalone `github.com/luxfi/quasar` as the **PQ event horizon** |
 
 ### Quasar — PQ event horizon
@@ -45,7 +45,7 @@ depending on the full consensus stack.
 
 1. Push pre-existing work first to avoid entangling pre-migration commits
    with the rename:
-   - `luxfi/ringtail` push commits ahead
+   - `luxfi/corona` push commits ahead
    - `luxfi/pulsar` commit + push LLM.md edit
    - `luxfi/p3q` commit + push LLM.md edit
    - `luxfi/pulsar-m` commit `Large*`, `luxround`, `largeshamir`, spec,
@@ -85,7 +85,7 @@ confirmation per auto-mode safety policy:
 |---|---|---|
 | `luxfi/pulsar-m` | modified + untracked (GF(q) `Large*`, luxround helpers, spec, proofs) | Commit cleanly; archive when contents move |
 | `luxfi/pulsar` | LLM.md rename note modified | Commit; hosts M-LWE post-migration |
-| `luxfi/ringtail` | commits ahead + modified + untracked | Push commits first; merge/discard locally |
+| `luxfi/corona` | commits ahead + modified + untracked | Push commits first; merge/discard locally |
 | `luxfi/p3q` | LLM.md modified | Commit; v0.0.1 pushed |
 | `luxfi/consensus` | Clean | go.mod bump after migration |
 | `luxfi/precompile` | New `precompile/pulsar/` (LP-4200 0x012204) | Commit + run CI |
@@ -114,7 +114,7 @@ go.mod surgery list below MUST land before any directory rename:
 - `node/go.mod`: same as `consensus/go.mod` (indirect deps follow).
 - `precompile/go.mod`:
   - add `require github.com/luxfi/pulsar v0.2.0` (currently has no pulsar dep — Blue's commit didn't add it because the precompile uses `crypto/mldsa` directly).
-  - no R-LWE Pulsar / Corona dep needed (`precompile/ringtail` covers that path).
+  - no R-LWE Pulsar / Corona dep needed (`precompile/corona` covers that path).
 
 ### Migration sequence
 
