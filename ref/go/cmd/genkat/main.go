@@ -20,7 +20,7 @@ import (
 	"os"
 	"path/filepath"
 
-	pm "github.com/luxfi/pulsar-m/ref/go/pkg/pulsarm"
+	pm "github.com/luxfi/pulsar/ref/go/pkg/pulsarm"
 )
 
 // MasterSeed is the head-of-file 48-byte seed from which every KAT
