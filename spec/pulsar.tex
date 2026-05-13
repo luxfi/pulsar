@@ -1,7 +1,7 @@
-% Pulsar-M Technical Specification --- NIST MPTC submission
+% Pulsar Technical Specification --- NIST MPTC submission
 % Target deadline: 2026-Nov-16
 %
-% Compile: latexmk -pdf pulsar-m.tex
+% Compile: latexmk -pdf pulsar.tex
 %
 % Status: cryptographic body drafted. Encoding section is intentionally
 % structural only --- byte-level wire formats freeze at DD-008
@@ -83,7 +83,7 @@
 \newcommand{\Refresh}{\textsc{Refresh}}
 \newcommand{\Comm}{\mathsf{Comm}}
 
-\title{Pulsar-M:\\
+\title{Pulsar:\\
        \large A Threshold Implementation of FIPS 204 ML-DSA\\
        NIST MPTC Class N1 + N4 Candidate}
 \author{Lux Industries Inc.\\
@@ -94,10 +94,10 @@
 \maketitle
 
 \begin{abstract}
-Pulsar-M is a $t$-of-$n$ threshold implementation of NIST FIPS 204
+Pulsar is a $t$-of-$n$ threshold implementation of NIST FIPS 204
 (ML-DSA)~\cite{nist-fips204} signing and distributed key generation.
 The threshold ceremony emits signatures byte-equal to single-party
-FIPS~204 ML-DSA signatures: Pulsar-M signatures verify under
+FIPS~204 ML-DSA signatures: Pulsar signatures verify under
 unmodified \texttt{ML-DSA.Verify}. The protocol structure is the
 two-round threshold scheme of Boschini, Kaviani, Lai, Malavolta,
 Takahashi, and Tibouchi (``Corona''~\cite{boschini2024corona}), retargeted
@@ -152,20 +152,20 @@ are interchangeable with the non-threshold primitive's outputs).
 
 \paragraph{Output interchangeability is the headline claim.}
 The Class~N positioning is strictly stronger: a threshold signature
-produced by Pulsar-M verifies against the same group public key
+produced by Pulsar verifies against the same group public key
 $\mathit{pk}$ under unmodified \texttt{ML-DSA.Verify}. Any deployed
 FIPS-validated ML-DSA verifier --- BoringSSL FIPS, AWS-LC, OpenSSL~3,
 liboqs, or any future module conforming to FIPS~204 --- consumes
-Pulsar-M signatures with no code change. This collapses the
+Pulsar signatures with no code change. This collapses the
 threshold/non-threshold split at the wire format: a relying party
-who can verify ML-DSA can verify Pulsar-M.
+who can verify ML-DSA can verify Pulsar.
 
-\paragraph{Why Pulsar-M alongside Pulsar.}
+\paragraph{Why Pulsar alongside Pulsar.}
 The companion scheme Corona (R-LWE)~\cite{boschini2024corona} is a
 Class~S candidate over the single-polynomial ring $\Rq$. Pulsar's
 construction is faster, simpler, and produces a different wire
 format (the verifier is \emph{not} FIPS~204; it is a Pulsar-specific
-verifier). Pulsar-M ports that protocol's $2$-round signing structure
+verifier). Pulsar ports that protocol's $2$-round signing structure
 to the Module-LWE setting $\Rq^k$ in which FIPS~204 operates so that
 the output byte string is exactly an ML-DSA signature. We retain
 Pulsar's Pedersen DKG (over $\Rq^k$ rather than $\Rq$) and Pulsar's
@@ -190,7 +190,7 @@ selection blocks that line of attack.
 \end{itemize}
 
 \paragraph{High-level construction.}
-Pulsar-M consists of four protocols and one verifier:
+Pulsar consists of four protocols and one verifier:
 
 \begin{itemize}[leftmargin=*]
 \item $\DKG$: Pedersen distributed key generation over $\Rq^k$.
@@ -236,7 +236,7 @@ implementation considerations, and operational deployment guidance.
 
 \paragraph{Rings.} For a prime $q$ and positive power-of-two $n$, let
 $\Rq = \Zq[X]/(X^n + 1)$ be the cyclotomic ring of degree $n$ over
-$\Zq$. Pulsar-M operates over $\Rq$ with $(q, n) = (8\,380\,417, 256)$
+$\Zq$. Pulsar operates over $\Rq$ with $(q, n) = (8\,380\,417, 256)$
 matching FIPS~204. Lower-case Latin letters denote ring elements;
 bold or vector arrows denote elements of $\Rq^k$ or $\Rq^\ell$.
 
@@ -272,7 +272,7 @@ where a clash would be confusing we write $\nu$ for the ring degree
 SP~800-185 family: $\SHAKE$ (FIPS~202~\S6.3), $\cSHAKE$
 (SP~800-185~\S3), $\KMAC$ (SP~800-185~\S4), $\TupleHash$
 (SP~800-185~\S5). Each call is parameterised by a customisation
-string. The canonical customisation tags used by Pulsar-M are:
+string. The canonical customisation tags used by Pulsar are:
 
 \begin{center}\small
 \begin{tabular}{l l}
@@ -296,7 +296,7 @@ Complaint signing transcript               & \texttt{PULSAR-M-COMPLAINT-V1} \\
 \end{center}
 
 The bound on customisation-string length is governed by
-SP~800-185~\S3.2 ($\le 2^{2040}$ bits); all Pulsar-M tags above are
+SP~800-185~\S3.2 ($\le 2^{2040}$ bits); all Pulsar tags above are
 short-form ASCII strings well within the bound. Version
 suffixes (\texttt{-V1}) are reserved for future rotation; rotating any
 tag invalidates every test vector pinned at that tag.
@@ -343,7 +343,7 @@ unchanged.
 \subsection{Module-LWE assumption}
 \label{sec:prelim-mlwe}
 
-The hardness assumption underlying Pulsar-M is identical to the
+The hardness assumption underlying Pulsar is identical to the
 hardness assumption underlying FIPS~204 ML-DSA: the decisional
 Module-LWE problem over $\Rq^k$.
 
@@ -380,7 +380,7 @@ categories $2$, $3$, $5$.
 \subsection{Pedersen commitments over $\Rq^k$}
 \label{sec:prelim-pedersen}
 
-Pulsar-M's DKG and reshare protocols build on a module-shaped
+Pulsar's DKG and reshare protocols build on a module-shaped
 Pedersen commitment. The construction is the natural lift of the
 $\Rq$ Pedersen commitment used by the Pulsar reference
 implementation~\cite{boschini2024corona} to the module
@@ -488,7 +488,7 @@ information-theoretic security of $(t-1)$-Shamir over $\Zq$ gives
 the corresponding security over $\Rq^k$ per slot.
 
 \paragraph{Dual sharing $(\mathbf{s}_i, \mathbf{u}_i)$.}
-Pulsar-M's DKG produces a Shamir share of the FIPS~204 secret
+Pulsar's DKG produces a Shamir share of the FIPS~204 secret
 $\mathbf{s}_1$ alongside a Shamir share of the Pedersen blinding
 randomness $\mathbf{u}$. We denote the per-party share pair by
 $(\mathbf{s}_i, \mathbf{u}_i)$. Both are shared at the same threshold
@@ -498,7 +498,7 @@ party's identity by the Pedersen commit verification at DKG Round~2.
 \subsection{Discrete Gaussian sampling}
 \label{sec:prelim-gauss}
 
-Pulsar-M's signing protocol re-uses every distribution from FIPS~204
+Pulsar's signing protocol re-uses every distribution from FIPS~204
 verbatim: the mask $\mathbf{y} \gets U_{\gamma_1}^\ell$ (uniform interval),
 the secret centred binomial $\chi_\eta$, the challenge ternary
 $B_\tau$. The Pedersen DKG additionally uses the centred binomial
@@ -509,7 +509,7 @@ FIPS~204's secret distribution.
 FIPS~204 uses uniform-interval masking, not Gaussian masking (this is
 the Dilithium variant, not the rounded-Gaussian variant of
 Falcon-like schemes). To produce byte-equal FIPS~204 signatures,
-Pulsar-M must produce a $z$ vector with the same distribution as
+Pulsar must produce a $z$ vector with the same distribution as
 \texttt{ML-DSA.Sign}'s $z$ vector --- which means uniform-interval
 masking. We do \emph{not} use the Gaussian sampler of FIPS~204 \S3.3
 in the threshold $\Sign$ path. We \emph{do} use the centred binomial
@@ -518,7 +518,7 @@ commitments; this distribution choice is internal to the DKG and is
 not visible in the output FIPS~204 signature.
 
 \paragraph{Constant-time samplers.}
-All samplers used in Pulsar-M must be constant-time in their inputs.
+All samplers used in Pulsar must be constant-time in their inputs.
 The FIPS~204 reference rejection samplers are constant-time provided
 the bound check is performed with branchless arithmetic; this is
 discussed further in \S\ref{sec:impl-ct}.
@@ -657,13 +657,13 @@ behaves as a public protocol parameter.
 The aggregated Pedersen blinding $\mathbf{u} = \sum_i \mathbf{r}_{i,0}$
 is reconstructable by any threshold quorum via Lagrange interpolation
 on the $\{\mathbf{u}_j\}_{j \in T}$. In the strict FIPS~204 layout
-$\mathbf{s}_2$ is part of the private signing key; in Pulsar-M
+$\mathbf{s}_2$ is part of the private signing key; in Pulsar
 $\mathbf{u}$ is Shamir-shared with the same threshold structure as
 $\mathbf{s}_1$.
 
 \begin{remark}[$\mathbf{s}_2$ as derived quantity]
 The FIPS~204 specification treats $\mathbf{s}_1$ and $\mathbf{s}_2$
-as independent samples from $\chi_\eta$ (FIPS~204~\S5.1). Pulsar-M's
+as independent samples from $\chi_\eta$ (FIPS~204~\S5.1). Pulsar's
 construction derives $\mathbf{s}_2$ from the Pedersen blinding
 $\mathbf{u}$ via the structural identity
 $\mathbf{s}_2 = \mathbf{B} \cdot \mathbf{u}$. Because $\mathbf{B}$ is
@@ -831,14 +831,14 @@ $|\mathbf{h}|_{\mathrm{count}} \le \omega$.
 \end{algorithm}
 
 Note that line 3's $\mu'$ definition --- the public-key fingerprint
-prefixing --- is exactly the FIPS~204 binding. Pulsar-M's $\Sign$
+prefixing --- is exactly the FIPS~204 binding. Pulsar's $\Sign$
 must compute its challenge over the \emph{same} $\mu'$ for the
 verifier to accept; this is the $\mu$ used in
 Algorithm~\ref{alg:sign-r2} step 5.
 
 This is the entire Class~N point: any FIPS-validated ML-DSA
 verifier (BoringSSL FIPS, AWS-LC, OpenSSL~3, liboqs) consumes
-Pulsar-M signatures without modification.
+Pulsar signatures without modification.
 
 \subsection{Proactive resharing \texorpdfstring{$\Reshare$}{Reshare}}
 \label{sec:reshare}
@@ -857,7 +857,7 @@ $t_{\mathrm{old}}$ subset of $\mathcal{O}$) lets a mobile adversary
 advance which parties will be quorum members at each reshare, can
 schedule its $t-1$ corruption budget to maximally cover the quorum.
 The HIP-0077 red-review finding F10 made this concrete for Pulsar's
-reshare layer. Pulsar-M mitigates by deriving the quorum from the
+reshare layer. Pulsar mitigates by deriving the quorum from the
 chain's randomness beacon $\beta_e$ for epoch $e$:
 \[
 \mathcal{Q}_e
@@ -984,7 +984,7 @@ The formal game definitions are stated in the companion file
 \label{sec:large-committees}
 % =====================================================================
 
-The Shamir secret-sharing layer of Pulsar-M operates orthogonally to
+The Shamir secret-sharing layer of Pulsar operates orthogonally to
 the FIPS~204 M-LWE parameters: the lattice instance is fixed by the
 parameter set, while the committee size $n$ and threshold $t$ are
 deployment-time settings. This section pins the scalability claim
@@ -1016,9 +1016,9 @@ Shamir's $(t-1)$-resilience over a finite field $\mathbb{F}_{|\mathbb{F}|}$
 holds whenever $|\mathbb{F}| > n$, and both GF($257$) and GF($q$)
 satisfy this for the supported committee ranges. Concretely:
 
-\begin{theorem}[Pulsar-M scales information-theoretically in $n$]
-\label{thm:pulsar-m-scales-it}
-Fix a Pulsar-M parameter level $L \in \{44, 65, 87\}$. For every
+\begin{theorem}[Pulsar scales information-theoretically in $n$]
+\label{thm:pulsar-scales-it}
+Fix a Pulsar parameter level $L \in \{44, 65, 87\}$. For every
 $(n, t)$ with $1 \le t \le n$ and $n \le q - 1$, the TS-UF advantage
 \Cref{thm:tsuf} is bounded by the same M-LWE / MSIS / FIPS~204
 EUF-CMA sum, plus an $n$-independent random-oracle term:
@@ -1129,7 +1129,7 @@ Tag length: TBD at freeze.
 variable-size field.
 \item Polynomials in $\Rq$ are encoded coefficient-by-coefficient
 using the FIPS~204 byte-packing for the per-poly bit width (see
-FIPS~204~\S7.1, \texttt{bitlen}). Pulsar-M re-uses the FIPS~204
+FIPS~204~\S7.1, \texttt{bitlen}). Pulsar re-uses the FIPS~204
 packings verbatim for $\mathbf{s}_1, \mathbf{s}_2, \mathbf{z}, \mathbf{w}$.
 \item Module vectors are encoded as their entries concatenated in
 order. Module matrices are encoded row-major.
@@ -1163,7 +1163,7 @@ $(\mathit{sid}, \kappa, i, \bar{\mathbf{w}}_i, \mathbf{z}_i, \mathbf{r}_i, \text
 
 \paragraph{$\Sign$ output (final signature).}
 The FIPS~204 ML-DSA signature triple $(\tilde c, \mathbf{z}, \mathbf{h})$,
-encoded \emph{exactly} per FIPS~204~\S7.2. \textbf{No Pulsar-M envelope.}
+encoded \emph{exactly} per FIPS~204~\S7.2. \textbf{No Pulsar envelope.}
 
 \paragraph{$\Reshare$ messages.}
 Structurally identical to $\DKG$ except the commit constant terms
@@ -1219,7 +1219,7 @@ serialised view, as in
 \item FIPS~204 norm checks ($\|\mathbf{z}\|_\infty < \gamma_1 - \beta$
 etc.) MUST be performed with branchless arithmetic. The
 \texttt{pulsar/sign/sign.go: CheckL2Norm} implementation is the
-reference (modulo Pulsar-M's switch from L2 norm to L-infty per
+reference (modulo Pulsar's switch from L2 norm to L-infty per
 FIPS~204).
 \item Rejection-restart MUST NOT short-circuit on the first failing
 norm: all norms are evaluated, then the accept/restart decision is
@@ -1228,7 +1228,7 @@ made from the accumulated result. This prevents timing leakage of
 \item No \texttt{log.*}, \texttt{fmt.Print*}, or panic in any
 secret-touching function (DD-007). The Pulsar reference's
 pre-fix \texttt{log.Println(Bsquare, sumSquares)} (HIP-0077 F8) is
-exactly the failure mode this rule prevents; the Pulsar-M reference
+exactly the failure mode this rule prevents; the Pulsar reference
 implementation will be CI-gated against any logging call inside
 \texttt{ref/go/sign/}, \texttt{ref/go/dkg/}, \texttt{ref/go/reshare/}.
 \end{itemize}
@@ -1236,7 +1236,7 @@ implementation will be CI-gated against any logging call inside
 \subsection{Rejection-sampling restart without secret leakage}
 \label{sec:impl-rejection-restart}
 
-This is the hardest cryptographic engineering problem in Pulsar-M.
+This is the hardest cryptographic engineering problem in Pulsar.
 FIPS~204 ML-DSA's rejection-with-restart structure (\S\ref{sec:prelim-rejection})
 interacts with threshold signing in three load-bearing places.
 
@@ -1264,8 +1264,8 @@ the CRIT-1 vulnerability flagged in Pulsar's pre-fix code
 $(\mathbf{s}_i, \mathit{sid})$ so distinct sessions get distinct
 seeds.
 
-\paragraph{The Pulsar-M domain separation.}
-Pulsar-M extends the Pulsar fix to handle three orthogonal
+\paragraph{The Pulsar domain separation.}
+Pulsar extends the Pulsar fix to handle three orthogonal
 domains:
 
 \begin{enumerate}[leftmargin=*, itemsep=0pt]
@@ -1358,7 +1358,7 @@ Round-2-MPTC work in \S\ref{sec:knownlimits}.
 \end{remark}
 
 \paragraph{Implementation discipline.}
-The Pulsar-M reference implementation enforces the cross-restart
+The Pulsar reference implementation enforces the cross-restart
 state discipline structurally:
 
 \begin{itemize}[leftmargin=*, itemsep=0pt]
@@ -1378,7 +1378,7 @@ fact of failure, not via timing).
 \label{sec:impl-perf}
 
 Concrete benchmarks defer to the experimental-evaluation report
-(\texttt{bench/results/REPORT.md}, frozen at submission). Pulsar-M's
+(\texttt{bench/results/REPORT.md}, frozen at submission). Pulsar's
 expected complexity scales as follows for parameter set ML-DSA-65,
 $(n, t) = (7, 4)$:
 
@@ -1440,7 +1440,7 @@ ceremony:
 Cross-implementation KAT replay: the Go reference (\texttt{ref/go/})
 and the eventual C reference (\texttt{ref/c/}) MUST produce
 byte-equal outputs from the same seeded inputs. The KAT generation
-oracle is locked at \texttt{cmd/pulsar-m-oracle}.
+oracle is locked at \texttt{cmd/pulsar-oracle}.
 
 % =====================================================================
 \section{Complexity analysis}
@@ -1518,7 +1518,7 @@ and is the canonical roadmap item for round-2 hardening.
 \paragraph{Corona (R-LWE), Class~S~\cite{boschini2024corona}.}
 The companion Lux scheme over $\Rq$, single polynomial. Faster,
 simpler, but \emph{not} output-interchangeable with any NIST primitive.
-Different wire format. Pulsar-M shares Pulsar's protocol structure
+Different wire format. Pulsar shares Pulsar's protocol structure
 (2-round signing, Pedersen DKG, HJKY97 reshare) lifted from $\Rq$ to
 $\Rq^k$.
 
@@ -1531,26 +1531,26 @@ proofs.
 \paragraph{DOTT21~\cite{dott21}, PKC 2021.}
 The foundational Damg\aa rd--Orlandi--Takahashi--Tibouchi two-round
 $n$-out-of-$n$ multisignature from lattices. Inspires the
-commit-and-aggregate structure of Pulsar/Pulsar-M. Restricted to
-$n$-out-of-$n$; Pulsar-M extends to $t$-out-of-$n$ via Shamir.
+commit-and-aggregate structure of Pulsar/Pulsar. Restricted to
+$n$-out-of-$n$; Pulsar extends to $t$-out-of-$n$ via Shamir.
 
 \paragraph{Olingo~\cite{olingo2025}, ePrint 2025/1789.}
 Concurrent threshold ML-DSA candidate. Comparison points: round
 count, output interchangeability claim, DKG soundness, side-channel
 posture. Full comparison table deferred to the experimental
-evaluation report; structural comparison: Olingo and Pulsar-M both
+evaluation report; structural comparison: Olingo and Pulsar both
 target Class N1, both use $\Rq^k$, with differing rejection-restart
 strategies.
 
 \paragraph{THED~\cite{thed2026}, ePrint 2026/638.}
 Threshold extension of FIPS~204. Comparison deferred to round-1
-preview; THED was not public at Pulsar-M's draft cut-off.
+preview; THED was not public at Pulsar's draft cut-off.
 
 \paragraph{HJKY97~\cite{hjky97}.}
-The foundational proactive-resharing model. Pulsar-M's $\Reshare$
+The foundational proactive-resharing model. Pulsar's $\Reshare$
 protocol is the natural lift of the HJKY97 construction to the M-LWE
 setting, with the beacon-randomised quorum selection (DD-006) as the
-Pulsar-M-specific strengthening for mobile-adversary attacks.
+Pulsar-specific strengthening for mobile-adversary attacks.
 
 % =====================================================================
 \appendix
@@ -1573,7 +1573,7 @@ $\mathbf{A} \in \Rq^{k \times \ell}$ & public matrix, derived from $\rho$ via FI
 $\mathbf{B} \in \Rq^{k \times \ell}$ & Pedersen blinding matrix, derived via \texttt{PULSAR-M-EXPANDB-V1} \\
 $\mathbf{s}_1 \in \Rq^\ell$ & master secret, $\chi_\eta$-distributed \\
 $\mathbf{u} \in \Rq^\ell$ & Pedersen blinding, $\chi_\eta$-distributed \\
-$\mathbf{s}_2 \in \Rq^k$ & FIPS~204 noise, $= \mathbf{B}\mathbf{u}$ in Pulsar-M \\
+$\mathbf{s}_2 \in \Rq^k$ & FIPS~204 noise, $= \mathbf{B}\mathbf{u}$ in Pulsar \\
 $\mathbf{t} = \mathbf{A}\mathbf{s}_1 + \mathbf{B}\mathbf{u}$ & FIPS~204 public-key inner vector (Pedersen-shaped) \\
 $(\mathbf{t}_1, \mathbf{t}_0) = \Power(\mathbf{t}, d)$ & FIPS~204 public/private decomposition \\
 $\mathit{pk} = (\rho, \mathbf{t}_1)$ & FIPS~204 public key \\
@@ -1615,7 +1615,7 @@ $\beta_e$ & chain randomness beacon at epoch $e$ \\
 \label{sec:patent}
 Final patent disclosure assembled at the submission freeze. Lux
 Industries Inc.\ asserts no patent claims on the cryptographic body
-of Pulsar-M; the threshold protocol is a port of the publicly-known
+of Pulsar; the threshold protocol is a port of the publicly-known
 the Boschini et al~\cite{boschini2024corona} construction with the beacon-quorum
 strengthening of DD-006, both of which are explicitly placed into
 the public domain by this submission.
@@ -1659,7 +1659,7 @@ lattice signatures is an active research direction. The
 leveraging argument that loses a multiplicative
 $\binom{n}{t}$ factor in the security parameter. Can a tighter
 adaptive reduction be constructed for the module-shaped
-Pulsar-M variant without architectural changes? \emph{Unresolved.}
+Pulsar variant without architectural changes? \emph{Unresolved.}
 \end{openq}
 
 \begin{openq}[Restart cross-message hybrid]
@@ -1675,9 +1675,9 @@ the formal hybrid is round-2 work. \emph{Unresolved.}
 The DD-006 beacon-randomised quorum selection assumes the chain
 beacon is unbiasable against the adversary. The Lux Quasar
 consensus randomness layer provides this property; the formal
-binding to the Pulsar-M reshare MOB game requires a separate
+binding to the Pulsar reshare MOB game requires a separate
 hybrid argument bridging the consensus randomness assumption to
-the Pulsar-M MOB game. \emph{Sketched in security-games.tex; full
+the Pulsar MOB game. \emph{Sketched in security-games.tex; full
 proof round-2.}
 \end{openq}
 
