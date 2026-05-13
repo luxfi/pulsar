@@ -1,18 +1,18 @@
-% Pulsar-M concrete parameter sets -- included by pulsar-m.tex section
+% Pulsar concrete parameter sets -- included by pulsar.tex section
 % "Concrete parameters"
 
 \subsection*{Parameter sets}
 
 Three parameter sets, mirroring FIPS~204 ML-DSA's three security
 levels.  All values below are inherited \emph{verbatim} from
-FIPS~204~\cite{nist-fips204} \S4 Table~1; Pulsar-M does not alter
+FIPS~204~\cite{nist-fips204} \S4 Table~1; Pulsar does not alter
 the M-LWE parameters because doing so would break the Class~N1
 output-interchangeability claim.
 
 \begin{center}
 \begin{tabular}{l r r r}
 \toprule
-parameter & Pulsar-M-44 & Pulsar-M-65 & Pulsar-M-87 \\
+parameter & Pulsar-44 & Pulsar-65 & Pulsar-87 \\
 \midrule
 NIST PQ category               & 2 & 3 & 5 \\
 classical security (bits) & $\geq 128$ & $\geq 192$ & $\geq 256$ \\
@@ -44,7 +44,7 @@ classical column matches the NIST FIPS~204 \S8 statement.
 \subsection*{Threshold parameters}
 
 Threshold parameters $(n, t)$ are deployment-time settings rather
-than scheme-time parameters: a single Pulsar-M-$L$ instance ($L \in
+than scheme-time parameters: a single Pulsar-$L$ instance ($L \in
 \{44, 65, 87\}$) accepts any committee with $1 \le t \le n$. The
 relationship $n \ge 2t-1$ is enforced at \texttt{NewDKGSession}
 construction time and is the standard threshold-soundness
@@ -69,13 +69,13 @@ corruptions and the FIPS~204 lattice instance is fixed independently
 of $(n, t)$. Concretely: the only $(n, t)$-dependent term in the
 TS-UF bound (\Cref{thm:tsuf}) is the random-oracle programming
 penalty $q_S q_H / 2^\lambda$, which is independent of $n$ given a
-fixed $\lambda$ per parameter level. Thus Pulsar-M-65 at
+fixed $\lambda$ per parameter level. Thus Pulsar-65 at
 $(n, t) = (1\,111\,111, 100)$ has the same M-LWE-grounded bit security
-as Pulsar-M-65 at $(n, t) = (3, 2)$. The Shamir field choice
+as Pulsar-65 at $(n, t) = (3, 2)$. The Shamir field choice
 (GF($257$) vs.\ GF($q$)) does not change this conclusion: GF($q$)
 inherits the same threshold-statistical-security property because
 GF($q$) is a finite field of order $q \gg 2^{\lambda}$ for every
-Pulsar-M security level, and Shamir's information-theoretic
+Pulsar security level, and Shamir's information-theoretic
 $(t-1)$-resilience holds over any finite field.
 
 \subsection*{Lattice-estimator inputs}
@@ -102,18 +102,18 @@ is included here for self-containment:
 \toprule
 parameter set & primary attack & classical bits & quantum bits \\
 \midrule
-Pulsar-M-44 & primal (uSVP)   & 137 & 124 \\
-Pulsar-M-44 & dual            & 145 & 131 \\
-Pulsar-M-65 & primal (uSVP)   & 198 & 180 \\
-Pulsar-M-65 & dual            & 201 & 183 \\
-Pulsar-M-87 & primal (uSVP)   & 263 & 240 \\
-Pulsar-M-87 & dual            & 266 & 243 \\
+Pulsar-44 & primal (uSVP)   & 137 & 124 \\
+Pulsar-44 & dual            & 145 & 131 \\
+Pulsar-65 & primal (uSVP)   & 198 & 180 \\
+Pulsar-65 & dual            & 201 & 183 \\
+Pulsar-87 & primal (uSVP)   & 263 & 240 \\
+Pulsar-87 & dual            & 266 & 243 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 These are the same security-level numbers NIST validated for FIPS~204
-ML-DSA. Because Pulsar-M does not modify the underlying M-LWE
+ML-DSA. Because Pulsar does not modify the underlying M-LWE
 parameters, the validation transfers.
 
 \subsection*{Rejection-restart success probability}
@@ -129,13 +129,13 @@ p_{\text{accept}}(L) \;=\;
 where $\beta = \tau \eta$ is the FIPS~204 bound and the exponents
 are the number of rejection-checked coefficients. Numerically:
 \[
-p_{\text{accept}}(\text{Pulsar-M-44}) \approx 0.36,\qquad
-p_{\text{accept}}(\text{Pulsar-M-65}) \approx 0.43,\qquad
-p_{\text{accept}}(\text{Pulsar-M-87}) \approx 0.41.
+p_{\text{accept}}(\text{Pulsar-44}) \approx 0.36,\qquad
+p_{\text{accept}}(\text{Pulsar-65}) \approx 0.43,\qquad
+p_{\text{accept}}(\text{Pulsar-87}) \approx 0.41.
 \]
 The expected restart count per signature is therefore
-$\sim 2.7$ at Pulsar-M-44, $\sim 2.3$ at Pulsar-M-65, and
-$\sim 2.4$ at Pulsar-M-87. The reference implementation caps
+$\sim 2.7$ at Pulsar-44, $\sim 2.3$ at Pulsar-65, and
+$\sim 2.4$ at Pulsar-87. The reference implementation caps
 restarts at $\mathtt{MaxRestart} = 256$, giving an abort
 probability below $2^{-300}$ at every parameter level.
 
@@ -143,18 +143,18 @@ probability below $2^{-300}$ at every parameter level.
 
 \paragraph{Required parameterisation (NIST IR~8214C \S4.5).}
 At least one parameter set with classical $\ge 128$ bits, NIST PQ
-category $\ge 1$, statistical $\ge 40$ bits. \textbf{Pulsar-M-44
+category $\ge 1$, statistical $\ge 40$ bits. \textbf{Pulsar-44
 satisfies this} (137 classical bits, category 2, statistical
 distance $\le 2^{-128}$ via the RO-programming bound).
 
 \paragraph{Suggested parameterisation (NIST IR~8214C \S4.5).}
 At least one parameter set with classical $\ge 192$ bits, NIST PQ
-category $\ge 3$, statistical $\ge 64$ bits. \textbf{Pulsar-M-65
+category $\ge 3$, statistical $\ge 64$ bits. \textbf{Pulsar-65
 satisfies this} (198 classical bits, category 3, statistical
 distance $\le 2^{-192}$).
 
 \paragraph{Highest-target parameterisation.}
-Pulsar-M-87 (263 classical bits, category 5) covers the strongest
+Pulsar-87 (263 classical bits, category 5) covers the strongest
 NIST PQ category for the consumers (defence, long-lived archival
 signatures) that require it.
 

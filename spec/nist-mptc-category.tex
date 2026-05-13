@@ -1,4 +1,4 @@
-% Pulsar-M NIST MPTC category targeting -- included by pulsar-m.tex.
+% Pulsar NIST MPTC category targeting -- included by pulsar.tex.
 % Mirrors docs/nist-mptc-category.md (now deleted; this file is the
 % canonical LaTeX form).
 
@@ -7,7 +7,7 @@ NIST IR 8214C, \emph{First Call for Multi-Party Threshold Schemes}
 (January 2026). Package deadline expected 2026-Nov-16. Preview
 deadline 2026-Jul-20.
 
-\subsection{Pulsar-M target: Class N1 + N4}
+\subsection{Pulsar target: Class N1 + N4}
 
 NIST MPTC subdivides threshold schemes into:
 
@@ -29,19 +29,19 @@ outputs.
   \end{itemize}
 \end{itemize}
 
-Pulsar-M aims for \textbf{N1 (threshold ML-DSA signing) + N4
+Pulsar aims for \textbf{N1 (threshold ML-DSA signing) + N4
 (distributed ML-DSA keygen)}. The headline interchangeability claim:
 
 \begin{quote}
-A signature $\sigma$ produced by a Pulsar-M threshold ceremony on
+A signature $\sigma$ produced by a Pulsar threshold ceremony on
 message $\mu$ against group public key $\mathit{pk}$ verifies under
 unmodified FIPS~204 \texttt{ML-DSA.Verify}$(\mathit{pk}, \mu,
 \sigma)$ returning \texttt{accept}.
 \end{quote}
 
-If we can prove and demonstrate this, Pulsar-M is a Class N
+If we can prove and demonstrate this, Pulsar is a Class N
 candidate. If the output is not bit-for-bit FIPS~204 (e.g.\ encoding
-differs in any field), Pulsar-M falls back to Class S --- still
+differs in any field), Pulsar falls back to Class S --- still
 valid, but a weaker NIST positioning.
 
 \subsection{Output interchangeability --- what has to hold}
@@ -72,7 +72,7 @@ sigma = (c_tilde || z || h)                                  3309 bytes
   total: 48 + 3200 + 61 = 3309 bytes                  (FIPS 204 Table 2)
 \end{verbatim}
 
-For Pulsar-M to claim Class N1, the threshold-aggregated signature
+For Pulsar to claim Class N1, the threshold-aggregated signature
 MUST deserialize as exactly this triple, with the same byte layout,
 the same canonicalization rules, and the same rejection criteria.
 The threshold protocol is allowed to perform multiple rounds
@@ -81,7 +81,7 @@ $\sigma$.
 
 This is non-trivial: ML-DSA's rejection sampling means a single-shot
 threshold output can fail rejection and require restart. Pulsar's
-2-round structure handles this for R-LWE; Pulsar-M needs to
+2-round structure handles this for R-LWE; Pulsar needs to
 reproduce the rejection-restart logic for M-LWE without leaking
 secret information across the restart.
 
@@ -94,7 +94,7 @@ Per NIST IR 8214C \S5:
 \toprule
 element & format & location \\
 \midrule
-Technical Specification & PDF (LaTeX) & \texttt{spec/pulsar-m.pdf} \\
+Technical Specification & PDF (LaTeX) & \texttt{spec/pulsar.pdf} \\
 Reference Implementation & open-source code & \texttt{ref/go/} \\
 Report on Experimental Evaluation & PDF + reproducible scripts &
   \texttt{bench/results/REPORT.md} + \texttt{bench/run\_all.sh} \\
@@ -137,13 +137,13 @@ target & classical & post-quantum (NIST PQ category) & statistical \\
 \end{tabular}
 \end{center}
 
-Pulsar-M will ship parameter sets matching ML-DSA-65 (Category 3)
+Pulsar will ship parameter sets matching ML-DSA-65 (Category 3)
 for the suggested target, and potentially ML-DSA-44 (Category 2) and
 ML-DSA-87 (Category 5) for full coverage.
 
 \subsection{Class N vs Class S decision}
 
-Pulsar-M is N if and only if:
+Pulsar is N if and only if:
 
 \begin{enumerate}[leftmargin=*, itemsep=0pt]
 \item A working reference implementation produces signatures

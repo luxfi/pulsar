@@ -1,9 +1,9 @@
-% Pulsar-M system model -- included by pulsar-m.tex section "System model"
+% Pulsar system model -- included by pulsar.tex section "System model"
 
 % ---------------------------------------------------------------
 % Top of document inserts this file under the chapter heading
 % "System model"; no \section* command here is appropriate
-% because pulsar-m.tex provides one via the surrounding
+% because pulsar.tex provides one via the surrounding
 % \section{System model}.
 
 \paragraph{Network model.}
@@ -116,7 +116,7 @@ $n' \ge 2t' - 1$ on the new committee. Rotation cadence is governed
 by the validator-set epoch (typically 12 hours to 7 days on Lux).
 
 \paragraph{Committee scale.}
-Pulsar-M's per-byte Shamir layer supports two operating regimes:
+Pulsar's per-byte Shamir layer supports two operating regimes:
 
 \begin{itemize}[leftmargin=*, itemsep=0pt]
 \item \emph{Small committee} ($n \le 256$). Shares are dealt over
@@ -153,8 +153,8 @@ the $N \approx 1.1$M-validator pool into $\sim N / 3$ groups of size
 $3$ using deterministic SHA3-384 Fisher-Yates shuffle. The
 sortition seed is an epoch-bound chain digest, making it
 unpredictable in advance of group composition.
-\item \emph{Per-group Pulsar-M (3, 2).} Each group runs the small-
-committee Pulsar-M path at $(T, N) = (2, 3)$ -- the canonical
+\item \emph{Per-group Pulsar (3, 2).} Each group runs the small-
+committee Pulsar path at $(T, N) = (2, 3)$ -- the canonical
 small-committee config. The group produces one FIPS~204 ML-DSA
 signature per epoch checkpoint. Tolerates one Byzantine party per
 group. Per-group DKG / Sign / Reshare cost is constant in the
@@ -182,7 +182,7 @@ primitive in the stack rests on post-quantum hardness assumptions.
 layer & primitive & PQ hardness \\
 \midrule
 per-validator identity sig  & ML-DSA-65 (FIPS~204)               & Module-LWE + MSIS \\
-per-group threshold sign    & Pulsar-M (2, 3) $\to$ FIPS~204 sig & Module-LWE + MSIS \\
+per-group threshold sign    & Pulsar (2, 3) $\to$ FIPS~204 sig & Module-LWE + MSIS \\
 sortition                   & SHA3-384 Fisher-Yates              & SHA-3 collision-resistance \\
 inter-group rollup          & P3Q STARK + FRI                    & cSHAKE256 collision-resistance \\
 final cert verifier         & P3Q verifier                       & cSHAKE256 collision-resistance \\
@@ -194,20 +194,20 @@ There is no pairing, no elliptic-curve recursion, no KZG, no Groth16
 anywhere in the production path. Shor's algorithm has no purchase on
 any layer.
 
-\paragraph{Why Pulsar-M does not need to scale to 1.1M parties.}
-A naive scaling approach would run one Pulsar-M ceremony over all
+\paragraph{Why Pulsar does not need to scale to 1.1M parties.}
+A naive scaling approach would run one Pulsar ceremony over all
 $1.1$M validators. This costs $O(n^2)$ communication
 ($\sim 10^{12}$ envelopes), which is physically infeasible. The
 grouped-sortition + P3Q-rollup architecture sidesteps the quadratic
-ceiling: each Pulsar-M ceremony runs at constant size $(T, N) =
+ceiling: each Pulsar ceremony runs at constant size $(T, N) =
 (2, 3)$, and the inter-group attestation runs as one P3Q proof.
-The wide-field GF($q$) Pulsar-M path documented in this section is
+The wide-field GF($q$) Pulsar path documented in this section is
 the alternative single-large-committee deployment for permissioned
 consortium / audit-attestation scenarios where the grouped
 sortition layer is not appropriate.
 
 \paragraph{Integer-arithmetic discipline.}
-Every modular operation in Pulsar-M's core path uses uint32 lanes
+Every modular operation in Pulsar's core path uses uint32 lanes
 with uint64 accumulators. The widest intermediate is one Lagrange
 multiplication over GF($q$), which spans at most 46 bits. uint128
 and uint256 widths are explicitly \emph{not} required by this
@@ -254,5 +254,5 @@ The Go reference (\texttt{ref/go/}) and the eventual C reference
 (\texttt{ref/c/}) MUST produce byte-equal outputs from the same
 seeded inputs. KAT replay (\S\ref{sec:vectors}) is the conformance
 gate. The KAT generation oracle is locked at
-\texttt{cmd/pulsar-m-oracle}; both references replay it without
+\texttt{cmd/pulsar-oracle}; both references replay it without
 modification.

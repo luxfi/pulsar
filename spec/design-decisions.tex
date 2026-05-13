@@ -1,4 +1,4 @@
-% Pulsar-M design decisions log -- included by pulsar-m.tex.
+% Pulsar design decisions log -- included by pulsar.tex.
 % Mirrors docs/design-decisions.md (now deleted; this file is the
 % canonical LaTeX form). Each entry: decision, rationale,
 % alternatives, status, date.
@@ -7,14 +7,14 @@
 N)}
 
 \paragraph{Decision.}
-Pulsar-M aims for Class N1 + N4 (NIST MPTC IR 8214C):
+Pulsar aims for Class N1 + N4 (NIST MPTC IR 8214C):
 threshold-produced signatures verify under unmodified FIPS~204
 ML-DSA.Verify.
 
 \paragraph{Rationale.}
 Output interchangeability gives the strongest NIST positioning.
 FIPS-validated ML-DSA modules in 2026 (BoringSSL FIPS, AWS-LC,
-OpenSSL 3.0) consume Pulsar-M certs without code changes. This is
+OpenSSL 3.0) consume Pulsar certs without code changes. This is
 the headline pitch for MPTC.
 
 \paragraph{Alternative.}
@@ -30,7 +30,7 @@ demonstrates byte-equal output on at least one parameter set.
 TupleHash256) only}
 
 \paragraph{Decision.}
-Pulsar-M's NIST profile uses exclusively the FIPS~202 + SP 800-185
+Pulsar's NIST profile uses exclusively the FIPS~202 + SP 800-185
 hash family. No BLAKE3.
 
 \paragraph{Rationale.}
@@ -47,7 +47,7 @@ collisions, mixed hash-family soundness arguments).
 \paragraph{Alternative considered.}
 Dual-suite with BLAKE3 as the production profile and SHA-3 as the
 NIST profile, like Pulsar's current dual-suite. Rejected because
-Pulsar-M is NIST-track and shouldn't ship a non-NIST default.
+Pulsar is NIST-track and shouldn't ship a non-NIST default.
 
 \paragraph{Status.}
 Final.
@@ -55,7 +55,7 @@ Final.
 \subsection{DD-003 Lattice: Module-LWE per FIPS 204, not Ring-LWE}
 
 \paragraph{Decision.}
-Pulsar-M operates over $\Rq^k$ (module of polynomials) with the same
+Pulsar operates over $\Rq^k$ (module of polynomials) with the same
 $(q, k, \ell, \eta, \beta, \omega, \ldots)$ parameter set as
 ML-DSA-65. Not $\Rq$ (single polynomial) as Pulsar / Corona use.
 
@@ -123,7 +123,7 @@ smallest-ID).
 Deterministic quorum selection (Pulsar's current
 \texttt{reshare.go:206-209}) lets a mobile adversary game the
 corrupt-set positioning. HIP-0077 red review F10 flagged this.
-Pulsar-M's reshare selects via the chain's randomness beacon at the
+Pulsar's reshare selects via the chain's randomness beacon at the
 reshare epoch boundary.
 
 \paragraph{Alternative.}
