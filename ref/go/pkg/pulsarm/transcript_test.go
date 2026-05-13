@@ -69,8 +69,8 @@ func TestSP800_185_BytepadAligned(t *testing.T) {
 }
 
 func TestCSHAKE256_Deterministic(t *testing.T) {
-	a := cshake256([]byte("test"), 32, "PULSAR-M-TEST")
-	b := cshake256([]byte("test"), 32, "PULSAR-M-TEST")
+	a := cshake256([]byte("test"), 32, "PULSAR-TEST")
+	b := cshake256([]byte("test"), 32, "PULSAR-TEST")
 	if !bytes.Equal(a, b) {
 		t.Fatalf("cSHAKE256 not deterministic")
 	}
@@ -83,26 +83,26 @@ func TestCSHAKE256_Deterministic(t *testing.T) {
 
 func TestKMAC256_Deterministic(t *testing.T) {
 	key := []byte("a-key-32-bytes-long-for-kmac256-")
-	a := kmac256(key, []byte("test"), 32, "PULSAR-M-TEST")
-	b := kmac256(key, []byte("test"), 32, "PULSAR-M-TEST")
+	a := kmac256(key, []byte("test"), 32, "PULSAR-TEST")
+	b := kmac256(key, []byte("test"), 32, "PULSAR-TEST")
 	if !bytes.Equal(a, b) {
 		t.Fatalf("KMAC256 not deterministic")
 	}
 	// Different key → different output.
-	c := kmac256([]byte("b-key-32-bytes-long-for-kmac256-"), []byte("test"), 32, "PULSAR-M-TEST")
+	c := kmac256([]byte("b-key-32-bytes-long-for-kmac256-"), []byte("test"), 32, "PULSAR-TEST")
 	if bytes.Equal(a, c) {
 		t.Fatalf("KMAC256 key has no effect")
 	}
 }
 
 func TestTranscriptHash_Stable(t *testing.T) {
-	a := transcriptHash("PULSAR-M-TEST", []byte("a"), []byte("b"), []byte("c"))
-	b := transcriptHash("PULSAR-M-TEST", []byte("a"), []byte("b"), []byte("c"))
+	a := transcriptHash("PULSAR-TEST", []byte("a"), []byte("b"), []byte("c"))
+	b := transcriptHash("PULSAR-TEST", []byte("a"), []byte("b"), []byte("c"))
 	if a != b {
 		t.Fatalf("transcriptHash not stable")
 	}
 	// Reordering parts must give different output.
-	c := transcriptHash("PULSAR-M-TEST", []byte("a"), []byte("c"), []byte("b"))
+	c := transcriptHash("PULSAR-TEST", []byte("a"), []byte("c"), []byte("b"))
 	if a == c {
 		t.Fatalf("transcriptHash insensitive to part order")
 	}

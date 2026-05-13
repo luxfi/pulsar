@@ -3,12 +3,12 @@
 
 package pulsarm
 
-// types.go — public data types used across the Pulsar-M reference
+// types.go — public data types used across the Pulsar reference
 // implementation. The wire layout of every wire-bound type freezes at
 // the encoding-freeze gate (DD-008); until then, on-the-wire bytes are
 // stable per-test-vector but not stable across patch releases.
 
-// NodeID is the canonical party identifier used in all Pulsar-M
+// NodeID is the canonical party identifier used in all Pulsar
 // protocols. The 32-byte width matches the Lux validator-ID format and
 // is wide enough to host an arbitrary external identifier (for example
 // a Hanzo IAM subject hash). Index 0 is forbidden because the Shamir
@@ -16,7 +16,7 @@ package pulsarm
 // nominal index 0 is rejected by params validation.
 type NodeID [32]byte
 
-// Field identifies which Shamir base field a Pulsar-M instance uses.
+// Field identifies which Shamir base field a Pulsar instance uses.
 // The choice is committee-size driven: GF(257) (FieldGF257) has the
 // smallest wire footprint and is preferred for committees of at most
 // 256 parties; GF(q) (FieldGFq) supports committees up to q − 1 =
@@ -84,7 +84,7 @@ func resolveField(want Field, n int) (Field, error) {
 // exactly what cloudflare/circl's mldsa{44,65,87}.PublicKey.Pack emits
 // — i.e. a single contiguous (ρ, t1) concatenation per FIPS 204 §5.1.
 //
-// The headline Class N1 claim of Pulsar-M is that a Pulsar-M
+// The headline Class N1 claim of Pulsar is that a Pulsar
 // signature against this PublicKey verifies under unmodified
 // FIPS 204 ML-DSA.Verify (see Verify in verify.go).
 type PublicKey struct {
@@ -129,9 +129,9 @@ type KeyShare struct {
 
 // Signature is a FIPS 204 ML-DSA signature in its standard byte
 // layout. The triple (c̃, z, h) is concatenated exactly per
-// FIPS 204 §7.2 (Algorithm 28 sigEncode); no Pulsar-M envelope is
+// FIPS 204 §7.2 (Algorithm 28 sigEncode); no Pulsar envelope is
 // applied. A relying party that can verify ML-DSA can verify a
-// Pulsar-M Signature with no code change.
+// Pulsar Signature with no code change.
 type Signature struct {
 	Mode  Mode
 	Bytes []byte
@@ -139,16 +139,16 @@ type Signature struct {
 
 // Round1Message is the broadcast emitted by ThresholdSigner.Round1.
 //
-// The protocol structure follows pulsar-m.tex §4.2 Algorithm "Sign
+// The protocol structure follows pulsar.tex §4.2 Algorithm "Sign
 // Round 1": commit + MAC the per-party w̄_i. The full bar-w is sent
 // alongside the digest at round 2 — the digest's role is binding under
-// MAC, not concealment. See pulsar-m.tex §4.2 Remark "Round-1
+// MAC, not concealment. See pulsar.tex §4.2 Remark "Round-1
 // commit-digest binding".
 type Round1Message struct {
 	NodeID    NodeID
-	SessionID [16]byte // sid uniqueness; see pulsar-m.tex §6.2
+	SessionID [16]byte // sid uniqueness; see pulsar.tex §6.2
 	Attempt   uint32   // rejection-restart counter κ
-	Commit    [32]byte // D_i = cSHAKE(w̄_i || τ_1) per pulsar-m.tex §4.2
+	Commit    [32]byte // D_i = cSHAKE(w̄_i || τ_1) per pulsar.tex §4.2
 	MACs      map[NodeID][32]byte // KMAC256(K_{i,j}, D_i || τ_1)
 }
 
@@ -174,7 +174,7 @@ type Round2Message struct {
 	// the seed encrypted under the round transcript hash; the
 	// aggregator collects t shares, reconstructs the seed, and emits
 	// a single FIPS 204 signature. The Lagrange-linearity path of
-	// pulsar-m.tex §4.2 Algorithm "Sign Round 2" produces (z_i, r_i)
+	// pulsar.tex §4.2 Algorithm "Sign Round 2" produces (z_i, r_i)
 	// here directly; it is on the v0.2 critical path.
 	PartialSig []byte
 }
@@ -209,7 +209,7 @@ type DKGShareEnvelope struct {
 
 // DKGRound2Msg is the broadcast emitted by DKGSession.Round2: the
 // per-party Pedersen-commit digest (the Round-1.5 cross-party
-// equivocation gate of pulsar-m.tex §4.1).
+// equivocation gate of pulsar.tex §4.1).
 type DKGRound2Msg struct {
 	NodeID NodeID
 	Digest [32]byte // cSHAKE256(commits) per PULSAR-DKG-COMMIT-V1
@@ -233,9 +233,9 @@ type DKGOutput struct {
 }
 
 // AbortEvidence is a signed complaint emitted by an honest party when
-// it detects deviation. The Pulsar-M protocol family commits to
+// it detects deviation. The Pulsar protocol family commits to
 // identifiable abort: every detected deviation produces verifiable
-// evidence suitable for slashing. See pulsar-m.tex §4.5 for the
+// evidence suitable for slashing. See pulsar.tex §4.5 for the
 // taxonomy of complaints.
 type AbortEvidence struct {
 	Kind     ComplaintKind
@@ -256,7 +256,7 @@ type ComplaintKind uint8
 const (
 	// ComplaintEquivocation: a dealer broadcast distinct commit vectors
 	// to distinct recipients. Evidence: two commits and the signed
-	// broadcasts from the accused. See pulsar-m.tex §4.5.
+	// broadcasts from the accused. See pulsar.tex §4.5.
 	ComplaintEquivocation ComplaintKind = 1
 
 	// ComplaintBadDelivery: the private (share, blind) delivered to the

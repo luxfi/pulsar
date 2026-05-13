@@ -2,7 +2,7 @@
 // See the file LICENSE for licensing terms.
 
 // genkat is the canonical KAT (Known Answer Test) generator for
-// Pulsar-M. It produces the JSON vector files committed under
+// Pulsar. It produces the JSON vector files committed under
 // vectors/ — keygen, sign, verify, threshold-sign, dkg.
 //
 // Re-running genkat on a clean checkout MUST produce byte-identical
@@ -155,7 +155,7 @@ func main() {
 			var seed [pm.SeedSize]byte
 			_, _ = seedReader.Read(seed[:])
 			sk, _ := pm.KeyFromSeed(params, seed)
-			msg := []byte(fmt.Sprintf("Pulsar-M KAT message %s #%d", mode.String(), i))
+			msg := []byte(fmt.Sprintf("Pulsar KAT message %s #%d", mode.String(), i))
 			sig, err := pm.Sign(params, sk, msg, nil, false, nil)
 			if err != nil {
 				fail(err)
@@ -181,7 +181,7 @@ func main() {
 		var seed [pm.SeedSize]byte
 		_, _ = seedReader.Read(seed[:])
 		sk, _ := pm.KeyFromSeed(params, seed)
-		msg := []byte(fmt.Sprintf("Pulsar-M Verify KAT %s", mode.String()))
+		msg := []byte(fmt.Sprintf("Pulsar Verify KAT %s", mode.String()))
 		sig, _ := pm.Sign(params, sk, msg, nil, false, nil)
 		verifyKATs = append(verifyKATs, VerifyKAT{
 			Mode:      mode.String(),
@@ -213,7 +213,7 @@ func main() {
 			params := pm.MustParamsFor(mode)
 			committee := makeKATCommittee(tc.N)
 			pub, shares, _ := runKATDKG(params, committee, tc.T, mode)
-			msg := []byte(fmt.Sprintf("Pulsar-M Threshold KAT %s n=%d t=%d", mode.String(), tc.N, tc.T))
+			msg := []byte(fmt.Sprintf("Pulsar Threshold KAT %s n=%d t=%d", mode.String(), tc.N, tc.T))
 			quorum := make([]pm.NodeID, tc.T)
 			for i := 0; i < tc.T; i++ {
 				quorum[i] = shares[i].NodeID
@@ -306,7 +306,7 @@ func runKATDKG(params *pm.Params, committee []pm.NodeID, threshold int, mode pm.
 	sessions := make([]*pm.DKGSession, n)
 	for i := range sessions {
 		// Deterministic per-party seed.
-		seedTag := append([]byte("PULSAR-M-DKG-KAT-V1"), []byte{byte(mode), byte(n), byte(threshold), byte(i)}...)
+		seedTag := append([]byte("PULSAR-DKG-KAT-V1"), []byte{byte(mode), byte(n), byte(threshold), byte(i)}...)
 		rng := newDetReader(seedTag)
 		s, _ := pm.NewDKGSession(params, committee, threshold, committee[i], rng)
 		sessions[i] = s

@@ -42,7 +42,7 @@ func TestRoundContext_Encode_Deterministic(t *testing.T) {
 
 // TestRoundSessionID_PerRoundDistinct verifies that two consecutive
 // Lux rounds get distinct session IDs even when item + committee
-// match -- so the Pulsar-M PRNG is forced to re-seed every round
+// match -- so the Pulsar PRNG is forced to re-seed every round
 // (the CRIT-1 cross-round replay defense from del Pino-Niot).
 func TestRoundSessionID_PerRoundDistinct(t *testing.T) {
 	ctxR1 := RoundContext{Epoch: 7, Round: 1, Item: [32]byte{0x11}, CommitteeRoot: [32]byte{0x22}}
@@ -68,12 +68,12 @@ func TestRoundCommitteeRoot_OrderIndependent(t *testing.T) {
 // signing test. It simulates:
 //   1. Validator pool of 100 (beyond GF(257) cap not needed; tests math).
 //   2. β = 4 consecutive Lux rounds.
-//   3. Each Lux round: prism.Cut.Sample(K=3) → Pulsar-M (3,2) sign.
+//   3. Each Lux round: prism.Cut.Sample(K=3) → Pulsar (3,2) sign.
 //   4. After β rounds: 4 separate FIPS 204 ML-DSA signatures, each
 //      valid under the per-round group pubkey produced by per-round
 //      DKG.
 //
-// This validates the per-Lux-round Pulsar-M math without requiring
+// This validates the per-Lux-round Pulsar math without requiring
 // the Wave / Focus / Cut wiring (those live in consensus). The
 // test asserts that each per-Lux-round signature verifies under
 // unmodified FIPS 204 ML-DSA.Verify.
@@ -147,7 +147,7 @@ func TestRound_E2E_BetaRounds_Pulsar_M(t *testing.T) {
 		}
 		groupPK := outs[0].GroupPubkey
 
-		// Per-round Pulsar-M (3,2) threshold sign on the same item.
+		// Per-round Pulsar (3,2) threshold sign on the same item.
 		quorum := committee[:T]
 		myShares := make(map[NodeID]*KeyShare)
 		for i := 0; i < T; i++ {
