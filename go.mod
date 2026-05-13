@@ -1,6 +1,6 @@
 module github.com/luxfi/pulsar
 
-go 1.22.0
+go 1.26.3
 
 require (
 	github.com/cloudflare/circl v1.6.3
