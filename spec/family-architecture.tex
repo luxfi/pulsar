@@ -1,5 +1,5 @@
 % Pulsar threshold-signature family architecture -- included by
-% pulsar-m.tex. Mirrors docs/family-architecture.md (now deleted;
+% pulsar.tex. Mirrors docs/family-architecture.md (now deleted;
 % this file is the canonical LaTeX form).
 
 \begin{quote}
@@ -25,7 +25,7 @@ downstream system points here for the variant table.
 variant & repo (target) & lattice basis & hash family (canonical) &
   FIPS 204 verifier interchange? & NIST MPTC class & status \\
 \midrule
-\textbf{Pulsar} (was Pulsar.M / pulsar-m) &
+\textbf{Pulsar} (was Pulsar.M / pulsar) &
   \texttt{github.com/luxfi/pulsar} &
   Module-LWE ($\Rq^k$) &
   SHA-3 / cSHAKE256 (SP 800-185) &
@@ -118,7 +118,7 @@ highest-value property of the family.
 \item \textbf{NIST submission posture} --- see Class column above.
 \item \textbf{Production maturity} --- Pulsar.R has a hardened
 reshare path, KAT suite, deployed code. Pulsar.M has a complete spec
-(\texttt{spec/pulsar-m.tex} plus \texttt{parameters.tex},
+(\texttt{spec/pulsar.tex} plus \texttt{parameters.tex},
 \texttt{system-model.tex}, \texttt{security-games.tex}), a working
 Go reference (single-party and threshold paths, both
 $\mathrm{GF}(257)$ and $\mathrm{GF}(q)$ Shamir layers), and a KAT
@@ -171,7 +171,7 @@ Proactive resharing (beacon-rand) & shared spec &
   params for $\Rq$ & params for $\Rq^k$ \\
 Reference Go impl & shared testkit &
   full primitive in \texttt{pulsar/} &
-  full primitive in \texttt{pulsar-m/} \\
+  full primitive in \texttt{pulsar/} \\
 KATs & shared format &
   \texttt{vectors/} per repo &
   \texttt{vectors/} per repo \\
@@ -183,7 +183,7 @@ Patent claims & shared review &
   repo-local \texttt{patent-notes.tex} \\
 MPTC technical specification PDF & NO &
   \texttt{pulsar/spec/pulsar-r.pdf} &
-  \texttt{pulsar-m/spec/pulsar-m.pdf} \\
+  \texttt{pulsar/spec/pulsar.pdf} \\
 MPTC submission package & NO --- separate Class S vs Class N &
   one per variant & one per variant \\
 \bottomrule
@@ -215,7 +215,7 @@ lifecycle DKG expansions. Always capitalised. Identifier form:
 Naming rules:
 
 \begin{itemize}[leftmargin=*, itemsep=0pt]
-\item Do not write ``Pulsar.M'' or ``Pulsar-M'' in new prose; both
+\item Do not write ``Pulsar.M'' or ``Pulsar'' in new prose; both
 are the pre-rebrand legacy names of the M-LWE threshold (now just
 ``Pulsar'').
 \item Do not write ``Pulsar.R'' or ``Pulsar-R''; the R-LWE threshold
@@ -238,7 +238,7 @@ would claim a new HashSuiteID without renaming the variant.
 |   |-- reshare/           <- proactive resharing
 |   |-- hash/              <- Pulsar-SHA3 + Pulsar-BLAKE3 (legacy)
 |   `-- ...
-|-- pulsar-m/              <- Pulsar.M (M-LWE, FIPS 204-compatible)
+|-- pulsar/              <- Pulsar.M (M-LWE, FIPS 204-compatible)
 |   |-- ref/go/
 |   |-- spec/              <- own MPTC technical spec PDF
 |   |-- docs/              <- family-architecture moved to spec/
@@ -273,7 +273,7 @@ modules --- the orthogonality requirement.
 \end{quote}
 
 Single Git tag, simultaneous cut: \texttt{mptc-preview-2026} on
-\texttt{pulsar} and \texttt{pulsar-m} at the same SHA discipline.
+\texttt{pulsar} and \texttt{pulsar} at the same SHA discipline.
 Both submissions reference frozen artifacts. Drift between the two
 repos after the tag is only allowed via amendments NIST permits in
 the public-analysis window.
@@ -288,7 +288,7 @@ F9 (constant-time reshare), F12 (LIGHT\_MNEMONIC guard)
 \item[$\square$] Pulsar.R MPTC spec doc finalised
 (\texttt{pulsar/spec/pulsar-r.pdf} to be added)
 \item[$\square$] Pulsar.R \texttt{mptc-preview-2026} tag
-\item[$\boxtimes$] Pulsar.M repo bootstrap (\texttt{pulsar-m/})
+\item[$\boxtimes$] Pulsar.M repo bootstrap (\texttt{pulsar/})
 \item[$\square$] Pulsar.M Module-LWE algorithm body in spec (in
 flight via scientist agent)
 \item[$\square$] Pulsar.M reference implementation
