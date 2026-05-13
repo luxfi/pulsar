@@ -5,12 +5,12 @@ package pulsarm
 
 import "errors"
 
-// params.go — concrete parameter sets for Pulsar-M and the canonical
+// params.go — concrete parameter sets for Pulsar and the canonical
 // Mode -> Params resolution. The parameters mirror FIPS 204 ML-DSA's
-// three security levels per pulsar-m.tex §5 (parameters.tex).
+// three security levels per pulsar.tex §5 (parameters.tex).
 
-// Mode identifies which FIPS 204 parameter set a Pulsar-M instance
-// targets. The Pulsar-M family inherits FIPS 204's three NIST PQ
+// Mode identifies which FIPS 204 parameter set a Pulsar instance
+// targets. The Pulsar family inherits FIPS 204's three NIST PQ
 // security categories.
 type Mode uint8
 
@@ -38,18 +38,18 @@ const (
 func (m Mode) String() string {
 	switch m {
 	case ModeP44:
-		return "Pulsar-M-44"
+		return "Pulsar-44"
 	case ModeP65:
-		return "Pulsar-M-65"
+		return "Pulsar-65"
 	case ModeP87:
-		return "Pulsar-M-87"
+		return "Pulsar-87"
 	default:
-		return "Pulsar-M-unspecified"
+		return "Pulsar-unspecified"
 	}
 }
 
-// Params captures the concrete parameters of a Pulsar-M instance.
-// The values are derived from FIPS 204 §4 Table 1 (and pulsar-m.tex
+// Params captures the concrete parameters of a Pulsar instance.
+// The values are derived from FIPS 204 §4 Table 1 (and pulsar.tex
 // §5 parameters.tex).
 type Params struct {
 	Mode Mode
@@ -68,7 +68,7 @@ type Params struct {
 	PrivateKeySize int
 	SignatureSize  int
 
-	// Pulsar-M-specific. ShamirPrime is the prime over which seed-byte
+	// Pulsar-specific. ShamirPrime is the prime over which seed-byte
 	// Shamir shares are computed. We use 8380417 (the FIPS 204 q): it
 	// is prime, fits two bytes plus three bits, and gives a uniform
 	// distribution on per-byte share values modulo the same prime that
@@ -83,12 +83,12 @@ type Params struct {
 }
 
 // SeedSize is the byte length of an ML-DSA key seed across all
-// parameter sets. The Pulsar-M threshold layer Shamir-shares this
+// parameter sets. The Pulsar threshold layer Shamir-shares this
 // seed across the committee.
 const SeedSize = 32
 
 // TargetCommitteeSize is the canonical "extreme committee" size used
-// in spec/pulsar-m.tex section "Large committees" and in the bench
+// in spec/pulsar.tex section "Large committees" and in the bench
 // harness. It exercises the GF(q) Shamir path at 1 111 111 signers —
 // over four orders of magnitude beyond the GF(257) cap of 256.
 //
@@ -102,7 +102,7 @@ const SeedSize = 32
 // remains a single uint32 lane (mod q is ≤ 23 bits). One Lagrange
 // multiplication needs at most 46 bits of intermediate width, so
 // uint64 accumulators suffice everywhere — uint128 / uint256 are not
-// required for Pulsar-M's core arithmetic. (Wider widths are
+// required for Pulsar's core arithmetic. (Wider widths are
 // reserved for the SNARK side of Z-Chain, which operates over
 // ~254-bit prime-order fields.)
 const TargetCommitteeSize = 1_111_111
@@ -113,7 +113,7 @@ const TargetCommitteeSize = 1_111_111
 // cloudflare/circl's mldsa{44,65,87} package constants verbatim — they
 // are the canonical FIPS 204 wire sizes.
 
-// ParamsP44 is the Pulsar-M-44 parameter set.
+// ParamsP44 is the Pulsar-44 parameter set.
 var ParamsP44 = &Params{
 	Mode:           ModeP44,
 	K:              4,
@@ -130,7 +130,7 @@ var ParamsP44 = &Params{
 	MaxRestart:     256,
 }
 
-// ParamsP65 is the Pulsar-M-65 parameter set (production target).
+// ParamsP65 is the Pulsar-65 parameter set (production target).
 var ParamsP65 = &Params{
 	Mode:           ModeP65,
 	K:              6,
@@ -147,7 +147,7 @@ var ParamsP65 = &Params{
 	MaxRestart:     256,
 }
 
-// ParamsP87 is the Pulsar-M-87 parameter set.
+// ParamsP87 is the Pulsar-87 parameter set.
 var ParamsP87 = &Params{
 	Mode:           ModeP87,
 	K:              8,

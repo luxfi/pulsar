@@ -279,18 +279,18 @@ string. The canonical customisation tags used by Pulsar are:
 \toprule
 purpose & SP~800-185 customisation tag \\
 \midrule
-DKG commit-digest (Round~1.5)            & \texttt{PULSAR-M-DKG-COMMIT-V1} \\
-DKG transcript hash                       & \texttt{PULSAR-M-DKG-TRANSCRIPT-V1} \\
-Sign Round-1 transcript (sid hash $H_1$)  & \texttt{PULSAR-M-SIGN-R1-V1} \\
+DKG commit-digest (Round~1.5)            & \texttt{PULSAR-DKG-COMMIT-V1} \\
+DKG transcript hash                       & \texttt{PULSAR-DKG-TRANSCRIPT-V1} \\
+Sign Round-1 transcript (sid hash $H_1$)  & \texttt{PULSAR-SIGN-R1-V1} \\
 Sign Round-2 challenge (FIPS~204 $\tilde c$) & FIPS~204 inner SHAKE-256 \\
-Sign per-party PRNG (round-keyed)         & \texttt{PULSAR-M-SIGN-PRNG-V1} \\
-Sign PRF for mask cancellation            & \texttt{PULSAR-M-SIGN-PRF-V1} \\
-Reshare commit digest                      & \texttt{PULSAR-M-RESHARE-COMMIT-V1} \\
-Reshare transcript                         & \texttt{PULSAR-M-RESHARE-TRANSCRIPT-V1} \\
-Reshare beacon binding                     & \texttt{PULSAR-M-RESHARE-BEACON-V1} \\
+Sign per-party PRNG (round-keyed)         & \texttt{PULSAR-SIGN-PRNG-V1} \\
+Sign PRF for mask cancellation            & \texttt{PULSAR-SIGN-PRF-V1} \\
+Reshare commit digest                      & \texttt{PULSAR-RESHARE-COMMIT-V1} \\
+Reshare transcript                         & \texttt{PULSAR-RESHARE-TRANSCRIPT-V1} \\
+Reshare beacon binding                     & \texttt{PULSAR-RESHARE-BEACON-V1} \\
 Public matrix $\mathbf{A}$ derivation       & FIPS~204 \texttt{ExpandA} (no change) \\
-Public matrix $\mathbf{B}$ derivation       & \texttt{PULSAR-M-EXPANDB-V1} \\
-Complaint signing transcript               & \texttt{PULSAR-M-COMPLAINT-V1} \\
+Public matrix $\mathbf{B}$ derivation       & \texttt{PULSAR-EXPANDB-V1} \\
+Complaint signing transcript               & \texttt{PULSAR-COMPLAINT-V1} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -456,8 +456,8 @@ $\mathbf{A}$ is derived exactly as in FIPS~204 via
 \texttt{ExpandA} (FIPS~204~\S7.1): \(\mathbf{A} = \texttt{ExpandA}(\rho)\),
 $\rho \in \{0,1\}^{256}$ a public seed. $\mathbf{B}$ is derived from
 a separate nothing-up-my-sleeve seed
-$\rho_B = \cSHAKE(\text{empty}, 256, \text{`Pulsar-M'},
-\text{`PULSAR-M-EXPANDB-V1'}\,)$. The two derivations are
+$\rho_B = \cSHAKE(\text{empty}, 256, \text{`Pulsar'},
+\text{`PULSAR-EXPANDB-V1'}\,)$. The two derivations are
 domain-separated so that $\mathbf{A}$ and $\mathbf{B}$ are independent
 even with shared randomness, satisfying the independence
 requirement of \Cref{thm:pedersen-hiding}.
@@ -597,8 +597,8 @@ with $\mathbf{r}_{i,k} \gets \chi_\eta^\ell$ for each $k$.
 \paragraph{Round 1.5 (cross-party commitment consistency).}
 Each party broadcasts the commit digest
 \[
-H_i = \cSHAKE(\,\text{empty},\,256,\,\text{`Pulsar-M'},\,
-\text{`PULSAR-M-DKG-COMMIT-V1'}\,||\,\mathit{encode}(\{\mathbf{C}_{i,k}\}_{k=0}^{t-1})\,).
+H_i = \cSHAKE(\,\text{empty},\,256,\,\text{`Pulsar'},\,
+\text{`PULSAR-DKG-COMMIT-V1'}\,||\,\mathit{encode}(\{\mathbf{C}_{i,k}\}_{k=0}^{t-1})\,).
 \]
 Parties compare digests received from every sender across the cohort.
 Mismatch $\Rightarrow$ equivocation: the sender broadcast distinct
@@ -712,14 +712,14 @@ quorum $T$, party-pair PRF keys $\{K_{i,j}\}_{j \in T \setminus \{i\}}$,
 message hash $\mu$.
 \State $\tau_1 \gets (\mathit{sid}, \kappa, T, i, \mathit{pk}, \mu)$
 \Comment{Round-1 transcript binding}
-\State $\text{seed}_i \gets \KMAC(K_i^{\mathrm{prng}},\,\tau_1,\,256,\,\text{`PULSAR-M-SIGN-PRNG-V1'})$
+\State $\text{seed}_i \gets \KMAC(K_i^{\mathrm{prng}},\,\tau_1,\,256,\,\text{`PULSAR-SIGN-PRNG-V1'})$
 \Comment{Per-round PRNG seed (\S\ref{sec:impl-rejection-restart})}
 \State Sample $\mathbf{y}_i \gets U_{\gamma_1}^\ell$ from the PRNG keyed by $\text{seed}_i$
 \State Compute commit $\mathbf{w}_i = \mathbf{A} \mathbf{y}_i \in \Rq^k$
 \State Compute high-bits commit $\bar{\mathbf{w}}_i = \HighBits(\mathbf{w}_i,\,2\gamma_2)$
-\State Compute commit digest $D_i = \cSHAKE(\bar{\mathbf{w}}_i,\,256,\,\text{`Pulsar-M'},\,\text{`PULSAR-M-SIGN-R1-V1'} \| \tau_1)$
+\State Compute commit digest $D_i = \cSHAKE(\bar{\mathbf{w}}_i,\,256,\,\text{`Pulsar'},\,\text{`PULSAR-SIGN-R1-V1'} \| \tau_1)$
 \State \textbf{For each} $j \in T \setminus \{i\}$ \textbf{do}
-$\;\mathrm{MAC}_{i \to j} \gets \KMAC(K_{i,j},\,D_i \| \tau_1,\,256,\,\text{`PULSAR-M-SIGN-R1-MAC-V1'})$
+$\;\mathrm{MAC}_{i \to j} \gets \KMAC(K_{i,j},\,D_i \| \tau_1,\,256,\,\text{`PULSAR-SIGN-R1-MAC-V1'})$
 \State \textbf{Broadcast:} $(D_i, \{\mathrm{MAC}_{i \to j}\}_{j \in T \setminus \{i\}})$
 \end{algorithmic}
 \end{algorithm}
@@ -730,7 +730,7 @@ $\;\mathrm{MAC}_{i \to j} \gets \KMAC(K_{i,j},\,D_i \| \tau_1,\,256,\,\text{`PUL
 \begin{algorithmic}[1]
 \State \textbf{Input:} the received $\{D_j\}_{j \in T}$ and corresponding MACs, plus all Round-1 state from party $i$.
 \State Verify every MAC received from each $j$ against the locally-known $K_{i,j}$. Abort with $\textsc{ComplaintMACFailure}(j)$ on mismatch.
-\State Compute the aggregated commit hash $\bar D = \cSHAKE(\text{empty},\,256,\,\text{`Pulsar-M'},\,\text{`PULSAR-M-SIGN-R2-V1'} \,\|\, D_1 \| D_2 \| \cdots \| D_n)$
+\State Compute the aggregated commit hash $\bar D = \cSHAKE(\text{empty},\,256,\,\text{`Pulsar'},\,\text{`PULSAR-SIGN-R2-V1'} \,\|\, D_1 \| D_2 \| \cdots \| D_n)$
 \State Recover the aggregated $\bar{\mathbf{w}} = \HighBits(\sum_{j \in T} \mathbf{w}_j,\,2\gamma_2)$ by summing per-party Round-1 commits (each party transmits its raw $\bar{\mathbf{w}}_i$ alongside the commit digest in Round~2 for verification --- the digest's role is binding under MAC, not concealment).
 \State Compute the FIPS~204 challenge $\tilde c \gets \SHAKE(\mu \,\|\, \bar{\mathbf{w}},\,2\lambda)$ and expand to $c \in \Rq$ via $c = \texttt{SampleInBall}(\tilde c)$.
 \State Compute the Lagrange coefficient $\lambda_i^T \in \Zq$ for party $i$ in the quorum $T$.
@@ -864,8 +864,8 @@ chain's randomness beacon $\beta_e$ for epoch $e$:
 \;=\;
 \bigl\{\text{the } t_{\mathrm{old}} \text{ smallest-ID members of }
 \mathcal{O}\text{ in the permutation induced by }
-\cSHAKE(\beta_e, 256\cdot|\mathcal{O}|, \text{`Pulsar-M'},
-\text{`PULSAR-M-RESHARE-BEACON-V1'})\bigr\}.
+\cSHAKE(\beta_e, 256\cdot|\mathcal{O}|, \text{`Pulsar'},
+\text{`PULSAR-RESHARE-BEACON-V1'})\bigr\}.
 \]
 The beacon $\beta_e$ must be unpredictable in advance to the
 adversary; the Lux consensus randomness layer (Quasar) provides this
@@ -1123,7 +1123,7 @@ within them are not.
 \paragraph{Common conventions.}
 \begin{itemize}[leftmargin=*, itemsep=0pt]
 \item Every wire message starts with a fixed-length version tag:
-$(\text{`PULSAR-M-1'}, \text{kind\_byte}, \text{epoch\_u32})$.
+$(\text{`PULSAR-1'}, \text{kind\_byte}, \text{epoch\_u32})$.
 Tag length: TBD at freeze.
 \item Lengths are big-endian unsigned. Length-prefixed for every
 variable-size field.
@@ -1177,7 +1177,7 @@ Length-pinned per kind.
 \paragraph{Activation certificate.}
 A FIPS~204 ML-DSA signature on the reshare transcript hash under the
 unchanged $\mathit{pk}$. The hash is bound under the
-\texttt{PULSAR-M-RESHARE-TRANSCRIPT-V1} customisation tag.
+\texttt{PULSAR-RESHARE-TRANSCRIPT-V1} customisation tag.
 
 \paragraph{Open at freeze.}
 Outstanding decisions for the encoding freeze:
@@ -1281,11 +1281,11 @@ attempt counter. The per-attempt PRNG seed is derived as:
 \KMAC(\,K_i^{\mathrm{prng}},\,
 (\mathit{sid}, \kappa, T, i, \mathit{pk}, \mu),\,
 256,\,
-\text{`PULSAR-M-SIGN-PRNG-V1'}\,),
+\text{`PULSAR-SIGN-PRNG-V1'}\,),
 \]
 where $K_i^{\mathrm{prng}}$ is a per-party PRNG key derived at DKG
 time from $\mathbf{s}_i$ via $\cSHAKE$ with the customisation tag
-\texttt{`PULSAR-M-SIGN-PRNGKEY-V1'}. Both $\mathit{sid}$ and $\kappa$
+\texttt{`PULSAR-SIGN-PRNGKEY-V1'}. Both $\mathit{sid}$ and $\kappa$
 are bound into the seed.
 \item \textbf{Across quorums on the same $\mathit{sid}$} (distinct
 $T$). If two distinct quorums coordinate on the same $\mathit{sid}$
@@ -1570,7 +1570,7 @@ $(k, \ell)$ & module dimensions, FIPS~204 dependent \\
 $(\eta, \tau, \gamma_1, \gamma_2, \omega, \beta, d, \lambda)$ & FIPS~204 parameter set \\
 $(n, t)$ & threshold parameters, $n \ge 2t-1$ \\
 $\mathbf{A} \in \Rq^{k \times \ell}$ & public matrix, derived from $\rho$ via FIPS~204 \texttt{ExpandA} \\
-$\mathbf{B} \in \Rq^{k \times \ell}$ & Pedersen blinding matrix, derived via \texttt{PULSAR-M-EXPANDB-V1} \\
+$\mathbf{B} \in \Rq^{k \times \ell}$ & Pedersen blinding matrix, derived via \texttt{PULSAR-EXPANDB-V1} \\
 $\mathbf{s}_1 \in \Rq^\ell$ & master secret, $\chi_\eta$-distributed \\
 $\mathbf{u} \in \Rq^\ell$ & Pedersen blinding, $\chi_\eta$-distributed \\
 $\mathbf{s}_2 \in \Rq^k$ & FIPS~204 noise, $= \mathbf{B}\mathbf{u}$ in Pulsar \\

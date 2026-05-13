@@ -108,7 +108,7 @@ func TestLarge_E2E_DKG_ThresholdSign_Verify(t *testing.T) {
 
 			sessionID := [16]byte{'S', 'E', 'S', 'S'}
 			attempt := uint32(0)
-			message := []byte("pulsar-m large e2e roundtrip on quasar (3,2) profile")
+			message := []byte("pulsar large e2e roundtrip on quasar (3,2) profile")
 
 			signers := make([]*LargeThresholdSigner, tc.t)
 			for i := 0; i < tc.t; i++ {
@@ -152,7 +152,7 @@ func TestLarge_E2E_DKG_ThresholdSign_Verify(t *testing.T) {
 
 			// ---- FIPS 204 ML-DSA.Verify ----
 			if err := Verify(params, groupPK, message, sig); err != nil {
-				t.Fatalf("FIPS 204 ML-DSA.Verify on Pulsar-M output: %v", err)
+				t.Fatalf("FIPS 204 ML-DSA.Verify on Pulsar output: %v", err)
 			}
 		})
 	}
@@ -342,7 +342,7 @@ func TestLarge_Reshare_E2E(t *testing.T) {
 		newCommittee[i][3] = 'N'
 	}
 	const newThresh = 3
-	beacon := []byte("PULSAR-M-RESHARE-BEACON-2026")
+	beacon := []byte("PULSAR-RESHARE-BEACON-2026")
 
 	// Build reshare sessions for parties in (oldCommittee ∪ newCommittee).
 	// In this test the two committees are disjoint, so old parties only

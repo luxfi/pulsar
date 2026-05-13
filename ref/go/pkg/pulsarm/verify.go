@@ -7,13 +7,13 @@ package pulsarm
 //
 // This file is the Class N1 manifesto in code: Verify literally
 // dispatches to mldsa{44,65,87}.Verify from cloudflare/circl, which
-// is the FIPS 204 §6.3 verifier verbatim. No Pulsar-M-specific
+// is the FIPS 204 §6.3 verifier verbatim. No Pulsar-specific
 // logic; no threshold-specific extension fields; no envelope. A
 // signature produced by ThresholdSign (threshold.go) flows through
 // the SAME Verify code path as a single-party Sign output.
 //
-// Per pulsar-m.tex §4.3 and spec/nist-mptc-category.tex, this is the
-// load-bearing property of the entire Pulsar-M family: anything that
+// Per pulsar.tex §4.3 and spec/nist-mptc-category.tex, this is the
+// load-bearing property of the entire Pulsar family: anything that
 // changes Verify breaks Class N1 output interchangeability.
 
 import (
@@ -25,7 +25,7 @@ import (
 )
 
 // Verification errors. Returning a typed error rather than a panic
-// is mandated by pulsar-m.tex §6.1 (DD-007: no panic in the verify
+// is mandated by pulsar.tex §6.1 (DD-007: no panic in the verify
 // path) and CONTRIBUTING.md.
 var (
 	// ErrInvalidSignature is returned when the signature does not
@@ -49,7 +49,7 @@ var (
 )
 
 // Verify is the canonical consensus-consumer entry point for
-// Pulsar-M signature verification.
+// Pulsar signature verification.
 //
 // Returns nil if the signature is valid under FIPS 204 ML-DSA.Verify;
 // a typed error otherwise. Never panics: caller code in the consensus
@@ -65,7 +65,7 @@ var (
 // Class N1 manifesto: this function MUST remain a thin dispatch over
 // the FIPS 204 verifier. Adding logic here breaks output
 // interchangeability with single-party FIPS 204 — the whole point
-// of the Pulsar-M.M variant.
+// of the Pulsar.M variant.
 func Verify(params *Params, groupPubkey *PublicKey, message []byte, sig *Signature) error {
 	return VerifyCtx(params, groupPubkey, message, nil, sig)
 }
