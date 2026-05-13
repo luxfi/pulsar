@@ -188,7 +188,7 @@ func TestPrecompile_E2E_LargeCombine_FIPS204_VerifyCtx(t *testing.T) {
 
 	// ---- Threshold sign ----
 	quorum := committee[:threshold]
-	msg := []byte("pulsar-m large threshold -> precompile ctx -> FIPS 204")
+	msg := []byte("pulsar large threshold -> precompile ctx -> FIPS 204")
 	var sid [16]byte
 	copy(sid[:], "precompile-lg-01")
 	attempt := uint32(0)

@@ -5,10 +5,10 @@ package pulsarm
 
 // largeshamir.go -- the public, large-committee Shamir surface.
 //
-// At committee sizes above GF(257)'s cap (n > 256), the Pulsar-M
+// At committee sizes above GF(257)'s cap (n > 256), the Pulsar
 // reference implementation switches to byte-wise Shamir over the
 // FIPS 204 prime q = 8 380 417. This file exposes a clean Field-
-// agnostic surface, so a chain integrator can drive Pulsar-M at
+// agnostic surface, so a chain integrator can drive Pulsar at
 // committees ranging from 2 parties (a multisig) all the way to
 // TargetCommitteeSize = 1 111 111 (the canonical "extreme committee"
 // target for Lux's continental-scale validator set roadmap) with a
@@ -23,7 +23,7 @@ package pulsarm
 import "errors"
 
 // LargeShareWire is the public wire form of one large-committee
-// Pulsar-M share. Bytes are the big-endian uint32 lanes of the
+// Pulsar share. Bytes are the big-endian uint32 lanes of the
 // per-byte share, identical to shamirShareQ.Y.
 type LargeShareWire [shareWireSizeQ]byte
 

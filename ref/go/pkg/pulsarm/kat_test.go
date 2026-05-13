@@ -233,11 +233,11 @@ func TestKAT_DKG_Replay(t *testing.T) {
 
 func modeFromString(s string) Mode {
 	switch s {
-	case "Pulsar-M-44":
+	case "Pulsar-44":
 		return ModeP44
-	case "Pulsar-M-65":
+	case "Pulsar-65":
 		return ModeP65
-	case "Pulsar-M-87":
+	case "Pulsar-87":
 		return ModeP87
 	default:
 		return ModeUnspecified

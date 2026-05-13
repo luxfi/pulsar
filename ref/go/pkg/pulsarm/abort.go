@@ -10,7 +10,7 @@ package pulsarm
 // complaints; a quorum of distinct accusers against the same accused
 // is a disqualification event.
 //
-// pulsar-m.tex §4.5 enumerates the complaint taxonomy. This file
+// pulsar.tex §4.5 enumerates the complaint taxonomy. This file
 // gives the canonical wire format and the verification routines that
 // any third party (chain validator, audit observer, slashing module)
 // uses to check a complaint is well-formed.

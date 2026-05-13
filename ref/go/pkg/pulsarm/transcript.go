@@ -4,18 +4,18 @@
 package pulsarm
 
 // transcript.go — FIPS 202 / SP 800-185 transcript primitives used by
-// every Pulsar-M protocol round.
+// every Pulsar protocol round.
 //
-// All hashing in Pulsar-M routes through this file. Direct use of
+// All hashing in Pulsar routes through this file. Direct use of
 // stdlib hashes anywhere else in the package is a CI failure per
-// pulsar-m.tex §6.1 (DD-002 hash family) and CONTRIBUTING.md.
+// pulsar.tex §6.1 (DD-002 hash family) and CONTRIBUTING.md.
 //
 // The two primitives we vend are:
 //
 //   - cSHAKE256(K, X, L, S)         — FIPS 202 §6.3 + SP 800-185 §3
 //   - KMAC256  (K, X, L, S)         — SP 800-185 §4
 //
-// All Pulsar-M customisation strings live in this file as named
+// All Pulsar customisation strings live in this file as named
 // constants so that the audit footprint of the hash layer is one
 // file. Rotating a tag invalidates every test vector pinned at that
 // tag — bumping a tag is a deliberate, audited move.
@@ -27,7 +27,7 @@ import (
 )
 
 // Customisation tags for cSHAKE256/KMAC256. These match
-// pulsar-m.tex §3 table "purpose -> SP 800-185 customisation tag"
+// pulsar.tex §3 table "purpose -> SP 800-185 customisation tag"
 // byte-for-byte.
 const (
 	tagDKGCommit     = "PULSAR-DKG-COMMIT-V1"
@@ -47,8 +47,8 @@ const (
 )
 
 // functionName is the SP 800-185 cSHAKE function-name parameter.
-// All Pulsar-M cSHAKE calls pin N to "Pulsar" so that an integrator
-// who mistakenly fed Pulsar-M cSHAKE bytes into a non-Pulsar-M cSHAKE
+// All Pulsar cSHAKE calls pin N to "Pulsar" so that an integrator
+// who mistakenly fed Pulsar cSHAKE bytes into a non-Pulsar cSHAKE
 // engine would get a deterministic mismatch.
 const functionName = "Pulsar"
 

@@ -16,7 +16,7 @@ package pulsarm
 // each share is 32 × uint16 = 64 bytes, regardless of the FIPS 204
 // parameter set. Sharing over GF(8380417) is on the v0.2 path that
 // integrates with the Lagrange-linearity sign mode of
-// pulsar-m.tex §4.2 (where shares must align with R_q^k arithmetic).
+// pulsar.tex §4.2 (where shares must align with R_q^k arithmetic).
 //
 // All arithmetic is constant-time mod p via the small-prime modular
 // inverse table seeded at package init.

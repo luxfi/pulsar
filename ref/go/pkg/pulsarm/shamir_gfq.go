@@ -7,7 +7,7 @@ package pulsarm
 // q = 8380417 is the FIPS 204 ML-DSA prime. This is the wide-field
 // counterpart to shamir.go's GF(257) and unlocks committee sizes up
 // to q-1 = 8 380 416 parties, with comfortable margin for the N >
-// 10 000 large-committee regime documented in spec/pulsar-m.tex
+// 10 000 large-committee regime documented in spec/pulsar.tex
 // section "Large committees (N > 256)".
 //
 // Layout choice. Each per-byte share value is a uniform draw in
@@ -26,7 +26,7 @@ package pulsarm
 // the same (t-1)-out-of-n information-theoretic privacy as the GF(257)
 // path. The choice of q matches the ring modulus, which removes one
 // distinct prime from the audit footprint: every modular arithmetic
-// operation in Pulsar-M is now mod q.
+// operation in Pulsar is now mod q.
 
 import (
 	"encoding/binary"
