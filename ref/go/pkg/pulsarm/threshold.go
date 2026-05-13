@@ -25,7 +25,7 @@ package pulsarm
 //     FIPS 204 mldsa.SignTo. Returns the resulting signature.
 //
 // The 2-round commit-and-reveal pattern with MACs is the structural
-// pulsar-m.tex §4.2 form. The reconstruction-aggregator path collapses
+// pulsar.tex §4.2 form. The reconstruction-aggregator path collapses
 // the Lagrange-linearity-of-z computation of §4.2 into a single FIPS
 // 204 Sign call after share Lagrange reconstruction. This trade is
 // documented in BLOCKERS.md; the v0.2 path implements
@@ -57,7 +57,7 @@ var (
 // A ThresholdSigner is single-use: one (sid, attempt) pair per
 // instance. The protocol-layer driver allocates a fresh signer for
 // each rejection-restart attempt (the FIPS 204 restart counter is
-// the Attempt field; see pulsar-m.tex §6.2 for the cross-restart
+// the Attempt field; see pulsar.tex §6.2 for the cross-restart
 // state discipline).
 type ThresholdSigner struct {
 	Params    *Params
@@ -90,7 +90,7 @@ type ThresholdSigner struct {
 	// peerNodeID, group-pubkey) — a non-secret value sufficient for
 	// the v0.1 commit-and-reveal binding. v0.2 (production) replaces
 	// this with per-session ephemeral keys exchanged at the
-	// preprocessing phase per pulsar-m.tex §6.2.
+	// preprocessing phase per pulsar.tex §6.2.
 	MACKeys map[NodeID][32]byte
 
 	// rng is the entropy source for per-round mask r_i.

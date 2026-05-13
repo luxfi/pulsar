@@ -23,7 +23,7 @@ package pulsarm
 //
 // which is binding under collision resistance and hiding under
 // uniformity of blind_i. The v0.2 path replaces this with R_q^k
-// Pedersen per pulsar-m.tex §3.2 + §4.1 to obtain the same
+// Pedersen per pulsar.tex §3.2 + §4.1 to obtain the same
 // guarantees under M-LWE hardness (a stronger PQ-safe binding
 // argument). Both targets are Class N4-eligible.
 //
