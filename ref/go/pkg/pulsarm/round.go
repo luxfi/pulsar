@@ -5,25 +5,25 @@ package pulsarm
 
 // round.go -- Wave-driven metastable threshold signing.
 //
-// For validator pools above the GF(257) Pulsar-M cap of n=256, the
-// canonical Lux deployment does NOT run one large Pulsar-M ceremony.
-// It runs Pulsar-M (3, 2) at the per-Lux-round committee level. Each
+// For validator pools above the GF(257) Pulsar cap of n=256, the
+// canonical Lux deployment does NOT run one large Pulsar ceremony.
+// It runs Pulsar (3, 2) at the per-Lux-round committee level. Each
 // Lux round (one Wave Tick) samples K validators via prism.Cut, the
-// K members emit Pulsar-M Round-1 commits over the value under vote,
-// Wave decides agreement (alpha-of-K), Pulsar-M Round-2 reveals are
+// K members emit Pulsar Round-1 commits over the value under vote,
+// Wave decides agreement (alpha-of-K), Pulsar Round-2 reveals are
 // collected, and after Focus.Tracker reaches the beta-confidence
 // threshold the accumulator combines all collected (3, 2) signatures
 // into a single FIPS 204 ML-DSA proof via the P3Q STARK rollup at
 // the Z-Chain layer.
 //
 // The result: a 1.1M-validator pool reaches finality with constant
-// per-Lux-round cost (K=3 Pulsar-M ceremonies in flight) and
+// per-Lux-round cost (K=3 Pulsar ceremonies in flight) and
 // constant final-certificate size (one P3Q proof).
 //
 // This file provides the helper primitives that the
 // consensus/protocol/quasar Wave-driver calls during each Lux round.
 // The Wave / Focus / Cut wiring itself lives in
-// consensus/protocol/quasar/wave_signer.go (out of pulsar-m's scope).
+// consensus/protocol/quasar/wave_signer.go (out of pulsar's scope).
 
 import (
 	"encoding/binary"
@@ -32,7 +32,7 @@ import (
 
 // RoundContext is the per-Lux-round binding context. Each Wave Tick
 // produces a fresh context whose bytes are committed into every
-// Pulsar-M transcript-hash so cross-round Round-1 commits cannot be
+// Pulsar transcript-hash so cross-round Round-1 commits cannot be
 // replayed against a different Wave round.
 type RoundContext struct {
 	// Epoch is the validator-set epoch identifier (e.g. block height
@@ -64,8 +64,8 @@ func (c RoundContext) Encode() []byte {
 	return out
 }
 
-// RoundSessionID derives a deterministic per-Lux-round Pulsar-M
-// SessionID from a RoundContext. The session-id binds the Pulsar-M
+// RoundSessionID derives a deterministic per-Lux-round Pulsar
+// SessionID from a RoundContext. The session-id binds the Pulsar
 // per-round PRNG (PULSAR-SIGN-PRNG-V1 customisation tag in
 // transcript.go) to the unique (epoch, round, item, committee) tuple,
 // closing the CRIT-1 replay vector that del Pino-Niot's PRNGKeyForRound
@@ -79,7 +79,7 @@ func RoundSessionID(ctx RoundContext) [16]byte {
 
 // RoundCommitteeRoot returns the canonical 32-byte digest of a
 // Wave-sampled K-committee (sorted ascending NodeID). Both the
-// per-round Pulsar-M transcript and the Wave protocol's per-round
+// per-round Pulsar transcript and the Wave protocol's per-round
 // commitments bind to this digest.
 func RoundCommitteeRoot(committee []NodeID) [32]byte {
 	sorted := make([]NodeID, len(committee))
@@ -97,7 +97,7 @@ func RoundCommitteeRoot(committee []NodeID) [32]byte {
 	return transcriptHash32(tagDKGCommit, parts...)
 }
 
-// RoundSigShare is the per-validator Pulsar-M signature contribution
+// RoundSigShare is the per-validator Pulsar signature contribution
 // emitted in one Lux round. It rides alongside the validator's Wave
 // preference vote on the Photon wire. The aggregator at the Quasar
 // layer collects β rounds worth of these, passes them to LargeCombine
@@ -107,23 +107,23 @@ func RoundCommitteeRoot(committee []NodeID) [32]byte {
 type RoundSigShare struct {
 	// Context binds the share to its Lux round.
 	Context RoundContext
-	// Round1 is the per-round Pulsar-M Round-1 commit message.
+	// Round1 is the per-round Pulsar Round-1 commit message.
 	Round1 *Round1Message
-	// Round2 is the per-round Pulsar-M Round-2 reveal message.
+	// Round2 is the per-round Pulsar Round-2 reveal message.
 	// Filled in after the Wave alpha-of-K agreement check passes.
 	Round2 *Round2Message
 }
 
 // RoundQuorumPolicy bundles the (alpha, beta) parameters Wave uses to
 // drive Lux-round agreement. These are exposed here so the
-// consensus-layer Wave-driver can synchronise them with the Pulsar-M
+// consensus-layer Wave-driver can synchronise them with the Pulsar
 // combiner's expectations.
 //
 // alpha is the within-Lux-round agreement threshold (yes-votes among
 // K samples that count this round as "successful"). beta is the
 // number of consecutive successful Lux rounds before the Focus
 // tracker fires "decided" -- at which point the aggregator combines
-// β·alpha Pulsar-M shares into one FIPS 204 signature.
+// β·alpha Pulsar shares into one FIPS 204 signature.
 type RoundQuorumPolicy struct {
 	K     int
 	Alpha int

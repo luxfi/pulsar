@@ -1,8 +1,8 @@
-// Package pulsarm is the reference implementation of Pulsar-M, a threshold
+// Package pulsarm is the reference implementation of Pulsar, a threshold
 // implementation of NIST FIPS 204 ML-DSA targeting NIST MPTC Class N1
 // (signing) + N4 (ML keygen / DKG).
 //
-// The headline claim of Pulsar-M is output interchangeability with FIPS 204:
+// The headline claim of Pulsar is output interchangeability with FIPS 204:
 // a signature produced by an n-of-t threshold ceremony verifies under
 // unmodified FIPS 204 ML-DSA.Verify(pk, message, signature). See
 // spec/nist-mptc-category.tex for the formal claim and its scope.

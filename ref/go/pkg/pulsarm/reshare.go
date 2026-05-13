@@ -12,12 +12,12 @@ package pulsarm
 // terms are pre-multiplied by the old-committee Lagrange coefficients
 // (so the sum of fresh polynomials evaluates to the master secret at
 // x=0 by construction). Beacon-randomised quorum selection per
-// pulsar-m.tex §4.4 mitigates mobile-adversary corruption-set
+// pulsar.tex §4.4 mitigates mobile-adversary corruption-set
 // gaming.
 //
 // v0.1 instantiation: the reshare quorum is the FIRST k members of
 // the old committee in canonical order, with k = threshold(old).
-// The beacon-randomised selection in pulsar-m.tex §4.4 is implemented
+// The beacon-randomised selection in pulsar.tex §4.4 is implemented
 // as a configurable knob (BeaconQuorum) — pass the beacon bytes and
 // the routine permutes the old committee deterministically before
 // selecting the first k. Without a beacon, the deterministic
@@ -384,7 +384,7 @@ func (s *ReshareSession) Round3(round1 []*DKGRound1Msg, round2 []*DKGRound2Msg) 
 //
 // If beacon is non-nil, the old committee is permuted by sorting
 // under cSHAKE256(committee_root || beacon) — this is the
-// beacon-randomised selection of pulsar-m.tex §4.4. Without a beacon,
+// beacon-randomised selection of pulsar.tex §4.4. Without a beacon,
 // the canonical-order first-k selection is used.
 func selectReshareQuorum(oldSorted []NodeID, oldThreshold int, beacon []byte) []NodeID {
 	if beacon == nil {

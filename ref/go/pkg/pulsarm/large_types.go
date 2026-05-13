@@ -11,13 +11,13 @@ package pulsarm
 // above TargetCommitteeSize = 1 111 111. This is the canonical
 // extreme committee size for Lux's continental-scale validator set
 // roadmap; the underlying GF(q) field supports up to q - 1 =
-// 8 380 416 parties but pulsar-m's reference implementation pins
+// 8 380 416 parties but pulsar's reference implementation pins
 // the cap an order of magnitude below for over-provisioning,
 // joining-without-reshare slack, and grow-without-fork.
 //
 // Architectural note. Production Lux consensus does NOT run one
-// Pulsar-M ceremony over 1.1 M parties. It runs the small-committee
-// GF(257) Pulsar-M at (T, N) = (2, 3) per sortitioned group, with
+// Pulsar ceremony over 1.1 M parties. It runs the small-committee
+// GF(257) Pulsar at (T, N) = (2, 3) per sortitioned group, with
 // ~366k groups in parallel and a Z-Chain Groth16 roll-up. See
 // spec/system-model.tex section "Committee selection and rollup".
 // The Large* types in this file are for the alternative deployment

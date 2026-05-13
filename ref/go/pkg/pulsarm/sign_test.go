@@ -17,7 +17,7 @@ func TestSignVerify_RoundTrip_AllModes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			msg := []byte("Pulsar-M round-trip test message — Class N1 sanity")
+			msg := []byte("Pulsar round-trip test message — Class N1 sanity")
 			sig, err := Sign(params, sk, msg, nil, true, rand.Reader)
 			if err != nil {
 				t.Fatalf("Sign: %v", err)
