@@ -1,0 +1,408 @@
+// Pulsar transcript layer - SP 800-185 cSHAKE256 / KMAC256.
+//
+// The Pulsar Go reference (ref/go/pkg/pulsar/transcript.go) routes
+// every transcript hash through cSHAKE256 with function-name N="Pulsar"
+// and a per-purpose customisation string S in {PULSAR-SIGN-R1-V1,
+// PULSAR-SIGN-R1-MAC-V1, PULSAR-SIGN-R2-V1, PULSAR-SEED-SHARE-V1, ...}.
+//
+// This file ports the bytes-on-the-wire computation of cSHAKE256 from
+// SP 800-185 §3 into Jasmin so a quorum running Jasmin and a quorum
+// running Go agree byte-for-byte on every transcript binding.
+//
+// cSHAKE256(X, L, N, S) = KECCAK[512]( bytepad(encode_string(N) ||
+//                                              encode_string(S), 136)
+//                                      || X || 00 ),
+//                        truncated to L bits.
+//
+// When N=S=empty, cSHAKE256 degenerates to plain SHAKE256 (suffix 0x1f).
+// Otherwise the domain-separation byte is 0x04 (SP 800-185 §3.3).
+// libjade's hash_mu_w1 / hash_tr_m use the plain-SHAKE form (FIPS 204
+// has no customisation); we use the cSHAKE form here.
+//
+// Per-call PULSAR domain strings are baked in as inline byte arrays so
+// the compiler emits straight-line code with constant memory access.
+
+from Jade require "crypto_sign/dilithium/common/amd64/fips202.jinc"
+
+// SP 800-185 left_encode(x) - returns a byte string whose first byte is
+// the number of subsequent bytes, followed by x in big-endian.
+//
+// Pulsar's transcripts only ever left_encode small integers:
+//   - left_encode(8 * 6) for "Pulsar"      = {0x01, 0x30}
+//   - left_encode(8 * <S_len_bytes>)        - one byte for S lengths up
+//                                              to 31 bytes (which covers
+//                                              every Pulsar tag).
+//   - left_encode(8 * |key|)                - one byte for 32-byte keys.
+//   - left_encode(<number_of_parts>)        - one byte for small N.
+//
+// We provide inline helpers below for the common cases used by Pulsar.
+
+// Length-prefix encoder for ASCII strings up to 31 bytes.
+// Emits left_encode(bit_length) = {0x01, byte(bit_length)} as two bytes,
+// always. Returns the offset advanced past the prefix.
+inline
+fn left_encode_byte(reg ptr u8[200] buf, reg u64 offset, inline int bit_length)
+    -> reg ptr u8[200], reg u64
+{
+    buf[offset] = 0x01;
+    offset += 1;
+    buf[offset] = bit_length;
+    offset += 1;
+    return buf, offset;
+}
+
+// Absorb a constant-size 6-byte ASCII "Pulsar" function-name with its
+// SP 800-185 encode_string framing into a 200-byte staging buffer at the
+// running offset. Returns the new offset.
+inline
+fn absorb_N_Pulsar(reg ptr u8[200] buf, reg u64 offset)
+    -> reg ptr u8[200], reg u64
+{
+    // encode_string("Pulsar") = left_encode(48) || "Pulsar"
+    //                         = {0x01, 0x30} || "Pulsar"
+    buf[offset] = 0x01;       offset += 1;
+    buf[offset] = 0x30;       offset += 1;  // 6 bytes * 8 bits = 48
+    buf[offset] = 0x50;       offset += 1;  // 'P'
+    buf[offset] = 0x75;       offset += 1;  // 'u'
+    buf[offset] = 0x6c;       offset += 1;  // 'l'
+    buf[offset] = 0x73;       offset += 1;  // 's'
+    buf[offset] = 0x61;       offset += 1;  // 'a'
+    buf[offset] = 0x72;       offset += 1;  // 'r'
+    return buf, offset;
+}
+
+// Build the cSHAKE256 prelude bytes (bytepad(encode_string(N) ||
+// encode_string(S), 136)) into the supplied 200-byte staging buffer.
+// 200 bytes is the keccak-1600 state size; SHAKE256's rate (136 bytes)
+// is the bytepad width. Pulsar's longest customisation S is 23 bytes
+// ("PULSAR-RESHARE-TRANSCRIPT-V1"), so the prelude always fits inside
+// a single 136-byte block:
+//   2 (encode_string framing) + 6 ("Pulsar")           = 8
+// + 2 (encode_string framing) + <=23 ASCII             <= 33
+// + 2 (bytepad left_encode(136))                       =  2
+// Total <= 43, plus zero-pad to 136.
+//
+// We never call cSHAKE256 with a per-message-variable S length, so the
+// prelude is statically known at every call site. The caller supplies S
+// as an inline byte string and its length, and absorbs the prelude
+// directly into the keccak state.
+
+// Absorb a full cSHAKE256 prelude into a fresh keccak state, ready to
+// be followed by the message bytes X. Caller passes:
+//   state    - 25 u64 words, will be zeroed and absorbed into
+//   S_bytes  - the customisation ASCII array (e.g. b"PULSAR-SIGN-R1-V1")
+//   S_len    - its byte length (compile-time constant)
+//
+// After this routine returns, `offset` indexes into the state at the
+// position where X absorption should continue. Caller must NOT call
+// keccakf1600 between prelude absorption and X absorption unless the
+// running offset would overflow the rate.
+inline
+fn cshake256_absorb_prelude_R1(reg ptr u64[25] state)
+    -> reg ptr u64[25], reg u64
+{
+    // Prelude for cSHAKE256 with N="Pulsar", S="PULSAR-SIGN-R1-V1".
+    //
+    // bytepad(encode_string("Pulsar") || encode_string("PULSAR-SIGN-R1-V1"), 136)
+    //   = left_encode(136)         = {0x01, 0x88}              (2 bytes)
+    //   || left_encode(48) "Pulsar"= {0x01, 0x30}"Pulsar"     (8 bytes)
+    //   || left_encode(136) "PULSAR-SIGN-R1-V1"
+    //                                = {0x01, 0x88}"PULSAR..."(19 bytes)
+    //   || zero-pad to 136 bytes                              (107 bytes)
+    //
+    // Total: 136 bytes, exactly one SHAKE256 absorption block.
+    //
+    // 0x88 = 136 = 17 bytes * 8 bits/byte (the bit length of "PULSAR-SIGN-R1-V1")
+    reg u64 i;
+    state = st0(state);
+    state[:u8 0]  = 0x01;
+    state[:u8 1]  = 0x88;
+    state[:u8 2]  = 0x01;
+    state[:u8 3]  = 0x30;
+    state[:u8 4]  = 0x50;
+    state[:u8 5]  = 0x75;
+    state[:u8 6]  = 0x6c;
+    state[:u8 7]  = 0x73;
+    state[:u8 8]  = 0x61;
+    state[:u8 9]  = 0x72;
+    state[:u8 10] = 0x01;
+    state[:u8 11] = 0x88;
+    // "PULSAR-SIGN-R1-V1" - 17 bytes
+    state[:u8 12] = 0x50; // P
+    state[:u8 13] = 0x55; // U
+    state[:u8 14] = 0x4c; // L
+    state[:u8 15] = 0x53; // S
+    state[:u8 16] = 0x41; // A
+    state[:u8 17] = 0x52; // R
+    state[:u8 18] = 0x2d; // -
+    state[:u8 19] = 0x53; // S
+    state[:u8 20] = 0x49; // I
+    state[:u8 21] = 0x47; // G
+    state[:u8 22] = 0x4e; // N
+    state[:u8 23] = 0x2d; // -
+    state[:u8 24] = 0x52; // R
+    state[:u8 25] = 0x31; // 1
+    state[:u8 26] = 0x2d; // -
+    state[:u8 27] = 0x56; // V
+    state[:u8 28] = 0x31; // 1
+    // bytes 29..135 are already zero from st0().
+    // Permute - the prelude block is now consumed.
+    state = __keccakf1600_ref(state);
+    ?{}, i = #set0_64();
+    return state, i;
+}
+
+// cSHAKE256 prelude with N="Pulsar", S="PULSAR-SIGN-R1-MAC-V1" (21 bytes).
+inline
+fn cshake256_absorb_prelude_R1MAC(reg ptr u64[25] state)
+    -> reg ptr u64[25], reg u64
+{
+    reg u64 i;
+    state = st0(state);
+    state[:u8 0]  = 0x01;
+    state[:u8 1]  = 0x88;
+    state[:u8 2]  = 0x01;
+    state[:u8 3]  = 0x30;
+    state[:u8 4]  = 0x50; state[:u8 5]  = 0x75; state[:u8 6]  = 0x6c;
+    state[:u8 7]  = 0x73; state[:u8 8]  = 0x61; state[:u8 9]  = 0x72;
+    state[:u8 10] = 0x01;
+    state[:u8 11] = 0xa8;  // 21 * 8 = 168 -> 0xa8
+    // "PULSAR-SIGN-R1-MAC-V1" - 21 bytes
+    state[:u8 12] = 0x50; state[:u8 13] = 0x55; state[:u8 14] = 0x4c;
+    state[:u8 15] = 0x53; state[:u8 16] = 0x41; state[:u8 17] = 0x52;
+    state[:u8 18] = 0x2d; state[:u8 19] = 0x53; state[:u8 20] = 0x49;
+    state[:u8 21] = 0x47; state[:u8 22] = 0x4e; state[:u8 23] = 0x2d;
+    state[:u8 24] = 0x52; state[:u8 25] = 0x31; state[:u8 26] = 0x2d;
+    state[:u8 27] = 0x4d; state[:u8 28] = 0x41; state[:u8 29] = 0x43;
+    state[:u8 30] = 0x2d; state[:u8 31] = 0x56; state[:u8 32] = 0x31;
+    state = __keccakf1600_ref(state);
+    ?{}, i = #set0_64();
+    return state, i;
+}
+
+// cSHAKE256 prelude with N="Pulsar", S="PULSAR-SIGN-R2-V1" (17 bytes).
+inline
+fn cshake256_absorb_prelude_R2(reg ptr u64[25] state)
+    -> reg ptr u64[25], reg u64
+{
+    reg u64 i;
+    state = st0(state);
+    state[:u8 0]  = 0x01;
+    state[:u8 1]  = 0x88;
+    state[:u8 2]  = 0x01;
+    state[:u8 3]  = 0x30;
+    state[:u8 4]  = 0x50; state[:u8 5]  = 0x75; state[:u8 6]  = 0x6c;
+    state[:u8 7]  = 0x73; state[:u8 8]  = 0x61; state[:u8 9]  = 0x72;
+    state[:u8 10] = 0x01;
+    state[:u8 11] = 0x88;
+    state[:u8 12] = 0x50; state[:u8 13] = 0x55; state[:u8 14] = 0x4c;
+    state[:u8 15] = 0x53; state[:u8 16] = 0x41; state[:u8 17] = 0x52;
+    state[:u8 18] = 0x2d; state[:u8 19] = 0x53; state[:u8 20] = 0x49;
+    state[:u8 21] = 0x47; state[:u8 22] = 0x4e; state[:u8 23] = 0x2d;
+    state[:u8 24] = 0x52; state[:u8 25] = 0x32; state[:u8 26] = 0x2d;
+    state[:u8 27] = 0x56; state[:u8 28] = 0x31;
+    state = __keccakf1600_ref(state);
+    ?{}, i = #set0_64();
+    return state, i;
+}
+
+// cSHAKE256 prelude with N="Pulsar", S="PULSAR-SEED-SHARE-V1" (20 bytes).
+inline
+fn cshake256_absorb_prelude_SeedShare(reg ptr u64[25] state)
+    -> reg ptr u64[25], reg u64
+{
+    reg u64 i;
+    state = st0(state);
+    state[:u8 0]  = 0x01;
+    state[:u8 1]  = 0x88;
+    state[:u8 2]  = 0x01;
+    state[:u8 3]  = 0x30;
+    state[:u8 4]  = 0x50; state[:u8 5]  = 0x75; state[:u8 6]  = 0x6c;
+    state[:u8 7]  = 0x73; state[:u8 8]  = 0x61; state[:u8 9]  = 0x72;
+    state[:u8 10] = 0x01;
+    state[:u8 11] = 0xa0;  // 20 * 8 = 160 -> 0xa0
+    state[:u8 12] = 0x50; state[:u8 13] = 0x55; state[:u8 14] = 0x4c;
+    state[:u8 15] = 0x53; state[:u8 16] = 0x41; state[:u8 17] = 0x52;
+    state[:u8 18] = 0x2d; state[:u8 19] = 0x53; state[:u8 20] = 0x45;
+    state[:u8 21] = 0x45; state[:u8 22] = 0x44; state[:u8 23] = 0x2d;
+    state[:u8 24] = 0x53; state[:u8 25] = 0x48; state[:u8 26] = 0x41;
+    state[:u8 27] = 0x52; state[:u8 28] = 0x45; state[:u8 29] = 0x2d;
+    state[:u8 30] = 0x56; state[:u8 31] = 0x31;
+    state = __keccakf1600_ref(state);
+    ?{}, i = #set0_64();
+    return state, i;
+}
+
+// Absorb `n` bytes from a raw memory address `src` into `state`
+// starting at `offset`, calling keccakf1600 whenever the rate boundary
+// is reached. Returns the running offset modulo the rate.
+//
+// Constant-time over the input bytes (no early exit, no
+// data-dependent permute). Permute count is determined by n and offset
+// only, both of which are PUBLIC in every Pulsar call site.
+inline
+fn cshake256_absorb_bytes(
+    reg ptr u64[25] state,
+    reg u64 offset,
+    reg u64 src,
+    reg u64 n)
+    -> reg ptr u64[25], reg u64
+{
+    reg u64 i;
+    reg u8  c;
+
+    ?{}, i = #set0_64();
+    while (i < n) {
+        c = [:u8 src + i];
+        state[:u8 offset] ^= c;
+        offset += 1;
+        i += 1;
+        if (offset == SHAKE256_RATE) {
+            state = __keccakf1600_ref(state);
+            ?{}, offset = #set0_64();
+        }
+    }
+    return state, offset;
+}
+
+// Absorb a single byte, permuting if the rate is crossed.
+inline
+fn absorb_one_byte(
+    reg ptr u64[25] state,
+    reg u64 offset,
+    reg u8 c)
+    -> reg ptr u64[25], reg u64
+{
+    state[:u8 offset] ^= c;
+    offset += 1;
+    if (offset == SHAKE256_RATE) {
+        state = __keccakf1600_ref(state);
+        ?{}, offset = #set0_64();
+    }
+    return state, offset;
+}
+
+// Absorb a big-endian 32-bit integer (4 bytes) as a sequence of
+// single-byte absorptions. Used everywhere we bind an attempt counter
+// kappa or a byte-length into a transcript.
+inline
+fn absorb_u32_be(
+    reg ptr u64[25] state,
+    reg u64 offset,
+    reg u32 v)
+    -> reg ptr u64[25], reg u64
+{
+    reg u8 c;
+    c = (8u)(v >> 24);
+    state, offset = absorb_one_byte(state, offset, c);
+    c = (8u)(v >> 16);
+    state, offset = absorb_one_byte(state, offset, c);
+    c = (8u)(v >> 8);
+    state, offset = absorb_one_byte(state, offset, c);
+    c = (8u) v;
+    state, offset = absorb_one_byte(state, offset, c);
+    return state, offset;
+}
+
+// Absorb a fixed-size byte array from a stack/register array reference.
+// `len` MUST be a compile-time constant matching the array size used at
+// the call site; we expose only the lengths we need.
+inline
+fn absorb_array16(
+    reg ptr u64[25] state,
+    reg u64 offset,
+    reg ptr u8[16] src)
+    -> reg ptr u64[25], reg u64
+{
+    reg u64 i;
+    reg u8 c;
+    ?{}, i = #set0_64();
+    while (i < 16) {
+        c = src[i];
+        state, offset = absorb_one_byte(state, offset, c);
+        i += 1;
+    }
+    return state, offset;
+}
+
+inline
+fn absorb_array32(
+    reg ptr u64[25] state,
+    reg u64 offset,
+    reg ptr u8[32] src)
+    -> reg ptr u64[25], reg u64
+{
+    reg u64 i;
+    reg u8 c;
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = src[i];
+        state, offset = absorb_one_byte(state, offset, c);
+        i += 1;
+    }
+    return state, offset;
+}
+
+inline
+fn absorb_array64(
+    reg ptr u64[25] state,
+    reg u64 offset,
+    reg ptr u8[64] src)
+    -> reg ptr u64[25], reg u64
+{
+    reg u64 i;
+    reg u8 c;
+    ?{}, i = #set0_64();
+    while (i < 64) {
+        c = src[i];
+        state, offset = absorb_one_byte(state, offset, c);
+        i += 1;
+    }
+    return state, offset;
+}
+
+// Absorb the SP 800-185 right_encode(L) for L = outLen*8 bits (KMAC256
+// finaliser) - we don't need this for cSHAKE since the standard X || 00
+// suffix is folded into the suffix byte 0x04 below.
+
+// Finalise a cSHAKE256 absorption: xor the SP 800-185 §3.3 domain
+// separation byte (0x04) at the current offset and the high padding bit
+// at the last rate byte, then permute. Caller squeezes via state[:u8 j]
+// for j < SHAKE256_RATE; for outputs > rate they should call
+// __keccakf1600_ref + repeat.
+inline
+fn cshake256_finalize(reg ptr u64[25] state, reg u64 offset)
+    -> reg ptr u64[25]
+{
+    state[:u8 offset] ^= 0x04;
+    state[:u8 SHAKE256_RATE - 1] ^= 0x80;
+    state = __keccakf1600_ref(state);
+    return state;
+}
+
+// Squeeze `n` bytes out of a fully-absorbed cSHAKE256 state into `dst`.
+inline
+fn cshake256_squeeze(
+    reg ptr u64[25] state,
+    reg u64 dst,
+    reg u64 n)
+    -> reg ptr u64[25]
+{
+    reg u64 i;
+    reg u64 offset;
+    reg u8 c;
+
+    ?{}, i = #set0_64();
+    ?{}, offset = #set0_64();
+    while (i < n) {
+        if (offset == SHAKE256_RATE) {
+            state = __keccakf1600_ref(state);
+            ?{}, offset = #set0_64();
+        }
+        c = state[:u8 offset];
+        [:u8 dst + i] = c;
+        offset += 1;
+        i += 1;
+    }
+    return state;
+}

@@ -1,4 +1,4 @@
-# Contributing to Pulsar-M
+# Contributing to Pulsar
 
 ## What we accept
 
@@ -43,7 +43,7 @@ These reopen post-submission.
 
 ```bash
 git clone https://github.com/luxfi/pulsar
-cd pulsar-m
+cd pulsar
 ./scripts/build.sh
 ./scripts/test.sh
 ```
@@ -51,7 +51,7 @@ cd pulsar-m
 Spec build requires LaTeX (TeX Live 2024+):
 ```bash
 cd spec/
-latexmk -pdf pulsar-m.tex
+latexmk -pdf pulsar.tex
 ```
 
 ## Coding standards (Go reference)
@@ -70,4 +70,4 @@ By contributing, you agree your contribution is licensed under Apache-2.0
 and grant the patent license described in the Apache 2.0 §3.
 
 For NIST MPTC submission: contributions are subject to the patent-claim
-disclosures collected in `spec/patent-notes.tex`.
+disclosures collected in `docs/patent-notes-draft.md`.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pulsar-M reproducible benchmarks.
+# Pulsar reproducible benchmarks.
 #
 # Runs the experimental-evaluation harness and writes results to
 # bench/results/. Hardware fingerprint is captured so reviewers can compare.

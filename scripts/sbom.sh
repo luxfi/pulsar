@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pulsar-M SBOM generation.
+# Pulsar SBOM generation.
 #
 # Produces an SPDX SBOM for the reference implementation, capturing every
 # transitive dependency. Required as part of the MPTC submission package.

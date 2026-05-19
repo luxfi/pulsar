@@ -1,0 +1,213 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  go-test:
+    name: Go reference impl + KAT + Class N1 interop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Build (Go ref)
+        run: go build ./ref/go/...
+
+      - name: Test (Go ref, all)
+        run: go test -count=1 -race -timeout=900s ./ref/go/...
+
+      - name: KAT replay
+        run: |
+          set -o pipefail
+          ./scripts/test.sh
+
+  spec-pdf:
+    name: spec PDF build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install TeX Live (latexmk + amsmath + cleveref + fonts)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            texlive-latex-base texlive-latex-recommended \
+            texlive-latex-extra texlive-fonts-recommended \
+            texlive-fonts-extra texlive-science latexmk \
+            cm-super
+
+      - name: Build pulsar.pdf
+        working-directory: spec
+        run: latexmk -pdf -interaction=nonstopmode -halt-on-error pulsar.tex
+
+      - name: Upload PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulsar-pdf
+          path: spec/pulsar.pdf
+          if-no-files-found: error
+
+  high-assurance:
+    name: Jasmin type-check + EasyCrypt admit budget + EC compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache opam + tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.opam
+          key: opam-jasmin-easycrypt-${{ runner.os }}-v2
+
+      - name: Install system deps (OCaml + Why3 SMT)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            opam ocaml-nox m4 pkg-config libgmp-dev libpcre3-dev \
+            z3 alt-ergo zlib1g-dev
+
+      - name: opam init (idempotent)
+        run: |
+          if [ ! -d ~/.opam ]; then
+            opam init --bare --disable-sandboxing --yes
+          fi
+          opam update -y || true
+
+      - name: opam switch jasmin (idempotent)
+        run: |
+          if ! opam switch list --short | grep -q '^jasmin$' ; then
+            opam switch create jasmin 4.14.2 --yes
+          fi
+          eval $(opam env --switch=jasmin)
+          opam install jasmin --yes
+
+      - name: Install EasyCrypt (source build)
+        run: |
+          eval $(opam env --switch=jasmin)
+          if ! command -v easycrypt >/dev/null 2>&1; then
+            git clone --depth 1 https://github.com/EasyCrypt/easycrypt.git /tmp/easycrypt-src
+            cd /tmp/easycrypt-src && opam install . --yes
+          fi
+
+      - name: Configure why3 / EasyCrypt
+        run: |
+          eval $(opam env --switch=jasmin)
+          easycrypt why3config || true
+
+      - name: Fetch libjade (pinned commit)
+        run: bash jasmin/ml-dsa-65/fetch.sh
+
+      - name: Run high-assurance gate
+        run: |
+          eval $(opam env --switch=jasmin)
+          bash scripts/check-high-assurance.sh
+
+  jasmin-ct-threshold:
+    # BLOCKING. Threshold .jazz files (round1, round2, combine) carry
+    # explicit `#[ct = "..."]` security signatures + targeted
+    # `#declassify` pragmas at the protocol-level public-output
+    # boundaries (rejection bits, c_tilde, aggregates). They MUST
+    # pass `jasmin-ct` (without --infer, signature-checked mode) on
+    # every push. Regression → CI red.
+    name: jasmin-ct on threshold layer (blocking)
+    needs: high-assurance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore opam cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.opam
+          key: opam-jasmin-easycrypt-${{ runner.os }}-v2
+
+      - name: Fetch libjade (pinned commit)
+        run: bash jasmin/ml-dsa-65/fetch.sh
+
+      - name: jasmin-ct on threshold layer
+        run: |
+          eval $(opam env --switch=jasmin)
+          LIBJADE="$PWD/jasmin/ml-dsa-65/libjade/oldsrc-should-delete"
+          for f in jasmin/threshold/round1.jazz \
+                   jasmin/threshold/round2.jazz \
+                   jasmin/threshold/combine.jazz ; do
+            echo "==> $f"
+            jasmin-ct -I "Jade=$LIBJADE" "$f"
+          done
+
+  jasmin-ct-libjade:
+    # Tracked allowed-failure job for the libjade ML-DSA-65 sign
+    # source. Runs jasmin-ct --infer on libjade's sign.jazz; this
+    # currently fails at keygen_inner because libjade upstream does
+    # not yet have the public/secret annotations needed to bridge
+    # the secret seed `random_zeta` through the SHAKE-based PRF to
+    # the public PK components (rho, t1). Closing this requires
+    # libjade-internal CT analysis that we should NOT attempt blind
+    # — incorrect `#declassify` placement in libjade could create
+    # real CT vulnerabilities.
+    #
+    # Tracking: https://github.com/luxfi/pulsar/issues/2
+    # When libjade upstream (or a carefully-audited vendor patch
+    # under jasmin/ml-dsa-65/overlays/) lands the annotations, remove
+    # `continue-on-error: true` to flip this job to blocking.
+    name: jasmin-ct on libjade ML-DSA-65 sign (tracked allowed-failure, #2)
+    needs: high-assurance
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore opam cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.opam
+          key: opam-jasmin-easycrypt-${{ runner.os }}-v2
+
+      - name: Fetch libjade (pinned commit)
+        run: bash jasmin/ml-dsa-65/fetch.sh
+
+      - name: jasmin-ct on libjade sign.jazz
+        id: ct
+        run: |
+          eval $(opam env --switch=jasmin)
+          mkdir -p ct/reports
+          LIBJADE="$PWD/jasmin/ml-dsa-65/libjade/oldsrc-should-delete"
+          rc=0
+          f="$LIBJADE/crypto_sign/dilithium/dilithium3/amd64/ref/sign.jazz"
+          echo "==> $f"
+          if ! jasmin-ct --infer -I "Jade=$LIBJADE" "$f" \
+               2>&1 | tee "ct/reports/libjade-sign.log" ; then
+            rc=2
+          fi
+          echo "ct-rc=$rc" >> $GITHUB_OUTPUT
+          exit 0
+
+      - name: Upload jasmin-ct report
+        uses: actions/upload-artifact@v4
+        with:
+          name: jasmin-ct-libjade-report
+          path: ct/reports/
+          if-no-files-found: warn
+
+      - name: Mark libjade CT result
+        run: |
+          if [[ "${{ steps.ct.outputs.ct-rc }}" = "2" ]]; then
+            echo "::warning::jasmin-ct on libjade ML-DSA-65 sign reports findings — see artifact 'jasmin-ct-libjade-report'. Tracked under issue #2."
+          else
+            echo "::notice::jasmin-ct clean on libjade ML-DSA-65 sign. This job can be flipped to blocking."
+          fi
