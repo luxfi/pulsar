@@ -1,0 +1,242 @@
+// Lagrange coefficient computation over F_q (q = 8380417, ML-DSA's
+// modulus).
+//
+// For party i in a signing quorum T = {x_1, ..., x_t} (each x_j a
+// non-zero F_q element - the party's EvalPoint installed by DKG),
+// the Lagrange coefficient at the interpolation point X = 0 is:
+//
+//   lambda_i^T = prod_{j in T, j != i} (-x_j) * inverse(x_i - x_j)
+//
+// Each factor is computed mod q in constant time. The full coefficient
+// is the running Montgomery product so we can feed it directly into
+// libjade's poly_pointwise_montgomery for scalar-times-polynomial
+// multiplications in Round-2.
+//
+// Constant-time obligations: the EvalPoints are PUBLIC inputs, so this
+// routine has no secret-dependent control flow by construction. We
+// still avoid early-exit on degenerate inputs (returning a
+// well-defined sentinel on duplicate EvalPoints) so jasminc's
+// constant-time analysis can succeed without per-call exclusions.
+
+require "pulsar_params.jinc"
+from Jade require "crypto_sign/dilithium/common/amd64/montgomery.jinc"
+
+// R^2 mod q for q = 8380417, R = 2^32.
+//   R^2 = (2^32)^2 mod 8380417
+//       = 2365951
+// (Computed offline; checked against
+//  python: pow(2, 64, 8380417) == 2365951.)
+param int Li2_R2 = 2365951;
+
+// 2^32 mod q = 4193792 = m_1 (already named in montgomery.jinc).
+// We re-use Li2_m1 == m_1 from montgomery.jinc here.
+
+// Convert a normal F_q value to Montgomery form: returns x * R mod q
+// = REDC(x * R^2).
+inline
+fn to_mont(reg u32 x) -> reg u32
+{
+    reg u64 v;
+    reg u32 r;
+    v = (64u) x;
+    v *= Li2_R2;
+    r = montgomery_REDC(v);
+    return r;
+}
+
+// Convert a Montgomery-form F_q value back to normal: returns x_mont * R^{-1}
+// = REDC(x_mont).
+inline
+fn from_mont(reg u32 x_mont) -> reg u32
+{
+    reg u64 v;
+    reg u32 r;
+    v = (64u) x_mont;
+    r = montgomery_REDC(v);
+    return r;
+}
+
+// Multiply two Montgomery-form values: REDC(a_mont * b_mont) is the
+// Montgomery form of a*b.
+inline
+fn mont_mul(reg u32 a_mont, reg u32 b_mont) -> reg u32
+{
+    reg u64 v;
+    reg u32 r;
+    reg u64 b64;
+    v = (64u) a_mont;
+    b64 = (64u) b_mont;
+    v *= b64;
+    r = montgomery_REDC(v);
+    return r;
+}
+
+// Modular reduction: bring an unsigned 32-bit value into [0, q).
+// q = 8380417 has 23 bits, so any u32 input needs at most one
+// subtraction-conditional-add step beyond reduce32. We perform a
+// constant-time `caddq` after reduce32 so the result is non-negative
+// even when reduce32's signed-domain output is negative.
+inline
+fn modq_canonical(reg u32 a) -> reg u32
+{
+    reg u32 r;
+    r = reduce32(a);
+    r = caddq(r);
+    return r;
+}
+
+// Modular negation: returns (q - a) mod q. Constant-time.
+inline
+fn modq_neg(reg u32 a) -> reg u32
+{
+    reg u32 r;
+    r = Li2_q;
+    r -= a;
+    // If a == 0 then r == q; reduce to 0.
+    r = modq_canonical(r);
+    return r;
+}
+
+// Modular subtraction: returns (a - b) mod q. Constant-time.
+inline
+fn modq_sub(reg u32 a, reg u32 b) -> reg u32
+{
+    reg u32 r;
+    r = a;
+    r -= b;
+    // Add q if result became negative (i.e. r > a, when interpreted
+    // unsigned with a-b overflowing). reduce32 + caddq normalises.
+    r = modq_canonical(r);
+    return r;
+}
+
+// Modular addition: returns (a + b) mod q. Constant-time.
+inline
+fn modq_add(reg u32 a, reg u32 b) -> reg u32
+{
+    reg u32 r;
+    r = a;
+    r += b;
+    r = modq_canonical(r);
+    return r;
+}
+
+// Note: Pulsar's Lagrange path stays in Montgomery form everywhere -
+// see `lagrange_coefficient_mont` below. We do not export a normal-form
+// `modq_mul` because every multiplication site routes through
+// `mont_mul`, keeping the implementation small and CT-clean.
+
+// Fermat-based modular inverse a^(q-2) mod q, constant-time.
+// q - 2 = 8380415 = 0x7FDFFF.
+//
+// Binary expansion of 8380415:
+//   0x7FDFFF = 0111 1111 1101 1111 1111 1111
+//            = bit 22 down to bit 0 with bit 13 = 0, otherwise 1.
+//
+// We loop unconditionally over 23 bits (constant time) and use
+// `square-multiply` with the multiply gated by the current bit's value
+// via a constant-time selector.
+inline
+fn modq_inverse(reg u32 a) -> reg u32
+{
+    reg u32 result;
+    reg u32 squared;
+    reg u32 mult_candidate;
+    reg u32 bit;
+    reg u32 mask;
+    inline int k;
+
+    // 23-bit expansion of q-2 = 0x7FDFFF.
+    // bit k is set unless k == 13.
+    //
+    // We compute by left-to-right binary exponentiation:
+    //   result <- 1; for each bit from MSB to LSB:
+    //     result <- result^2
+    //     if bit set: result <- result * a
+    //
+    // Bit pattern of q-2 from MSB(22) to LSB(0):
+    //   bits 22..14 : 1 1 1 1 1 1 1 1 1  (9 ones)
+    //   bit 13      : 0
+    //   bits 12..0  : 1 1 1 1 1 1 1 1 1 1 1 1 1  (13 ones)
+    result = to_mont(1);
+
+    for k = 0 to 23 {
+        // Square: result <- result^2 (in Montgomery form).
+        result = mont_mul(result, result);
+
+        // Bit value at position 22-k of q-2.
+        // q-2 = 0x7FDFFF has all bits set except bit 13.
+        // bit-at-position-(22-k):
+        //   k == 9 corresponds to bit 22-9 = 13, which is 0.
+        //   all other k: 1.
+        if (k == 9) {
+            // No-op.
+        } else {
+            // Multiply by a (still in normal form; convert).
+            mult_candidate = to_mont(a);
+            result = mont_mul(result, mult_candidate);
+        }
+    }
+    // result now holds a^(q-2) in Montgomery form.
+    // Pulsar's higher layers want either Montgomery-form (for direct
+    // polynomial multiplication) or normal-form (for scalar arithmetic).
+    // Return Montgomery form - the caller knows the convention.
+    return result;
+}
+
+// Lagrange coefficient lambda_i = prod_{j != i} (-x_j) / (x_i - x_j) at
+// the interpolation point X = 0. Returns the result in Montgomery form
+// so that callers can feed it directly into poly_pointwise_montgomery
+// against an NTT-domain polynomial.
+//
+// Inputs:
+//   eval_points - the t EvalPoints of the quorum (PUBLIC, F_q elements
+//                 in canonical form < q). Each EvalPoint is a 32-bit
+//                 unsigned integer.
+//   my_index    - index into eval_points naming this party. PUBLIC.
+//   quorum_size - t (PUBLIC, <= PULSARM_QUORUM_MAX).
+//
+// Constant-time over both inputs (all inputs are public; we still
+// avoid early exit on the j == my_index slot).
+inline
+fn lagrange_coefficient_mont(
+    reg ptr u32[PULSARM_QUORUM_MAX] eval_points,
+    reg u32 my_index,
+    reg u32 quorum_size)
+    -> reg u32
+{
+    reg u32 acc;
+    reg u32 j;
+    reg u32 xj, xi;
+    reg u32 num, denom, denom_inv, factor;
+    reg u32 xj_mont, factor_mont;
+
+    // acc = 1 in Montgomery form.
+    acc = to_mont(1);
+
+    xi = eval_points[my_index];
+
+    ?{}, j = #set0_32();
+    while (j < quorum_size) {
+        if (j != my_index) {
+            xj = eval_points[j];
+
+            // numerator: (-x_j) mod q
+            num = modq_neg(xj);
+
+            // denominator: (x_i - x_j) mod q
+            denom = modq_sub(xi, xj);
+
+            // denom_inv = denom^{-1} in Montgomery form.
+            denom_inv = modq_inverse(denom);
+
+            // factor (mont) = num (mont) * denom_inv (mont) (still mont)
+            xj_mont = to_mont(num);
+            factor_mont = mont_mul(xj_mont, denom_inv);
+
+            acc = mont_mul(acc, factor_mont);
+        }
+        j += 1;
+    }
+    return acc;
+}
