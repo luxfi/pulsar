@@ -58,6 +58,20 @@ This is the **Class N1** claim. A FIPS-validated ML-DSA verifier
 (BoringSSL FIPS, AWS-LC, OpenSSL 3.0 PQ provider) accepts a Pulsar
 signature without modification.
 
+> **Two-variant disclosure.** The submission ships **both** the v0.1
+> reveal-and-aggregate flow (the runnable Go reference + KAT vectors
+> + 19/19 N1 interop subtests) AND the v0.2 FSwA Lagrange-linearity
+> flow (the Jasmin sources type-check against this; EasyCrypt N1
+> reduction is stated against this). Both variants produce a FIPS 204
+> byte-equal `σ = (c̃, z, h)`. v0.1 carries a documented
+> reconstruction-aggregator trust caveat (the aggregator briefly
+> reassembles the master ML-DSA seed in memory via `KeyFromSeed`,
+> zeroized on every exit per `ref/go/pkg/pulsar/zeroize.go`); v0.2
+> avoids the reconstruction via Lagrange-linearity but is not yet the
+> reference runtime. See `BLOCKERS.md` "Spec ↔ Go-reference protocol
+> drift" for full disclosure and the per-deployment guidance in
+> `CRYPTOGRAPHER-SIGN-OFF.md` §Gates GATE-1.
+
 **Theorem framing — accepted-path correctness.** The Class N1
 byte-equality theorem is conditional on acceptance: *if* the threshold
 combine (and the single-party comparator) accepts — i.e., passes the
@@ -146,9 +160,17 @@ A reviewer with limited time should read in this order:
 9. **`PATENTS.md`** — royalty-free patent grant text
 10. **`README.md`** — repository layout and how to reproduce
 11. **`vectors/README.md`** — KAT format + cross-validation gates
-12. **`BLOCKERS.md`** — what the construction does NOT
-    claim (e.g. v0.1 cross-committee reshare without external state
-    binding, identifiable-abort attribution under network partitions)
+12. **`BLOCKERS.md`** — what the construction does NOT claim
+    (e.g. v0.1 cross-committee reshare without external state
+    binding, identifiable-abort attribution under network
+    partitions). **Load-bearing entries**: "Spec ↔ Go-reference
+    protocol drift" (two-variant submission disclosure), "Class N1
+    byte-equal output" (v0.1 aggregator trust caveat), "EUF-CMA
+    under adaptive corruption" (static-corruption only in v0.1)
+13. **`CRYPTOGRAPHER-SIGN-OFF.md`** — independent cryptographer
+    review (APPROVED WITH GATES) covering construction soundness,
+    proof-artifact verification, test surface, and the four
+    pre-publish disclosure gates
 
 ## What to run
 
