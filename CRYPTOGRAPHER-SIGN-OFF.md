@@ -46,7 +46,7 @@ implementation defects.
 - **Spec.** `~/work/lux/pulsar/SPEC.md` and
   `~/work/lux/pulsar/spec/pulsar.tex` (1,630 lines).
 - **Submission package.** `~/work/lux/pulsar/SUBMISSION.md`,
-  `STATUS-SUBMISSION-READINESS.md`, `PROOF-CLAIMS.md`,
+  `CHANGELOG.md`, `PROOF-CLAIMS.md`,
   `AXIOM-INVENTORY.md`, `BLOCKERS.md`.
 - **Machine-checked proofs.**
   - EasyCrypt: 13 files at `~/work/lux/pulsar/proofs/easycrypt/`
@@ -212,12 +212,12 @@ implementation defects.
   exact `go test -coverpkg=...` invocation used to derive the
   claimed figure. Not blocking; not a security claim.
 
-- **MIN-2.** `STATUS-SUBMISSION-READINESS.md` lists pulsar
+- **MIN-2.** `CHANGELOG.md` lists pulsar
   HEAD as `c2e01e3` (2026-05-18); the v1.0.7 algorithm commit is
   `174941a` on the `luxfi/pulsar` side. These are two different
   repos (submission framework vs algorithm source) so the divergence
   is expected, but the date stamp in
-  `STATUS-SUBMISSION-READINESS.md` should be reverified at next
+  `CHANGELOG.md` should be reverified at next
   edit since the algorithm commit shipped on 2026-05-18 as well.
 
 - **MIN-3.** `BLOCKERS.md` "Constant-time Verify" row remains
