@@ -41,12 +41,13 @@ func TestLarge_E2E_DKG_ThresholdSign_Verify(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			params := MustParamsFor(ModeP65)
 			committee := makeLargeCommittee(tc.n)
+			ident := newIdentityFixture(t, committee, []byte("large-e2e"))
 
 			// ---- DKG ----
 			sessions := make([]*LargeDKGSession, tc.n)
 			for i := 0; i < tc.n; i++ {
 				rng := deterministicReader([]byte{byte(i), 'D', 'K', 'G', 'Q'})
-				s, err := NewLargeDKGSession(params, committee, tc.t, committee[i], rng)
+				s, err := NewLargeDKGSession(params, committee, tc.t, committee[i], ident.keys[committee[i]], ident.directory, rng)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -110,10 +111,13 @@ func TestLarge_E2E_DKG_ThresholdSign_Verify(t *testing.T) {
 			attempt := uint32(0)
 			message := []byte("pulsar large e2e roundtrip on quasar (3,2) profile")
 
+			// Establish per-pair session keys for the quorum (CR-7).
+			sessionKeys := ident.quorumSessionKeys(t, quorum, sessionID, message)
+
 			signers := make([]*LargeThresholdSigner, tc.t)
 			for i := 0; i < tc.t; i++ {
 				rng := deterministicReader([]byte{byte(i), 'S', 'I', 'G'})
-				ts, err := NewLargeThresholdSigner(params, sessionID, attempt, quorum, myShares[committee[i]], message, rng)
+				ts, err := NewLargeThresholdSigner(params, sessionID, attempt, quorum, myShares[committee[i]], sessionKeys[committee[i]], message, rng)
 				if err != nil {
 					t.Fatalf("NewLargeThresholdSigner party %d: %v", i, err)
 				}
@@ -166,7 +170,8 @@ func TestLarge_DKG_AboveCap(t *testing.T) {
 	for i := range committee {
 		committee[i] = NodeID{byte(i & 0xff), byte((i >> 8) & 0xff), byte((i >> 16) & 0xff)}
 	}
-	_, err := NewLargeDKGSession(params, committee, 2, committee[0], nil)
+	// Cap check fires before identity / directory; pass nil for both.
+	_, err := NewLargeDKGSession(params, committee, 2, committee[0], nil, nil, nil)
 	if err != ErrCommitteeAboveCap {
 		t.Fatalf("want ErrCommitteeAboveCap, got %v", err)
 	}
@@ -183,11 +188,12 @@ func TestLarge_DKG_AboveCap(t *testing.T) {
 func TestLarge_Reshare_SameCommittee_PubInvariant(t *testing.T) {
 	params := MustParamsFor(ModeP65)
 	committee := makeLargeCommittee(5)
+	ident := newIdentityFixture(t, committee, []byte("large-reshare-same"))
 	// Run the initial DKG.
 	dkgSessions := make([]*LargeDKGSession, 5)
 	for i := 0; i < 5; i++ {
 		rng := deterministicReader([]byte{byte(i), 'O', 'L', 'D'})
-		s, _ := NewLargeDKGSession(params, committee, 3, committee[i], rng)
+		s, _ := NewLargeDKGSession(params, committee, 3, committee[i], ident.keys[committee[i]], ident.directory, rng)
 		dkgSessions[i] = s
 	}
 	dkgR1 := make([]*LargeDKGRound1Msg, 5)
@@ -216,13 +222,19 @@ func TestLarge_Reshare_SameCommittee_PubInvariant(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		var oldShare *LargeKeyShare
 		if i < 3 {
+			// Only first 3 (reshare-quorum members) need old shares.
 			oldShare = oldShares[i]
 		}
 		rng := deterministicReader([]byte{byte(i), 'R', 'S'})
 		s, err := NewLargeReshareSession(params, committee, 3, committee, 3,
-			committee[i], oldShare, nil, rng)
+			committee[i], oldShare, ident.keys[committee[i]], ident.directory, nil, rng)
 		if err != nil {
 			t.Fatalf("NewLargeReshareSession party %d: %v", i, err)
+		}
+		// New-committee-only parties (3..4) MUST be told the prior pubkey
+		// so Round3 can stamp it deterministically.
+		if oldShare == nil {
+			s.SetPriorGroupPubkey(oldPK)
 		}
 		resh[i] = s
 	}
@@ -307,12 +319,13 @@ func TestLarge_Reshare_E2E(t *testing.T) {
 
 	oldCommittee := makeLargeCommittee(3)
 	const oldThresh = 2
+	oldIdent := newIdentityFixture(t, oldCommittee, []byte("large-reshare-old"))
 
 	// Run old DKG.
 	oldSessions := make([]*LargeDKGSession, 3)
 	for i := 0; i < 3; i++ {
 		rng := deterministicReader([]byte{byte(i), 'D', 'O'})
-		s, err := NewLargeDKGSession(params, oldCommittee, oldThresh, oldCommittee[i], rng)
+		s, err := NewLargeDKGSession(params, oldCommittee, oldThresh, oldCommittee[i], oldIdent.keys[oldCommittee[i]], oldIdent.directory, rng)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -344,6 +357,19 @@ func TestLarge_Reshare_E2E(t *testing.T) {
 	const newThresh = 3
 	beacon := []byte("PULSAR-RESHARE-BEACON-2026")
 
+	// Identity fixtures: old parties keep their old identities (used to
+	// seal outgoing reshare envelopes); new parties have fresh ones
+	// (used to open incoming envelopes). The reshare directory must
+	// cover the NEW committee since that is the envelope-recipient set.
+	newIdent := newIdentityFixture(t, newCommittee, []byte("large-reshare-new"))
+	identKeys := make(map[NodeID]*IdentityKey)
+	for id, k := range oldIdent.keys {
+		identKeys[id] = k
+	}
+	for id, k := range newIdent.keys {
+		identKeys[id] = k
+	}
+
 	// Build reshare sessions for parties in (oldCommittee ∪ newCommittee).
 	// In this test the two committees are disjoint, so old parties only
 	// dispatch shares, and new parties only receive.
@@ -358,7 +384,7 @@ func TestLarge_Reshare_E2E(t *testing.T) {
 			}
 		}
 		rng := deterministicReader([]byte{id[0], 'R', 'O'})
-		s, err := NewLargeReshareSession(params, oldCommittee, oldThresh, newCommittee, newThresh, id, myShare, beacon, rng)
+		s, err := NewLargeReshareSession(params, oldCommittee, oldThresh, newCommittee, newThresh, id, myShare, identKeys[id], newIdent.directory, beacon, rng)
 		if err != nil {
 			t.Fatalf("new reshare session for old %x: %v", id, err)
 		}
@@ -366,11 +392,19 @@ func TestLarge_Reshare_E2E(t *testing.T) {
 	}
 	for _, id := range newCommittee {
 		rng := deterministicReader([]byte{id[0], 'R', 'N'})
-		// New-only parties pass nil for the old share.
-		s, err := NewLargeReshareSession(params, oldCommittee, oldThresh, newCommittee, newThresh, id, nil, beacon, rng)
+		// New-only parties pass nil for the old share. They MUST be
+		// told the prior pubkey so Round3 can stamp it deterministically.
+		s, err := NewLargeReshareSession(params, oldCommittee, oldThresh, newCommittee, newThresh, id, nil, identKeys[id], newIdent.directory, beacon, rng)
 		if err != nil {
 			t.Fatalf("new reshare session for new %x: %v", id, err)
 		}
+		// Cross-committee reshare in v0.1 produces a different pk than
+		// oldPK (cSHAKE mix is bound to the new committee root). The
+		// downstream test code computes postReshareKey and re-stamps
+		// the new shares' Pub; we still need a non-nil prior here so
+		// Round3 returns without ErrPriorPubkeyUnknown. Use oldPK; the
+		// test re-stamps Pub afterward anyway.
+		s.SetPriorGroupPubkey(oldPK)
 		reshareSessions[id] = s
 	}
 
@@ -458,10 +492,13 @@ func TestLarge_Reshare_E2E(t *testing.T) {
 	attempt := uint32(0)
 	message := []byte("post-reshare signature must verify under unchanged pubkey")
 
+	// Per-pair session keys for the new-committee signing quorum.
+	sessionKeys := newIdent.quorumSessionKeys(t, newQuorum, sessionID, message)
+
 	signers := make([]*LargeThresholdSigner, newThresh)
 	for i := 0; i < newThresh; i++ {
 		rng := deterministicReader([]byte{byte(i), 'P', 'O', 'S', 'T'})
-		ts, err := NewLargeThresholdSigner(params, sessionID, attempt, newQuorum, newShares[newCommittee[i]], message, rng)
+		ts, err := NewLargeThresholdSigner(params, sessionID, attempt, newQuorum, newShares[newCommittee[i]], sessionKeys[newCommittee[i]], message, rng)
 		if err != nil {
 			t.Fatalf("post-reshare NewLargeThresholdSigner party %d: %v", i, err)
 		}

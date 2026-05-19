@@ -149,12 +149,13 @@ func TestPrecompile_E2E_LargeCombine_FIPS204_VerifyCtx(t *testing.T) {
 	const n, threshold = 3, 2
 	params := MustParamsFor(ModeP65)
 	committee := makeLargeCommittee(n)
+	ident := newIdentityFixture(t, committee, []byte("precompile-large"))
 
 	// ---- DKG ----
 	sessions := make([]*LargeDKGSession, n)
 	for i := 0; i < n; i++ {
 		rng := deterministicReader([]byte{byte(i), 'D', 'K', 'G', 'L'})
-		s, err := NewLargeDKGSession(params, committee, threshold, committee[i], rng)
+		s, err := NewLargeDKGSession(params, committee, threshold, committee[i], ident.keys[committee[i]], ident.directory, rng)
 		if err != nil {
 			t.Fatalf("NewLargeDKGSession party %d: %v", i, err)
 		}
@@ -196,10 +197,12 @@ func TestPrecompile_E2E_LargeCombine_FIPS204_VerifyCtx(t *testing.T) {
 	copy(sid[:], "precompile-lg-01")
 	attempt := uint32(0)
 
+	sessionKeys := ident.quorumSessionKeys(t, quorum, sid, msg)
+
 	signers := make([]*LargeThresholdSigner, threshold)
 	for i := 0; i < threshold; i++ {
 		rng := deterministicReader([]byte{byte(i), 'L', 'P', 'C'})
-		ts, err := NewLargeThresholdSigner(params, sid, attempt, quorum, outs[i].SecretShare, msg, rng)
+		ts, err := NewLargeThresholdSigner(params, sid, attempt, quorum, outs[i].SecretShare, sessionKeys[committee[i]], msg, rng)
 		if err != nil {
 			t.Fatalf("NewLargeThresholdSigner party %d: %v", i, err)
 		}
