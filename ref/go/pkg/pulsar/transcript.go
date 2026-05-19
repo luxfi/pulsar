@@ -34,10 +34,26 @@ const (
 	tagDKGTranscript = "PULSAR-DKG-TRANSCRIPT-V1"
 	tagSignR1        = "PULSAR-SIGN-R1-V1"
 	tagSignR1MAC     = "PULSAR-SIGN-R1-MAC-V1"
-	tagSignR2        = "PULSAR-SIGN-R2-V1"
+	// tagSignR2 = "PULSAR-SIGN-R2-V1" — RESERVED for a future
+	// Round-2 MAC envelope as defense-in-depth (see
+	// docs/threat-model.md "Round-2 integrity"). The v0.1
+	// design relies on commit-bind (Round-1's D_i digest
+	// equals cSHAKE256(mask||masked||τ_1) — tampered Round-2
+	// reveals fail commit re-derivation in Combine and are
+	// rejected, verified by TestThresholdSwap_RejectedByCommitBind
+	// in threshold_test.go). The MAC tag is intentionally left
+	// undefined here so a stale rebase reusing the name catches
+	// the inconsistency at compile time.
 	tagSignPRNG      = "PULSAR-SIGN-PRNG-V1"
 	tagSignPRNGKey   = "PULSAR-SIGN-PRNGKEY-V1"
 	tagSignPRF       = "PULSAR-SIGN-PRF-V1"
+	// tagSignMask: per-attempt Round-1 mask derivation. Mixes the
+	// raw RNG output with (sid || attempt || NodeID) so a caller
+	// who accidentally reuses the same deterministic RNG across
+	// two attempts (or two parallel sessions) gets DISTINCT masks
+	// per (sid, attempt, NodeID). Closes the cross-attempt mask
+	// reuse window flagged by the cryptographer review (H2).
+	tagSignMask      = "PULSAR-SIGN-MASK-V1"
 	tagReshareCommit = "PULSAR-RESHARE-COMMIT-V1"
 	tagReshareTrans  = "PULSAR-RESHARE-TRANSCRIPT-V1"
 	tagReshareBeacon = "PULSAR-RESHARE-BEACON-V1"

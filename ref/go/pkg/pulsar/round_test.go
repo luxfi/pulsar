@@ -111,11 +111,16 @@ func TestRound_E2E_BetaRounds_Pulsar_M(t *testing.T) {
 		}
 		sessionID := RoundSessionID(ctx)
 
+		// Per-round identity fixture: each round gets a fresh
+		// IdentityKey set (deterministic from the round number)
+		// so KEM-wrapped DKG envelopes are cross-round disjoint.
+		ident := newIdentityFixture(t, committee, []byte{byte(round), 'R'})
+
 		// Per-round DKG.
 		dkg := make([]*DKGSession, K)
 		for i := 0; i < K; i++ {
 			rng := deterministicReader([]byte{byte(round), byte(i), 'D'})
-			s, err := NewDKGSession(params, committee, T, committee[i], rng)
+			s, err := NewDKGSession(params, committee, T, committee[i], ident.keys[committee[i]], ident.directory, rng)
 			if err != nil {
 				t.Fatalf("round %d DKG party %d: %v", round, i, err)
 			}
@@ -153,10 +158,13 @@ func TestRound_E2E_BetaRounds_Pulsar_M(t *testing.T) {
 		for i := 0; i < T; i++ {
 			myShares[committee[i]] = outs[i].SecretShare
 		}
+		// CR-7 closure: per-pair ephemeral session keys for the quorum.
+		sessionKeys := ident.quorumSessionKeys(t, quorum, sessionID, item[:])
+
 		signers := make([]*ThresholdSigner, T)
 		for i := 0; i < T; i++ {
 			rng := deterministicReader([]byte{byte(round), byte(i), 'S'})
-			ts, err := NewThresholdSigner(params, sessionID, uint32(round), quorum, myShares[committee[i]], item[:], rng)
+			ts, err := NewThresholdSigner(params, sessionID, uint32(round), quorum, myShares[committee[i]], sessionKeys[myShares[committee[i]].NodeID], item[:], rng)
 			if err != nil {
 				t.Fatalf("round %d signer %d: %v", round, i, err)
 			}

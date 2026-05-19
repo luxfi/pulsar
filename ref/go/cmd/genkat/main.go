@@ -88,7 +88,7 @@ func newDetReader(seed []byte) *detReader {
 
 func (r *detReader) Read(p []byte) (int, error) {
 	// We pull blocks of 4096 bytes via SHA-256 chaining for clean
-	// determinism without requiring the pulsarm package's internal
+	// determinism without requiring the pulsar package's internal
 	// cshake256. SHA-256(seed || counter) → 32 bytes per block.
 	for n := 0; n < len(p); {
 		if r.off >= len(r.buf) {
@@ -212,7 +212,8 @@ func main() {
 		for _, tc := range []struct{ N, T int }{{3, 2}, {5, 3}, {7, 4}, {10, 7}} {
 			params := pm.MustParamsFor(mode)
 			committee := makeKATCommittee(tc.N)
-			pub, shares, _ := runKATDKG(params, committee, tc.T, mode)
+			identities := makeKATIdentities(committee, mode, tc.N, tc.T)
+			pub, shares, _ := runKATDKG(params, committee, tc.T, mode, identities)
 			msg := []byte(fmt.Sprintf("Pulsar Threshold KAT %s n=%d t=%d", mode.String(), tc.N, tc.T))
 			quorum := make([]pm.NodeID, tc.T)
 			for i := 0; i < tc.T; i++ {
@@ -221,10 +222,14 @@ func main() {
 			var sid [16]byte
 			copy(sid[:], "kat-threshold01")
 			attempt := uint32(1)
+			// Per-pair session keys: every quorum pair runs the
+			// authenticated ML-KEM-768 exchange and derives the
+			// canonical session key (CR-7 fix).
+			sessionKeys := makeKATSessionKeys(quorum, identities, sid, msg)
 			signers := make([]*pm.ThresholdSigner, tc.T)
 			for i := 0; i < tc.T; i++ {
 				rng := newDetReader(append(masterSeed, []byte{0x30, byte(mode), byte(tc.T), byte(i)}...))
-				signers[i], _ = pm.NewThresholdSigner(params, sid, attempt, quorum, shares[i], msg, rng)
+				signers[i], _ = pm.NewThresholdSigner(params, sid, attempt, quorum, shares[i], sessionKeys[shares[i].NodeID], msg, rng)
 			}
 			r1 := make([]*pm.Round1Message, tc.T)
 			for i, s := range signers {
@@ -267,7 +272,8 @@ func main() {
 		for _, tc := range []struct{ N, T int }{{3, 2}, {5, 3}, {7, 4}} {
 			params := pm.MustParamsFor(mode)
 			committee := makeKATCommittee(tc.N)
-			pub, shares, transcript := runKATDKG(params, committee, tc.T, mode)
+			identities := makeKATIdentities(committee, mode, tc.N, tc.T)
+			pub, shares, transcript := runKATDKG(params, committee, tc.T, mode, identities)
 			committeeHex := make([]string, tc.N)
 			for i, c := range committee {
 				committeeHex[i] = hex.EncodeToString(c[:])
@@ -300,15 +306,64 @@ func makeKATCommittee(n int) []pm.NodeID {
 	return out
 }
 
+// katIdentities is the deterministic IdentityKey set for a KAT DKG
+// run. Includes both the per-party IdentityKey (private+public) and
+// the published IdentityDirectory (public-only).
+type katIdentities struct {
+	keys map[pm.NodeID]*pm.IdentityKey
+	dir  pm.IdentityDirectory
+}
+
+func makeKATIdentities(committee []pm.NodeID, mode pm.Mode, n, threshold int) *katIdentities {
+	keys := make(map[pm.NodeID]*pm.IdentityKey, len(committee))
+	pubs := make(map[pm.NodeID]*pm.IdentityPublicKey, len(committee))
+	for i, id := range committee {
+		seedTag := append([]byte("PULSAR-IDENT-KAT-V1"), []byte{byte(mode), byte(n), byte(threshold), byte(i)}...)
+		rng := newDetReader(seedTag)
+		k, err := pm.GenerateIdentity(rng)
+		if err != nil {
+			fail(fmt.Errorf("GenerateIdentity %d: %w", i, err))
+		}
+		keys[id] = k
+		pubs[id] = k.PublicKey()
+	}
+	dir, err := pm.NewIdentityDirectory(pubs)
+	if err != nil {
+		fail(err)
+	}
+	return &katIdentities{keys: keys, dir: dir}
+}
+
+// makeKATSessionKeys runs SymmetricSession for every pair in the
+// quorum and returns each party's local view (peer -> session key).
+func makeKATSessionKeys(quorum []pm.NodeID, ident *katIdentities, sid [16]byte, transcript []byte) map[pm.NodeID]map[pm.NodeID][32]byte {
+	out := make(map[pm.NodeID]map[pm.NodeID][32]byte, len(quorum))
+	for _, id := range quorum {
+		out[id] = make(map[pm.NodeID][32]byte, len(quorum)-1)
+	}
+	for i := 0; i < len(quorum); i++ {
+		for j := i + 1; j < len(quorum); j++ {
+			a, b := quorum[i], quorum[j]
+			key, err := pm.SymmetricSession(a, ident.keys[a], b, ident.keys[b], sid, transcript)
+			if err != nil {
+				fail(fmt.Errorf("SymmetricSession %x↔%x: %w", a[:4], b[:4], err))
+			}
+			out[a][b] = key
+			out[b][a] = key
+		}
+	}
+	return out
+}
+
 // runKATDKG is a deterministic DKG run for KAT generation.
-func runKATDKG(params *pm.Params, committee []pm.NodeID, threshold int, mode pm.Mode) (*pm.PublicKey, []*pm.KeyShare, [48]byte) {
+func runKATDKG(params *pm.Params, committee []pm.NodeID, threshold int, mode pm.Mode, identities *katIdentities) (*pm.PublicKey, []*pm.KeyShare, [48]byte) {
 	n := len(committee)
 	sessions := make([]*pm.DKGSession, n)
 	for i := range sessions {
 		// Deterministic per-party seed.
 		seedTag := append([]byte("PULSAR-DKG-KAT-V1"), []byte{byte(mode), byte(n), byte(threshold), byte(i)}...)
 		rng := newDetReader(seedTag)
-		s, _ := pm.NewDKGSession(params, committee, threshold, committee[i], rng)
+		s, _ := pm.NewDKGSession(params, committee, threshold, committee[i], identities.keys[committee[i]], identities.dir, rng)
 		sessions[i] = s
 	}
 	r1 := make([]*pm.DKGRound1Msg, n)

@@ -23,6 +23,17 @@ package pulsar
 // selecting the first k. Without a beacon, the deterministic
 // canonical-order selection is used (acceptable for single-shot
 // reshares; mobile-adversary deployments MUST pass a beacon).
+//
+// Envelope confidentiality (CR-8): per-recipient envelopes are
+// ML-KEM-768-wrapped against the new committee's long-term identity
+// public keys, mirroring DKG. Each ReshareSession requires a
+// IdentityDirectory of the new committee and the caller's
+// IdentityKey if it expects to receive new shares.
+//
+// Commit-and-open (CR-6 path A): the v0.1 myCommit field on
+// reshare Round-1 messages was broadcast but never opened; dropped
+// alongside DKG's myCommit. Binding comes from Round-2 digest
+// agreement over the ordered envelope set.
 
 import (
 	"crypto/rand"
@@ -33,11 +44,13 @@ import (
 
 // Errors returned by Reshare.
 var (
-	ErrOldCommitteeEmpty = errors.New("pulsar: old committee is empty")
-	ErrNewCommitteeEmpty = errors.New("pulsar: new committee is empty")
-	ErrOldThresholdSmall = errors.New("pulsar: old committee smaller than old threshold")
-	ErrNewThresholdSmall = errors.New("pulsar: new committee smaller than new threshold")
-	ErrShareCount        = errors.New("pulsar: insufficient old-committee shares for reshare")
+	ErrOldCommitteeEmpty   = errors.New("pulsar: old committee is empty")
+	ErrNewCommitteeEmpty   = errors.New("pulsar: new committee is empty")
+	ErrOldThresholdSmall   = errors.New("pulsar: old committee smaller than old threshold")
+	ErrNewThresholdSmall   = errors.New("pulsar: new committee smaller than new threshold")
+	ErrShareCount          = errors.New("pulsar: insufficient old-committee shares for reshare")
+	ErrPriorPubkeyUnknown  = errors.New("pulsar: reshare prior group pubkey not set (new-committee-only party must call SetPriorGroupPubkey)")
+	ErrPriorPubkeyMismatch = errors.New("pulsar: reshare prior group pubkey from SetPriorGroupPubkey != MyOldShare.Pub")
 )
 
 // ReshareSession holds one party's state for a single reshare
@@ -58,11 +71,31 @@ type ReshareSession struct {
 	// of the old committee).
 	MyOldShare *KeyShare
 
+	// MyIdentity is this party's long-term ML-KEM-768 + ML-DSA-65
+	// keypair, used to (a) seal outgoing envelopes if in the reshare
+	// quorum and (b) open incoming envelopes if in the new committee.
+	MyIdentity *IdentityKey
+
+	// NewDirectory carries the published identity public key for
+	// every new-committee member. The reshare quorum uses this to
+	// KEM-wrap outgoing envelopes.
+	NewDirectory IdentityDirectory
+
 	// Beacon is the chain randomness used to permute the old
 	// committee before quorum selection. Pass nil to use canonical
 	// ordering (acceptable for single-shot reshares; mobile-adversary
 	// deployments MUST pass a beacon).
 	Beacon []byte
+
+	// priorGroupPubkey is the master public key from BEFORE this
+	// reshare. Set via SetPriorGroupPubkey before Round3. For
+	// parties also in the old committee (MyOldShare != nil), the
+	// pubkey is auto-populated from MyOldShare.Pub if this field
+	// is left nil; for new-committee-only parties (joiners),
+	// Round3 returns ErrPriorPubkeyUnknown if this field wasn't
+	// set, refusing to emit a KeyShare with Pub: nil that a
+	// malicious driver could overwrite with an arbitrary pubkey.
+	priorGroupPubkey *PublicKey
 
 	rng io.Reader
 
@@ -73,16 +106,41 @@ type ReshareSession struct {
 	round1Cache   []*DKGRound1Msg
 }
 
+// SetPriorGroupPubkey records the master public key from BEFORE
+// this reshare. New-committee-only parties (those without an old
+// share) MUST call this before Round3; the reshare driver injects
+// the pinned prior pubkey here so Round3 can stamp it into the
+// new KeyShare deterministically.
+//
+// For parties also in the old committee, this is optional — Round3
+// falls back to MyOldShare.Pub. When BOTH are set, Round3 verifies
+// they match.
+//
+// NOTE: this records the pubkey; it does NOT cryptographically
+// verify that the per-dealer reshare contributions actually
+// preserve it. Full binding (Pedersen-style commitment to each
+// dealer's zero-secret contribution at Round-1) is a v0.2
+// hardening item (see BLOCKERS.md "reshare pk-binding").
+func (s *ReshareSession) SetPriorGroupPubkey(pk *PublicKey) {
+	s.priorGroupPubkey = pk
+}
+
 // NewReshareSession constructs a new reshare session.
 //
 // myOldShare may be nil if the calling party is not in the reshare
 // quorum (i.e. is a new-committee-only party that only receives
 // shares). If myOldShare is non-nil, it must be a share from the
 // most recent DKG/Reshare against the same group public key.
+//
+// myIdentity is this party's long-term ML-KEM-768 + ML-DSA-65
+// keypair. newDirectory must contain a published IdentityPublicKey
+// for every new-committee member; the reshare quorum uses these keys
+// to KEM-wrap outgoing envelopes (BLOCKERS.md CR-8).
 func NewReshareSession(params *Params,
 	oldCommittee []NodeID, oldThreshold int,
 	newCommittee []NodeID, newThreshold int,
 	myID NodeID, myOldShare *KeyShare,
+	myIdentity *IdentityKey, newDirectory IdentityDirectory,
 	beacon []byte, rng io.Reader) (*ReshareSession, error) {
 
 	if err := params.Validate(); err != nil {
@@ -100,12 +158,25 @@ func NewReshareSession(params *Params,
 	if newThreshold < 1 || len(newCommittee) < newThreshold {
 		return nil, ErrNewThresholdSmall
 	}
+	if myIdentity == nil {
+		return nil, ErrIdentityKeyMissing
+	}
+	if newDirectory == nil {
+		return nil, ErrDirectoryIncomplete
+	}
 
 	// Canonicalise committees.
 	oldSorted := append([]NodeID(nil), oldCommittee...)
 	sort.Slice(oldSorted, func(i, j int) bool { return nodeIDLess(oldSorted[i], oldSorted[j]) })
 	newSorted := append([]NodeID(nil), newCommittee...)
 	sort.Slice(newSorted, func(i, j int) bool { return nodeIDLess(newSorted[i], newSorted[j]) })
+
+	// Directory must cover every new committee member.
+	for _, id := range newSorted {
+		if newDirectory[id] == nil {
+			return nil, ErrDirectoryIncomplete
+		}
+	}
 
 	// Beacon-permuted reshare-quorum selection.
 	quorum := selectReshareQuorum(oldSorted, oldThreshold, beacon)
@@ -129,6 +200,8 @@ func NewReshareSession(params *Params,
 		NewThreshold:  newThreshold,
 		MyID:          myID,
 		MyOldShare:    myOldShare,
+		MyIdentity:    myIdentity,
+		NewDirectory:  newDirectory,
 		Beacon:        beacon,
 		rng:           rng,
 		myIdxInOld:    myIdxInOld,
@@ -159,7 +232,9 @@ func (s *ReshareSession) InReshareQuorum() bool {
 // old quorum).
 //
 // The implementation derives λ_i^Q at the byte level over GF(257),
-// matching the byte-wise share format installed by DKG.
+// matching the byte-wise share format installed by DKG. Envelopes are
+// ML-KEM-768-wrapped against each new-committee member's long-term
+// identity key (CR-8).
 func (s *ReshareSession) Round1() (*DKGRound1Msg, error) {
 	if !s.InReshareQuorum() {
 		return nil, ErrNotInCommittee
@@ -184,21 +259,26 @@ func (s *ReshareSession) Round1() (*DKGRound1Msg, error) {
 	for b := 0; b < SeedSize; b++ {
 		contribution[b] = uint16((uint32(lambda) * uint32(oldShare.Y[b])) % shamirPrime)
 	}
+	// Per-byte representation of contribution as a SeedSize-byte
+	// value mod 256 for the envelope. Reshare contributions can take
+	// the 257-th GF value, but for envelope embedding we use the
+	// least-significant byte (the high byte is implicit from the
+	// 16-bit Shamir share lanes). The sealing path bundles both the
+	// Shamir share (16-bit lanes) and the per-byte contribution
+	// (8-bit reduced mod 256) so the recipient can both aggregate
+	// shares and recompute the byte-sum-mod-257 by lifting the share
+	// back into GF(257) at decode.
+	var contribBytes [SeedSize]byte
+	for b := 0; b < SeedSize; b++ {
+		contribBytes[b] = byte(contribution[b] % 256)
+	}
 
-	// Sample blinding for the RO commit.
+	// Sample deterministic-RNG blinding bytes for envelope-encap seed
+	// derivation (also kept for future v0.2 algebraic-binding path).
 	var blind [32]byte
 	if _, err := io.ReadFull(s.rng, blind[:]); err != nil {
 		return nil, ErrShortRand
 	}
-	// Commit binds the contribution as 2 bytes per GF(257) slot
-	// (big-endian) so the 257-th value is faithfully represented.
-	contribBytes := make([]byte, SeedSize*2)
-	for b := 0; b < SeedSize; b++ {
-		contribBytes[2*b] = byte(contribution[b] >> 8)
-		contribBytes[2*b+1] = byte(contribution[b])
-	}
-	commitInput := append(append([]byte{}, contribBytes...), blind[:]...)
-	myCommit := transcriptHash32(tagReshareCommit, commitInput)
 
 	// Shamir-share the contribution at threshold newT to the new committee.
 	keyMaterial := []byte{}
@@ -217,27 +297,44 @@ func (s *ReshareSession) Round1() (*DKGRound1Msg, error) {
 	}
 	s.myShares = shares
 
+	// committeeRoot for the envelope auth-tag binding uses the NEW
+	// committee root (recipient-side context).
+	var newRoot [32]byte
+	copy(newRoot[:], s.commitNewCommitteeRoot())
+
 	envelopes := make(map[NodeID]DKGShareEnvelope, len(s.NewCommittee))
 	for posIdx, recipient := range s.NewCommittee {
 		shareBytes := shareToBytes(shares[posIdx])
-		blindMask := cshake256(
-			append(append([]byte{}, blind[:]...), recipient[:]...),
-			shareWireSize,
-			"PULSAR-RESHARE-BLINDMASK-V1",
+		// Per-recipient deterministic encapsulation seed.
+		encapBlind := cshake256(
+			append(append(append([]byte{}, blind[:]...),
+				s.MyID[:]...), recipient[:]...),
+			64,
+			"PULSAR-RESHARE-ENCAPSEED-V1",
 		)
-		var envShare [64]byte
-		copy(envShare[:], shareBytes[:])
-		var envBlind [64]byte
-		copy(envBlind[:], blindMask)
-		envelopes[recipient] = DKGShareEnvelope{
-			Share: envShare,
-			Blind: envBlind,
+		encapSeed := hashForEncapSeed(newRoot, s.MyID, recipient, encapBlind)
+
+		recipientIPK := s.NewDirectory[recipient]
+		if recipientIPK == nil {
+			return nil, ErrDirectoryIncomplete
 		}
+		env, err := sealEnvelope(
+			s.MyID,
+			recipient,
+			newRoot,
+			shareBytes,
+			contribBytes,
+			recipientIPK.KEMPub,
+			encapSeed[:],
+		)
+		if err != nil {
+			return nil, err
+		}
+		envelopes[recipient] = env
 	}
 
 	return &DKGRound1Msg{
 		NodeID:    s.MyID,
-		Commits:   [][]byte{myCommit[:]},
 		Envelopes: envelopes,
 	}, nil
 }
@@ -254,12 +351,21 @@ func (s *ReshareSession) Round2(round1 []*DKGRound1Msg) (*DKGRound2Msg, error) {
 	}
 	s.round1Cache = ordered
 
+	digest := s.computeReshareDigest(ordered)
+	return &DKGRound2Msg{
+		NodeID: s.MyID,
+		Digest: digest,
+	}, nil
+}
+
+// computeReshareDigest binds the dealer NodeID and every recipient's
+// KEM-wrapped envelope (ciphertext + sealed payload) into a single
+// 32-byte digest. Equivalent to DKGSession.computeRound2Digest but
+// over the reshare tag.
+func (s *ReshareSession) computeReshareDigest(ordered []*DKGRound1Msg) [32]byte {
 	parts := [][]byte{}
 	for _, m := range ordered {
 		parts = append(parts, m.NodeID[:])
-		for _, c := range m.Commits {
-			parts = append(parts, c)
-		}
 		recipKeys := make([]NodeID, 0, len(m.Envelopes))
 		for k := range m.Envelopes {
 			recipKeys = append(recipKeys, k)
@@ -268,15 +374,11 @@ func (s *ReshareSession) Round2(round1 []*DKGRound1Msg) (*DKGRound2Msg, error) {
 		for _, k := range recipKeys {
 			env := m.Envelopes[k]
 			parts = append(parts, k[:])
-			parts = append(parts, env.Share[:])
-			parts = append(parts, env.Blind[:])
+			parts = append(parts, env.KEMCiphertext)
+			parts = append(parts, env.Sealed)
 		}
 	}
-	digest := transcriptHash32(tagReshareCommit, parts...)
-	return &DKGRound2Msg{
-		NodeID: s.MyID,
-		Digest: digest,
-	}, nil
+	return transcriptHash32(tagReshareCommit, parts...)
 }
 
 // Round3 verifies the digest agreement and aggregates the calling
@@ -310,25 +412,7 @@ func (s *ReshareSession) Round3(round1 []*DKGRound1Msg, round2 []*DKGRound2Msg) 
 	}
 
 	// Recompute and verify the canonical digest.
-	parts := [][]byte{}
-	for _, m := range ordered {
-		parts = append(parts, m.NodeID[:])
-		for _, c := range m.Commits {
-			parts = append(parts, c)
-		}
-		recipKeys := make([]NodeID, 0, len(m.Envelopes))
-		for k := range m.Envelopes {
-			recipKeys = append(recipKeys, k)
-		}
-		sort.Slice(recipKeys, func(i, j int) bool { return nodeIDLess(recipKeys[i], recipKeys[j]) })
-		for _, k := range recipKeys {
-			env := m.Envelopes[k]
-			parts = append(parts, k[:])
-			parts = append(parts, env.Share[:])
-			parts = append(parts, env.Blind[:])
-		}
-	}
-	expected := transcriptHash32(tagReshareCommit, parts...)
+	expected := s.computeReshareDigest(ordered)
 	for _, r2 := range round2 {
 		if !ctEqual32(r2.Digest, expected) {
 			return nil, &AbortEvidence{
@@ -339,8 +423,11 @@ func (s *ReshareSession) Round3(round1 []*DKGRound1Msg, round2 []*DKGRound2Msg) 
 		}
 	}
 
-	// Aggregate the new share: sum the per-dealer envelope shares for
-	// this party's NEW evaluation point.
+	// Aggregate the new share: decrypt each dealer's envelope
+	// addressed to me, sum the recovered shares at my NEW evaluation
+	// point.
+	var newRoot [32]byte
+	copy(newRoot[:], s.commitNewCommitteeRoot())
 	newEval := uint32(myNewIdx + 1)
 	var aggY [SeedSize]uint16
 	for _, m := range ordered {
@@ -352,9 +439,17 @@ func (s *ReshareSession) Round3(round1 []*DKGRound1Msg, round2 []*DKGRound2Msg) 
 				Accused: m.NodeID,
 			}, ErrEnvelopeMissing
 		}
-		var buf [shareWireSize]byte
-		copy(buf[:], env.Share[:])
-		senderShare := shareFromBytes(newEval, buf)
+		senderShareBytes, _, openErr := sealOpenEnvelope(
+			m.NodeID, s.MyID, newRoot, env, s.MyIdentity,
+		)
+		if openErr != nil {
+			return nil, &AbortEvidence{
+				Kind:    ComplaintBadDelivery,
+				Accuser: s.MyID,
+				Accused: m.NodeID,
+			}, openErr
+		}
+		senderShare := shareFromBytes(newEval, senderShareBytes)
 		for b := 0; b < SeedSize; b++ {
 			aggY[b] = uint16((uint32(aggY[b]) + uint32(senderShare.Y[b])) % shamirPrime)
 		}
@@ -362,15 +457,37 @@ func (s *ReshareSession) Round3(round1 []*DKGRound1Msg, round2 []*DKGRound2Msg) 
 	aggregate := shamirShare{X: newEval, Y: aggY}
 	shareWire := shareToBytes(aggregate)
 
-	// The new share recovers the SAME byte-sum at x=0 as the old
-	// shares did (Theorem reshare-pkinv): pk is invariant. The pub
-	// is carried via the calling party's old share if available; new-
-	// committee-only parties get pub injected via the reshare driver
-	// (it is a public artifact already pinned on-chain).
+	// Determine the prior group public key — the master pubkey from
+	// BEFORE this reshare. Resolution order:
+	//   1. s.priorGroupPubkey (set by SetPriorGroupPubkey)
+	//   2. s.MyOldShare.Pub (if the party is in the old committee too)
+	//
+	// New-committee-only parties (no MyOldShare) MUST have called
+	// SetPriorGroupPubkey before Round3, otherwise we'd be emitting
+	// a KeyShare with Pub: nil and trusting the reshare driver to
+	// overwrite it with the right value — exactly the gap Agent 4 C4
+	// flagged. When both sources are set, they must agree.
 	var pub *PublicKey
-	if s.MyOldShare != nil {
+	switch {
+	case s.priorGroupPubkey != nil && s.MyOldShare != nil:
+		if !s.priorGroupPubkey.Equal(s.MyOldShare.Pub) {
+			return nil, nil, ErrPriorPubkeyMismatch
+		}
+		pub = s.priorGroupPubkey
+	case s.priorGroupPubkey != nil:
+		pub = s.priorGroupPubkey
+	case s.MyOldShare != nil:
 		pub = s.MyOldShare.Pub
+	default:
+		return nil, nil, ErrPriorPubkeyUnknown
 	}
+
+	// The new share recovers the SAME byte-sum at x=0 as the old
+	// shares did (Theorem reshare-pkinv): pk is invariant by
+	// construction OF AN HONEST RESHARE-QUORUM (every dealer's
+	// per-recipient share polynomial has constant term zero). Full
+	// per-dealer commitment binding to enforce zero-secret contributions
+	// is a v0.2 hardening item.
 	return &KeyShare{
 		NodeID:    s.MyID,
 		EvalPoint: newEval,

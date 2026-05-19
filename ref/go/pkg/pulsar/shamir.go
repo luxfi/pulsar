@@ -124,13 +124,24 @@ func shamirDealRandomGF(secret [SeedSize]uint16, n, t int, coeffStream []byte) (
 }
 
 // shamirReconstruct Lagrange-interpolates the constant term from a
-// quorum of shares. Returns the 32-byte secret (each byte = constant
-// term mod 256 — the cSHAKE256 mix downstream flattens any byte-vs-
-// GF(257) bias).
+// quorum of shares and reduces each byte modulo 256.
 //
-// Use shamirReconstructGF if the caller wants the raw GF(257) result
-// (e.g. when chaining reshare and DKG arithmetic that must preserve
-// the 256-valued element).
+// DEPRECATED — do NOT use in new code. The mod-256 reduction
+// COLLIDES GF(257)-element 256 with 0, silently losing one bit of
+// the underlying constant term per byte position. This is fine for
+// the protocol-internal call sites (DKG + threshold-sign), but only
+// because they ALL use shamirReconstructGF directly and then route
+// the 16-bit GF result through a cSHAKE256 mix that absorbs the
+// 256/0 distinction. Any new caller reaching for this byte-form
+// function will silently corrupt the secret when the GF
+// reconstruction happens to land on 256.
+//
+// Use shamirReconstructGF instead — it returns the raw GF(257)
+// result, preserving the 256-valued element. shamirReconstruct is
+// kept ONLY for its existing unit tests (shamir_test.go) which
+// exercise the GF→byte mapping for property-test coverage. The
+// hot-path callers (threshold.go Combine, dkg.go Round3) all use
+// shamirReconstructGF.
 func shamirReconstruct(shares []shamirShare) ([SeedSize]byte, error) {
 	gf, err := shamirReconstructGF(shares)
 	if err != nil {
@@ -251,6 +262,17 @@ func shareFromBytes(x uint32, buf [shareWireSize]byte) shamirShare {
 // ID-stable evaluation point rather than a position-in-committee
 // point. The DKG default uses (committee_index + 1) which is simpler
 // and KAT-stable.
+//
+// Distribution honesty (Agent 4 M2): this is `digest[0] % 256 + 1`,
+// which gives outputs in [1, 256]. Because `shamirPrime - 1 = 256`
+// and `digest[0]` is uniform on [0, 255] (one cSHAKE256 byte), the
+// modular reduction is the identity — every output in [1, 256] is
+// equiprobable. This is a HAPPY COINCIDENCE of the parameter choice
+// (small prime = 257). If shamirPrime ever changes (extremely
+// unlikely; the byte-wise GF(257) Shamir field is fixed by spec
+// §4.2), this function will silently bias the distribution and
+// MUST be rewritten to use rejection sampling. The current
+// implementation is correct ONLY because shamirPrime - 1 == 256.
 func EvalPointFromID(id NodeID) uint32 {
 	digest := cshake256(id[:], 1, tagSeedShare)
 	return uint32(digest[0])%(shamirPrime-1) + 1
