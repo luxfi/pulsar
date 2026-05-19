@@ -1,4 +1,4 @@
-// Package pulsarm is the reference implementation of Pulsar, a threshold
+// Package pulsar is the reference implementation of Pulsar, a threshold
 // implementation of NIST FIPS 204 ML-DSA targeting NIST MPTC Class N1
 // (signing) + N4 (ML keygen / DKG).
 //

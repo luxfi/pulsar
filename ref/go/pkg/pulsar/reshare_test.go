@@ -13,7 +13,8 @@ import (
 func TestReshare_SameCommittee_PubInvariant(t *testing.T) {
 	params := MustParamsFor(ModeP65)
 	committee := makeCommittee(5)
-	pub, oldShares, _ := runDKG(t, 5, 3, ModeP65)
+	pub, oldShares, _, _ := runDKGWithIdentities(t, 5, 3, ModeP65)
+	ident := newIdentityFixture(t, committee, []byte("reshare-same"))
 
 	// Run a reshare with the same committee on both sides.
 	sessions := make([]*ReshareSession, 5)
@@ -24,9 +25,17 @@ func TestReshare_SameCommittee_PubInvariant(t *testing.T) {
 			oldShare = oldShares[i]
 		}
 		s, err := NewReshareSession(params, committee, 3, committee, 3,
-			committee[i], oldShare, nil, deterministicReader([]byte{byte(i), 0xEE}))
+			committee[i], oldShare, ident.keys[committee[i]], ident.directory,
+			nil, deterministicReader([]byte{byte(i), 0xEE}))
 		if err != nil {
 			t.Fatalf("NewReshareSession party %d: %v", i, err)
+		}
+		// New-committee-only parties (3..4 in this test) MUST be
+		// told the prior pubkey so Round3 can stamp it deterministically
+		// rather than emitting Pub: nil for the driver to overwrite.
+		// Old-committee parties auto-derive from MyOldShare.Pub.
+		if oldShare == nil {
+			s.SetPriorGroupPubkey(pub)
 		}
 		sessions[i] = s
 	}
@@ -103,18 +112,41 @@ func TestReshare_SameCommittee_PubInvariant(t *testing.T) {
 func TestReshare_NewCommittee(t *testing.T) {
 	params := MustParamsFor(ModeP65)
 	oldCommittee := makeCommittee(5)
-	pub, oldShares, _ := runDKG(t, 5, 3, ModeP65)
+	pub, oldShares, _, oldIdent := runDKGWithIdentities(t, 5, 3, ModeP65)
 
 	// New committee: replace one member.
 	newCommittee := make([]NodeID, 5)
 	copy(newCommittee, oldCommittee)
 	newCommittee[4] = NodeID{0xff, 0xfe} // replace the last member
 
+	// Build a fresh identity fixture covering BOTH committees so
+	// retiring + joining parties both have an IdentityKey available
+	// (retiring parties still seal envelopes; joining parties decrypt).
+	allParties := append(append([]NodeID{}, oldCommittee...), newCommittee[4])
+	newIdent := newIdentityFixture(t, newCommittee, []byte("reshare-new-committee"))
+	// Old members reuse their old identity; the new joining member uses newIdent.
+	identKeys := make(map[NodeID]*IdentityKey)
+	for id, k := range oldIdent.keys {
+		identKeys[id] = k
+	}
+	for id, k := range newIdent.keys {
+		identKeys[id] = k
+	}
+	newDirPubs := make(map[NodeID]*IdentityPublicKey)
+	for _, id := range newCommittee {
+		newDirPubs[id] = identKeys[id].PublicKey()
+	}
+	newDir, _ := NewIdentityDirectory(newDirPubs)
+
 	sessions := make([]*ReshareSession, 0)
 	// Include the reshare quorum (first 3 old-committee members).
 	for i := 0; i < 3; i++ {
-		s, _ := NewReshareSession(params, oldCommittee, 3, newCommittee, 3,
-			oldCommittee[i], oldShares[i], nil, deterministicReader([]byte{byte(i), 0xAA}))
+		s, err := NewReshareSession(params, oldCommittee, 3, newCommittee, 3,
+			oldCommittee[i], oldShares[i], identKeys[oldCommittee[i]], newDir,
+			nil, deterministicReader([]byte{byte(i), 0xAA}))
+		if err != nil {
+			t.Fatalf("quorum party %d: %v", i, err)
+		}
 		sessions = append(sessions, s)
 	}
 	// Also include new-committee members that aren't in the reshare quorum.
@@ -125,10 +157,15 @@ func TestReshare_NewCommittee(t *testing.T) {
 		if i < len(oldShares) {
 			oldShare = oldShares[i]
 		}
-		s, _ := NewReshareSession(params, oldCommittee, 3, newCommittee, 3,
-			newCommittee[i], oldShare, nil, deterministicReader([]byte{byte(i), 0xBB}))
+		s, err := NewReshareSession(params, oldCommittee, 3, newCommittee, 3,
+			newCommittee[i], oldShare, identKeys[newCommittee[i]], newDir,
+			nil, deterministicReader([]byte{byte(i), 0xBB}))
+		if err != nil {
+			t.Fatalf("new-only party %d: %v", i, err)
+		}
 		sessions = append(sessions, s)
 	}
+	_ = allParties
 
 	// Only quorum produces Round-1.
 	r1 := []*DKGRound1Msg{}
@@ -229,16 +266,18 @@ func TestReshare_RejectInvalidCommittees(t *testing.T) {
 	params := MustParamsFor(ModeP65)
 	old := makeCommittee(5)
 	new_ := makeCommittee(5)
-	if _, err := NewReshareSession(params, nil, 3, new_, 3, old[0], nil, nil, nil); err != ErrOldCommitteeEmpty {
+	ident := newIdentityFixture(t, old, []byte("reshare-rej"))
+	dir := ident.directory
+	if _, err := NewReshareSession(params, nil, 3, new_, 3, old[0], nil, ident.keys[old[0]], dir, nil, nil); err != ErrOldCommitteeEmpty {
 		t.Fatalf("empty old committee not rejected: %v", err)
 	}
-	if _, err := NewReshareSession(params, old, 3, nil, 3, old[0], nil, nil, nil); err != ErrNewCommitteeEmpty {
+	if _, err := NewReshareSession(params, old, 3, nil, 3, old[0], nil, ident.keys[old[0]], dir, nil, nil); err != ErrNewCommitteeEmpty {
 		t.Fatalf("empty new committee not rejected: %v", err)
 	}
-	if _, err := NewReshareSession(params, old, 6, new_, 3, old[0], nil, nil, nil); err != ErrOldThresholdSmall {
+	if _, err := NewReshareSession(params, old, 6, new_, 3, old[0], nil, ident.keys[old[0]], dir, nil, nil); err != ErrOldThresholdSmall {
 		t.Fatalf("old threshold > old committee size not rejected: %v", err)
 	}
-	if _, err := NewReshareSession(params, old, 3, new_, 6, old[0], nil, nil, nil); err != ErrNewThresholdSmall {
+	if _, err := NewReshareSession(params, old, 3, new_, 6, old[0], nil, ident.keys[old[0]], dir, nil, nil); err != ErrNewThresholdSmall {
 		t.Fatalf("new threshold > new committee size not rejected: %v", err)
 	}
 }

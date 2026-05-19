@@ -144,12 +144,19 @@ type Signature struct {
 // alongside the digest at round 2 — the digest's role is binding under
 // MAC, not concealment. See pulsar.tex §4.2 Remark "Round-1
 // commit-digest binding".
+//
+// The MAC keys are EPHEMERAL per-session per-pair keys established by
+// EstablishSession before Round 1. The legacy v0.1 derivation from
+// public inputs (NodeID pair + group pubkey) was forgeable by any
+// network observer (BLOCKERS.md CR-7); the v0.2 derivation binds the
+// MAC to a fresh ML-KEM-768 shared secret authenticated under each
+// party's long-term ML-DSA identity.
 type Round1Message struct {
 	NodeID    NodeID
 	SessionID [16]byte // sid uniqueness; see pulsar.tex §6.2
 	Attempt   uint32   // rejection-restart counter κ
 	Commit    [32]byte // D_i = cSHAKE(w̄_i || τ_1) per pulsar.tex §4.2
-	MACs      map[NodeID][32]byte // KMAC256(K_{i,j}, D_i || τ_1)
+	MACs      map[NodeID][32]byte // KMAC256(K_{i,j}, D_i || τ_1) — K_{i,j} is the ephemeral session key
 }
 
 // Round2Message is the broadcast emitted by ThresholdSigner.Round2.
@@ -179,32 +186,68 @@ type Round2Message struct {
 	PartialSig []byte
 }
 
-// DKGRound1Msg is the broadcast emitted by DKGSession.Round1: the
-// per-party Pedersen commits to the polynomial coefficients of f_i(X),
-// along with the encrypted private envelope carrying f_i(j) and
-// g_i(j) for each recipient j.
+// DKGRound1Msg is the broadcast emitted by DKGSession.Round1.
+//
+// Protocol shape (CR-6 path A — Shamir+sum, no commit-and-open):
+// the dealer broadcasts one KEM-wrapped envelope per recipient that
+// carries the recipient's Shamir share of the dealer's contribution
+// to the joint seed (BLOCKERS.md CR-6). There is no separate
+// "commit-then-open" round: binding comes from Round-2 digest
+// agreement over the ordered envelope set. The unkeyed v0.1
+// `myCommit = cSHAKE(c_i || blind_i)` field was broadcast but never
+// transmitted alongside an opening, so it bound to nothing the
+// protocol verified; that field is gone and the protocol is
+// documented as Shamir+sum-with-equivocation-digest.
+//
+// Per-recipient envelopes are KEM-wrapped under ML-KEM-768 against
+// the recipient's long-term identity public key (BLOCKERS.md CR-8).
+// A passive network observer who reads the broadcast learns only the
+// ciphertext; no Shamir share leaks to anyone outside the committee.
 type DKGRound1Msg struct {
-	NodeID  NodeID
-	Commits [][]byte // C_{i,k} for k = 0..t-1; each is a serialized R_q^k vector
-	// Envelopes carries the per-recipient sealed share (f_i(j), g_i(j)).
-	// Sealed under the recipient's long-term DH key — in v0.1 we expose
-	// the plain payload; v0.2 wraps with a noise-or-equivalent KEM.
+	NodeID NodeID
+	// Envelopes carries the per-recipient ML-KEM-768-wrapped envelope.
+	// Recipient decrypts with their long-term identity secret key
+	// (DKGSession.identityKey.KEMPriv) at Round 2.
 	Envelopes map[NodeID]DKGShareEnvelope
 }
 
-// DKGShareEnvelope is the (share, blinding) pair sent from a Round-1
-// dealer to a Round-1 recipient. v0.1 transmits these in the clear
-// under the DKG transcript hash; v0.2 will seal each envelope under
-// the recipient's identity-key Curve25519 DH (a noise-style framing).
+// DKGShareEnvelope is the ML-KEM-768-wrapped envelope carrying one
+// recipient's per-byte Shamir share of the dealer's secret seed
+// contribution AND the full dealer contribution. Sealing is
+// per-recipient with the recipient's long-term ML-KEM-768 identity
+// public key (BLOCKERS.md CR-8).
 //
-// Share is 32 × uint16 big-endian GF(257) lanes carrying the
-// per-byte Shamir share of the dealer's secret contribution at the
-// recipient's evaluation point. Blind is the matching Pedersen
-// blinding share at the same point (used for v0.2 binding; in v0.1
-// the binding is by RO-collision of the cSHAKE256 commit).
+// Wire layout:
+//   - KEMCiphertext: ML-KEM-768 ciphertext encapsulating a per-pair
+//     shared secret to the recipient (1088 bytes for ML-KEM-768).
+//   - Sealed: stream-cipher-encrypted (Share || Contribution || Tag)
+//     under HKDF-SHA3-256(shared_secret). The plaintext under Sealed
+//     is 64 bytes Shamir share + 32 bytes dealer contribution + 32
+//     bytes authentication tag = 128 bytes total.
+//
+// The dealer contribution c_i is duplicated into every envelope so
+// that each committee member, after decrypting their own envelope,
+// learns the full contribution from this dealer. Combining N such
+// per-dealer contributions at Round 3 lets each party compute the
+// joint master public key locally — without needing to read other
+// recipients' envelopes (which they cannot under CR-8).
+//
+// This preserves the v0.1 reconstruction-aggregator trust model
+// (every committee member learns the master secret) while closing
+// CR-8 against passive network observers (envelopes are unreadable
+// outside the committee). A v0.2 instantiation that gives true
+// threshold secrecy lives behind the algebraic Lagrange-linearity
+// path of pulsar.tex §4.2.
+//
+// The authentication tag binds the share+contribution to the
+// (dealer, recipient, committee_root) tuple so a relayed envelope
+// from a different dealer cannot replay as the recipient's share —
+// even after KEM decap.
 type DKGShareEnvelope struct {
-	Share [64]byte // f_i(j) — Shamir share of party i's secret seed contribution at j
-	Blind [64]byte // g_i(j) — Pedersen blinding share at j
+	// KEMCiphertext is the ML-KEM-768 ciphertext (1088 bytes).
+	KEMCiphertext []byte
+	// Sealed is the AEAD-style sealed payload (128 bytes total).
+	Sealed []byte
 }
 
 // DKGRound2Msg is the broadcast emitted by DKGSession.Round2: the
