@@ -7,11 +7,18 @@ package pulsar
 //
 // Protocol shape (v0.1 reconstruction-aggregator instantiation):
 //
+//   Round 0 (pre-protocol): every pair of parties in the quorum
+//     establishes an ephemeral session key via authenticated
+//     ML-KEM-768 key agreement (see identity.go, EstablishSession).
+//     The session key is the per-pair MAC key used in Round 1.
+//     This replaces the v0.1 deriveMACKey from public inputs
+//     (BLOCKERS.md CR-7).
+//
 //   Round 1 (party i): sample per-round mask r_i. Compute the masked
 //     share s'_i = share_i ⊕ r_i. Compute the commit
 //       D_i = cSHAKE256(s'_i || tau_1)
 //     where tau_1 = (sid, kappa, T, i, pk, mu). MAC D_i for every
-//     peer j ∈ T \ {i} under the long-lived MAC key K_{i,j} via
+//     peer j ∈ T \ {i} under the per-pair session key K_{i,j} via
 //     KMAC256. Broadcast (D_i, {MAC_{i,j}}).
 //
 //   Round 2 (party i): verify every received MAC; on success reveal
@@ -85,12 +92,13 @@ type ThresholdSigner struct {
 	// mldsa.SignTo would consume).
 	Message []byte
 
-	// MACKeys is the long-lived per-peer MAC key set. In v0.1 this
-	// is derived at session setup via cSHAKE256 over (myNodeID,
-	// peerNodeID, group-pubkey) — a non-secret value sufficient for
-	// the v0.1 commit-and-reveal binding. v0.2 (production) replaces
-	// this with per-session ephemeral keys exchanged at the
-	// preprocessing phase per pulsar.tex §6.2.
+	// MACKeys is the per-pair MAC key set for this session. Each key
+	// is an ephemeral session key established via authenticated
+	// ML-KEM-768 exchange between this party and its peer
+	// (see EstablishSession in identity.go). The legacy v0.1
+	// derivation from public inputs (NodeID pair + group public key)
+	// was forgeable by any network observer (BLOCKERS.md CR-7);
+	// session keys close that hole.
 	MACKeys map[NodeID][32]byte
 
 	// rng is the entropy source for per-round mask r_i.
@@ -112,9 +120,26 @@ type ThresholdSigner struct {
 // signer.NodeID. All parties in the quorum must share the same group
 // public key (i.e. they completed the same DKG).
 //
+// sessionKeys carries this party's per-peer ephemeral session key for
+// every other quorum member. Each session key must be the byte-equal
+// output of EstablishSession run between this party and the peer
+// (typically: caller drives Round 0 of identity.go's KEM exchange
+// before constructing the ThresholdSigner). The map MUST contain an
+// entry for every peer in quorum except myShare.NodeID itself;
+// missing entries return ErrSessionKeyMissing.
+//
 // rng may be nil — crypto/rand is used by default. Pass a
 // deterministic reader for KAT runs.
-func NewThresholdSigner(params *Params, sessionID [16]byte, attempt uint32, quorum []NodeID, myShare *KeyShare, message []byte, rng io.Reader) (*ThresholdSigner, error) {
+func NewThresholdSigner(
+	params *Params,
+	sessionID [16]byte,
+	attempt uint32,
+	quorum []NodeID,
+	myShare *KeyShare,
+	sessionKeys map[NodeID][32]byte,
+	message []byte,
+	rng io.Reader,
+) (*ThresholdSigner, error) {
 	if err := params.Validate(); err != nil {
 		return nil, err
 	}
@@ -141,13 +166,17 @@ func NewThresholdSigner(params *Params, sessionID [16]byte, attempt uint32, quor
 	if rng == nil {
 		rng = rand.Reader
 	}
-	// Derive per-peer MAC keys.
+	// Validate every peer has a session key.
 	macKeys := make(map[NodeID][32]byte, len(quorum)-1)
 	for _, peer := range quorum {
 		if peer == myShare.NodeID {
 			continue
 		}
-		macKeys[peer] = deriveMACKey(myShare.NodeID, peer, myShare.Pub)
+		key, ok := sessionKeys[peer]
+		if !ok {
+			return nil, ErrSessionKeyMissing
+		}
+		macKeys[peer] = key
 	}
 	return &ThresholdSigner{
 		Params:      params,
@@ -167,10 +196,28 @@ func NewThresholdSigner(params *Params, sessionID [16]byte, attempt uint32, quor
 // no "fresh mask per peer" because the commit is over a single
 // masked share that every peer aggregates equivalently.
 func (s *ThresholdSigner) Round1(message []byte) (*Round1Message, error) {
-	// Sample mask.
-	if _, err := io.ReadFull(s.rng, s.myMask[:]); err != nil {
+	// Sample 64 bytes of raw entropy from the caller's RNG, then
+	// derive the per-attempt mask by mixing the raw entropy with
+	// (sid, attempt, NodeID). This way a deterministic RNG that
+	// produces the same output across two attempts still yields
+	// DISTINCT masks per attempt — cross-attempt mask reuse window
+	// (Agent 4 H2) is closed.
+	var rngBytes [64]byte
+	if _, err := io.ReadFull(s.rng, rngBytes[:]); err != nil {
 		return nil, ErrShortRand
 	}
+	maskMix := make([]byte, 0, 64+16+4+len(s.NodeID))
+	maskMix = append(maskMix, rngBytes[:]...)
+	maskMix = append(maskMix, s.SessionID[:]...)
+	maskMix = append(maskMix,
+		byte(s.Attempt>>24), byte(s.Attempt>>16),
+		byte(s.Attempt>>8), byte(s.Attempt))
+	maskMix = append(maskMix, s.NodeID[:]...)
+	copy(s.myMask[:], cshake256(maskMix, 64, tagSignMask))
+	// Wipe the raw RNG buffer; it carries entropy that under a
+	// deterministic-RNG misuse could be observable.
+	zeroizeBytes(rngBytes[:])
+	zeroizeBytes(maskMix)
 	// Mask the share byte-by-byte XOR.
 	for i := 0; i < 64; i++ {
 		s.myMaskedShare[i] = s.SecretShare.Share[i] ^ s.myMask[i]
@@ -386,13 +433,27 @@ func Combine(params *Params, groupPubkey *PublicKey, message []byte, ctx []byte,
 	copy(masterSeed[:], cshake256(mixInput, SeedSize, tagSeedShare))
 
 	// FIPS 204 sign with the reconstructed seed-derived key.
+	// Every error path AND the success path below must explicitly
+	// zeroize the reconstructed secret material (master seed,
+	// byteSum, byteSumBytes, mixInput) before return. No defer:
+	// the calls are inline at each exit point so the secret
+	// lifetime is locally legible.
 	sk, err := KeyFromSeed(params, masterSeed)
 	if err != nil {
+		zeroizeSeed(&masterSeed)
+		zeroizeU16(&byteSum)
+		zeroizeBytes(byteSumBytes)
+		zeroizeBytes(mixInput)
 		return nil, err
 	}
 	// Sanity: the reconstructed pubkey MUST match groupPubkey, else
 	// the aggregator's share set is wrong / tampered.
 	if !sk.Pub.Equal(groupPubkey) {
+		zeroizePrivateKey(sk)
+		zeroizeSeed(&masterSeed)
+		zeroizeU16(&byteSum)
+		zeroizeBytes(byteSumBytes)
+		zeroizeBytes(mixInput)
 		return nil, ErrPubkeyMismatch
 	}
 	// Use deterministic-randomness path so KATs are reproducible.
@@ -400,8 +461,21 @@ func Combine(params *Params, groupPubkey *PublicKey, message []byte, ctx []byte,
 	// randomized=false.
 	sigBytes, err := mldsaSign(params.Mode, sk.Bytes, message, ctx, randomized, rand.Reader)
 	if err != nil {
+		zeroizePrivateKey(sk)
+		zeroizeSeed(&masterSeed)
+		zeroizeU16(&byteSum)
+		zeroizeBytes(byteSumBytes)
+		zeroizeBytes(mixInput)
 		return nil, err
 	}
+	// Success path: signature is OK; wipe every secret-bearing
+	// buffer (the master seed + reconstructed sk + intermediate
+	// reconstruction buffers) before returning.
+	zeroizePrivateKey(sk)
+	zeroizeSeed(&masterSeed)
+	zeroizeU16(&byteSum)
+	zeroizeBytes(byteSumBytes)
+	zeroizeBytes(mixInput)
 	return &Signature{Mode: params.Mode, Bytes: sigBytes}, nil
 }
 
@@ -442,21 +516,6 @@ func transcriptTau1Bytes(sid [16]byte, attempt uint32, quorum []NodeID, sender N
 		out = append(out, encodeString(p)...)
 	}
 	return out
-}
-
-// deriveMACKey derives a symmetric MAC key between (a, b). Symmetric:
-// deriveMACKey(a, b, pk) == deriveMACKey(b, a, pk) for the same pk.
-func deriveMACKey(a, b NodeID, pk *PublicKey) [32]byte {
-	// Sort the pair so both ends derive the same key.
-	first, second := a, b
-	if nodeIDLess(b, a) {
-		first, second = b, a
-	}
-	parts := [][]byte{first[:], second[:]}
-	if pk != nil {
-		parts = append(parts, pk.Bytes)
-	}
-	return transcriptHash32("PULSAR-SIGN-MACKEY-V1", parts...)
 }
 
 // committeeRootFromShares reconstructs the DKG committee root from a

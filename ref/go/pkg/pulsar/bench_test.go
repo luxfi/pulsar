@@ -64,12 +64,13 @@ func BenchmarkDKG_10of7_P65(b *testing.B) { benchDKG(b, 10, 7, ModeP65) }
 func benchDKG(b *testing.B, n, t int, mode Mode) {
 	params := MustParamsFor(mode)
 	committee := makeCommittee(n)
+	ident := newIdentityFixture(b, committee, []byte{byte(n), byte(t), byte(mode)})
 	b.ResetTimer()
 	for iter := 0; iter < b.N; iter++ {
 		sessions := make([]*DKGSession, n)
 		for i := range sessions {
 			rng := deterministicReader([]byte{byte(iter), byte(i)})
-			s, _ := NewDKGSession(params, committee, t, committee[i], rng)
+			s, _ := NewDKGSession(params, committee, t, committee[i], ident.keys[committee[i]], ident.directory, rng)
 			sessions[i] = s
 		}
 		r1 := make([]*DKGRound1Msg, n)
@@ -93,11 +94,12 @@ func BenchmarkThresholdSign_10of7_P65(b *testing.B) { benchThresholdSign(b, 10, 
 func benchThresholdSign(b *testing.B, n, t int, mode Mode) {
 	params := MustParamsFor(mode)
 	committee := makeCommittee(n)
+	ident := newIdentityFixture(b, committee, []byte{byte(n), byte(t), byte(mode), 0x01})
 	// Set up DKG once outside the timer.
 	sessions := make([]*DKGSession, n)
 	for i := range sessions {
 		rng := deterministicReader([]byte{byte(i), 0xBE})
-		s, _ := NewDKGSession(params, committee, t, committee[i], rng)
+		s, _ := NewDKGSession(params, committee, t, committee[i], ident.keys[committee[i]], ident.directory, rng)
 		sessions[i] = s
 	}
 	r1 := make([]*DKGRound1Msg, n)
@@ -128,10 +130,11 @@ func benchThresholdSign(b *testing.B, n, t int, mode Mode) {
 		var sid [16]byte
 		sid[0] = byte(iter)
 		sid[1] = byte(iter >> 8)
+		sessionKeys := ident.quorumSessionKeys(b, quorum, sid, msg)
 		signers := make([]*ThresholdSigner, t)
 		for i := 0; i < t; i++ {
 			rng := deterministicReader([]byte{byte(iter), byte(i)})
-			signers[i], _ = NewThresholdSigner(params, sid, 1, quorum, shares[i], msg, rng)
+			signers[i], _ = NewThresholdSigner(params, sid, 1, quorum, shares[i], sessionKeys[shares[i].NodeID], msg, rng)
 		}
 		sr1 := make([]*Round1Message, t)
 		for i, s := range signers {
@@ -154,11 +157,12 @@ func benchReshare(b *testing.B, oldN, oldT, newN, newT int, mode Mode) {
 	params := MustParamsFor(mode)
 	oldCommittee := makeCommittee(oldN)
 	newCommittee := makeCommittee(newN)
+	ident := newIdentityFixture(b, oldCommittee, []byte{byte(oldN), byte(newN), byte(mode)})
 	// Set up DKG to get the old shares.
 	sessions := make([]*DKGSession, oldN)
 	for i := range sessions {
 		rng := deterministicReader([]byte{byte(i), 0xCD})
-		s, _ := NewDKGSession(params, oldCommittee, oldT, oldCommittee[i], rng)
+		s, _ := NewDKGSession(params, oldCommittee, oldT, oldCommittee[i], ident.keys[oldCommittee[i]], ident.directory, rng)
 		sessions[i] = s
 	}
 	r1 := make([]*DKGRound1Msg, oldN)
@@ -187,7 +191,8 @@ func benchReshare(b *testing.B, oldN, oldT, newN, newT int, mode Mode) {
 				os = oldShares[i]
 			}
 			s, _ := NewReshareSession(params, oldCommittee, oldT, newCommittee, newT,
-				oldCommittee[i], os, nil, deterministicReader([]byte{byte(iter), byte(i)}))
+				oldCommittee[i], os, ident.keys[oldCommittee[i]], ident.directory,
+				nil, deterministicReader([]byte{byte(iter), byte(i)}))
 			resh = append(resh, s)
 		}
 		rr1 := []*DKGRound1Msg{}

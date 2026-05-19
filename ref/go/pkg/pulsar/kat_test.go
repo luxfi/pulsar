@@ -24,7 +24,7 @@ import (
 
 // vectorsDir resolves to the repository's vectors/ directory.
 func vectorsDir() string {
-	// kat_test.go lives at ref/go/pkg/pulsarm/; the vectors dir is at
+	// kat_test.go lives at ref/go/pkg/pulsar/; the vectors dir is at
 	// the repo root, four levels up.
 	wd, err := os.Getwd()
 	if err != nil {
