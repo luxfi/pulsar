@@ -58,7 +58,7 @@ satisfy at least items 1–4):
    entirely. v0.2 is the high-assurance target and EasyCrypt N1
    reduction is stated against it; v0.2 Jasmin sources type-check.
    Production migration v0.1 → v0.2 is on the roadmap (see
-   `ROADMAP.md`).
+   `~/work/lux/lps/ROADMAP-CRYPTO-STACK.md`).
 
 ### What v0.1 does NOT do
 
@@ -113,7 +113,7 @@ counter) indicate a missed cleanup path — page immediately.
 
 ## v0.1 → v0.2 migration plan
 
-See `ROADMAP.md` §Pulsar v0.2 milestones. The migration is
+See `~/work/lux/lps/ROADMAP-CRYPTO-STACK.md` §Pulsar v0.2 milestones. The migration is
 backward-incompatible at the wire level (v0.2 partial-signature
 encoding differs) but byte-equivalent at the output (final FIPS 204
 signature is identical). Coordinated validator-set rollover is

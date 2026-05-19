@@ -21,7 +21,7 @@ This spec does NOT cover:
 - Verifier implementations (see `ref/go/pkg/pulsar/verify.go` for the
   Pulsar reference call into `cloudflare/circl`'s FIPS 204 verifier).
 - Magnetar (Tier 3 threshold SLH-DSA research profile) — see
-  `docs/magnetar.md`.
+  `https://github.com/luxfi/magnetar`.
 - Corona (R-LWE sibling) — see `~/work/lux/corona/`.
 
 ## §2 Terminology
@@ -190,4 +190,4 @@ NIST-standardized PQ signature schemes.
 - Name: `SPEC.md`
 - Version: v0.1
 - Date: 2026-05-18
-- Companion docs: `spec/pulsar.tex` (PDF), `docs/ietf-draft-skeleton.md` (IETF), `SUITE.md` (suite index).
+- Companion docs: `spec/pulsar.tex` (PDF), `docs/ietf-draft-skeleton.md` (IETF), `https://github.com/luxfi/quasar/blob/main/PRIMITIVES.md` (suite index).
