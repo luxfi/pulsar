@@ -19,6 +19,14 @@
 | **FHE / confidential compute** | TFHE on F-Chain, BFV, CKKS | §6 |
 | **EVM-native PQ migration** | C-Chain + X-Chain → PQ-native | §7 |
 
+**Consensus consumer.** The PQ threshold primitives in §1 (Pulsar,
+Corona, Magnetar) compose into the Lux Quasar PQ consensus suite via
+cert profiles (`Pulsar` / `Aurora` / `Polaris`). The brand-level spec
++ profile registry + composition proofs live at
+[`luxfi/quasar`](https://github.com/luxfi/quasar); the consensus-engine
+binding lives at
+[`luxfi/consensus/protocol/quasar/`](https://github.com/luxfi/consensus/tree/main/protocol/quasar).
+
 ## §1 PQ threshold signatures — Hanzo PQ Threshold Suite
 
 Master index: `SUITE.md`. Single canonical home: `~/work/lux/pulsar/`.
