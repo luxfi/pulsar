@@ -4,8 +4,16 @@
 package pulsar
 
 // large_types.go -- wire types for the GF(q) protocol stack, the
-// parallel of types.go's KeyShare / DKGShareEnvelope / Round1Message
-// / Round2Message for the small-committee GF(257) path.
+// parallel of types.go's KeyShare / Round1Message / Round2Message for
+// the small-committee GF(257) path.
+//
+// Wire-format note (CR-6/7/8 closure, 2026-05-18). The GF(q) path now
+// shares the canonical DKGShareEnvelope wire type with the GF(257)
+// path: identity-stage seal/open is width-agnostic over the inner
+// share slice (64 bytes for GF(257), 128 bytes for GF(q)). The vestigial
+// per-dealer Commits field on Round-1 broadcasts was removed alongside
+// dropping it on the small path (BLOCKERS.md CR-6 path A); binding
+// comes from Round-2 digest agreement over the ordered envelope set.
 //
 // Cap. Every Large* type and constructor refuses committee sizes
 // above TargetCommitteeSize = 1 111 111. This is the canonical
@@ -38,24 +46,20 @@ var (
 // the wire footprint is exactly twice that of the GF(257) variant.
 type LargeKeyShare struct {
 	NodeID    NodeID
-	EvalPoint uint32              // Shamir x-coordinate in [1, TargetCommitteeSize]
+	EvalPoint uint32               // Shamir x-coordinate in [1, TargetCommitteeSize]
 	Share     [shareWireSizeQ]byte // 32 × uint32 big-endian GF(q) lanes
 	Pub       *PublicKey
 	Mode      Mode
 }
 
-// LargeDKGShareEnvelope is the GF(q) counterpart of
-// DKGShareEnvelope: 128-byte share + 128-byte blinding share.
-type LargeDKGShareEnvelope struct {
-	Share [shareWireSizeQ]byte // f_i(j) at recipient j over GF(q)
-	Blind [shareWireSizeQ]byte // g_i(j) blinding share over GF(q)
-}
-
-// LargeDKGRound1Msg is the GF(q) Round-1 broadcast.
+// LargeDKGRound1Msg is the GF(q) Round-1 broadcast. Mirrors
+// DKGRound1Msg: per-recipient envelopes are KEM-wrapped against the
+// recipient's long-term ML-KEM-768 identity public key. No separate
+// commit field (CR-6 path A); binding comes from Round-2 digest
+// agreement over the ordered envelope set.
 type LargeDKGRound1Msg struct {
 	NodeID    NodeID
-	Commits   [][]byte
-	Envelopes map[NodeID]LargeDKGShareEnvelope
+	Envelopes map[NodeID]DKGShareEnvelope
 }
 
 // LargeDKGRound2Msg is the GF(q) Round-2 broadcast. The digest is

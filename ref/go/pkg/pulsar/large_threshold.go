@@ -13,6 +13,13 @@ package pulsar
 // sortitioned group; this Large* path is the alternative big-
 // committee deployment for permissioned consortium / audit-
 // attestation scenarios where a single large committee is desired.
+//
+// CR-7 closure (2026-05-18): the per-pair MAC keys are now ephemeral
+// per-session session keys established via authenticated ML-KEM-768
+// key agreement (see identity.go), the same construction the small-
+// committee path uses. The previous legacy derivation from public
+// inputs (NodeID pair + group public key) was forgeable by any
+// network observer; that derivation is gone from the package.
 
 import (
 	"crypto/rand"
@@ -32,6 +39,10 @@ type LargeThresholdSigner struct {
 	Quorum  []NodeID
 	Message []byte
 
+	// MACKeys is the per-pair MAC key set for this session. Each key
+	// is an ephemeral session key established via authenticated
+	// ML-KEM-768 exchange between this party and its peer
+	// (see EstablishSession in identity.go).
 	MACKeys map[NodeID][32]byte
 
 	rng io.Reader
@@ -46,7 +57,24 @@ type LargeThresholdSigner struct {
 // NewLargeThresholdSigner constructs a new GF(q) threshold signer.
 // quorum is canonicalised (byte-ascending NodeID) and must include
 // myShare.NodeID; quorum size is capped at TargetCommitteeSize.
-func NewLargeThresholdSigner(params *Params, sessionID [16]byte, attempt uint32, quorum []NodeID, myShare *LargeKeyShare, message []byte, rng io.Reader) (*LargeThresholdSigner, error) {
+//
+// sessionKeys carries this party's per-peer ephemeral session key for
+// every other quorum member. Each session key must be the byte-equal
+// output of EstablishSession run between this party and the peer
+// (typically: caller drives Round 0 of identity.go's KEM exchange
+// before constructing the LargeThresholdSigner). The map MUST contain
+// an entry for every peer in quorum except myShare.NodeID itself;
+// missing entries return ErrSessionKeyMissing.
+func NewLargeThresholdSigner(
+	params *Params,
+	sessionID [16]byte,
+	attempt uint32,
+	quorum []NodeID,
+	myShare *LargeKeyShare,
+	sessionKeys map[NodeID][32]byte,
+	message []byte,
+	rng io.Reader,
+) (*LargeThresholdSigner, error) {
 	if err := params.Validate(); err != nil {
 		return nil, err
 	}
@@ -80,7 +108,11 @@ func NewLargeThresholdSigner(params *Params, sessionID [16]byte, attempt uint32,
 		if peer == myShare.NodeID {
 			continue
 		}
-		macKeys[peer] = legacyDeriveMACKeyLarge(myShare.NodeID, peer, myShare.Pub)
+		key, ok := sessionKeys[peer]
+		if !ok {
+			return nil, ErrSessionKeyMissing
+		}
+		macKeys[peer] = key
 	}
 	return &LargeThresholdSigner{
 		Params:      params,
@@ -275,15 +307,30 @@ func LargeCombine(params *Params, groupPubkey *PublicKey, message []byte, ctx []
 
 	sk, err := KeyFromSeed(params, masterSeed)
 	if err != nil {
+		zeroizeSeed(&masterSeed)
+		zeroizeBytes(byteSumBytes)
+		zeroizeBytes(mixInput)
 		return nil, err
 	}
 	if !sk.Pub.Equal(groupPubkey) {
+		zeroizePrivateKey(sk)
+		zeroizeSeed(&masterSeed)
+		zeroizeBytes(byteSumBytes)
+		zeroizeBytes(mixInput)
 		return nil, ErrPubkeyMismatch
 	}
 	sigBytes, err := mldsaSign(params.Mode, sk.Bytes, message, ctx, randomized, rand.Reader)
 	if err != nil {
+		zeroizePrivateKey(sk)
+		zeroizeSeed(&masterSeed)
+		zeroizeBytes(byteSumBytes)
+		zeroizeBytes(mixInput)
 		return nil, err
 	}
+	zeroizePrivateKey(sk)
+	zeroizeSeed(&masterSeed)
+	zeroizeBytes(byteSumBytes)
+	zeroizeBytes(mixInput)
 	return &Signature{Mode: params.Mode, Bytes: sigBytes}, nil
 }
 
@@ -293,25 +340,4 @@ func (s *LargeThresholdSigner) transcriptTau1() []byte {
 
 func (s *LargeThresholdSigner) transcriptTau1ForSender(sender NodeID) []byte {
 	return transcriptTau1Bytes(s.SessionID, s.Attempt, s.Quorum, sender, s.SecretShare.Pub, s.Message)
-}
-
-// legacyDeriveMACKeyLarge derives a per-pair MAC key from public
-// inputs (sorted-NodeID pair + group public key). Retained ONLY for
-// the GF(q) large-committee path; the GF(257) small-committee path
-// switched to ephemeral KEM-derived session keys (identity.go,
-// BLOCKERS.md CR-7) because the v0.1 derivation was forgeable by any
-// network observer. The large path keeps the v0.1 derivation pending
-// a parallel large-committee identity layer; deployments that need
-// CR-7 closure for wide committees must use the small-committee
-// (sortitioned) path.
-func legacyDeriveMACKeyLarge(a, b NodeID, pk *PublicKey) [32]byte {
-	first, second := a, b
-	if nodeIDLess(b, a) {
-		first, second = b, a
-	}
-	parts := [][]byte{first[:], second[:]}
-	if pk != nil {
-		parts = append(parts, pk.Bytes)
-	}
-	return transcriptHash32("PULSAR-SIGN-MACKEY-V1", parts...)
 }
