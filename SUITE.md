@@ -4,6 +4,13 @@
 > set of post-quantum threshold-signing protocols anchored to NIST
 > standards (FIPS 204 ML-DSA, FIPS 205 SLH-DSA) and Lux's R-LWE
 > sibling (Corona).
+>
+> **Consensus consumer.** The primitives below feed the Lux Quasar
+> PQ consensus suite. Cert-profile composition (`Pulsar` / `Aurora` /
+> `Polaris`), wire-format spec, and cross-primitive composition
+> proofs live at [`luxfi/quasar`](https://github.com/luxfi/quasar)
+> (umbrella) and [`luxfi/consensus/protocol/quasar/`](https://github.com/luxfi/consensus/tree/main/protocol/quasar)
+> (consensus-engine binding).
 
 ## Tiers
 
