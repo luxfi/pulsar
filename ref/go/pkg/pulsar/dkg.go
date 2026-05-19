@@ -268,7 +268,7 @@ func (s *DKGSession) Round1() (*DKGRound1Msg, error) {
 			s.MyID,
 			recipient,
 			committeeRoot,
-			shareBytes,
+			shareBytes[:],
 			s.myContribution,
 			recipientIPK.KEMPub,
 			encapSeed[:],
@@ -376,7 +376,7 @@ func (s *DKGSession) Round3(round1 []*DKGRound1Msg, round2 []*DKGRound2Msg) (*DK
 			}, nil
 		}
 		senderShareBytes, senderContrib, openErr := sealOpenEnvelope(
-			m.NodeID, s.MyID, committeeRoot, env, s.myIdentity,
+			m.NodeID, s.MyID, committeeRoot, env, shareWireSize, s.myIdentity,
 		)
 		if openErr != nil {
 			return &DKGOutput{
@@ -387,7 +387,9 @@ func (s *DKGSession) Round3(round1 []*DKGRound1Msg, round2 []*DKGRound2Msg) (*DK
 				},
 			}, nil
 		}
-		senderShare := shareFromBytes(uint32(s.myIndex), senderShareBytes)
+		var shareArr [shareWireSize]byte
+		copy(shareArr[:], senderShareBytes)
+		senderShare := shareFromBytes(uint32(s.myIndex), shareArr)
 		for b := 0; b < SeedSize; b++ {
 			aggY[b] = uint16((uint32(aggY[b]) + uint32(senderShare.Y[b])) % shamirPrime)
 			byteSum[b] = uint16((uint32(byteSum[b]) + uint32(senderContrib[b])) % shamirPrime)

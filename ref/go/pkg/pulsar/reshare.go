@@ -322,7 +322,7 @@ func (s *ReshareSession) Round1() (*DKGRound1Msg, error) {
 			s.MyID,
 			recipient,
 			newRoot,
-			shareBytes,
+			shareBytes[:],
 			contribBytes,
 			recipientIPK.KEMPub,
 			encapSeed[:],
@@ -440,7 +440,7 @@ func (s *ReshareSession) Round3(round1 []*DKGRound1Msg, round2 []*DKGRound2Msg) 
 			}, ErrEnvelopeMissing
 		}
 		senderShareBytes, _, openErr := sealOpenEnvelope(
-			m.NodeID, s.MyID, newRoot, env, s.MyIdentity,
+			m.NodeID, s.MyID, newRoot, env, shareWireSize, s.MyIdentity,
 		)
 		if openErr != nil {
 			return nil, &AbortEvidence{
@@ -449,7 +449,9 @@ func (s *ReshareSession) Round3(round1 []*DKGRound1Msg, round2 []*DKGRound2Msg) 
 				Accused: m.NodeID,
 			}, openErr
 		}
-		senderShare := shareFromBytes(newEval, senderShareBytes)
+		var shareArr [shareWireSize]byte
+		copy(shareArr[:], senderShareBytes)
+		senderShare := shareFromBytes(newEval, shareArr)
 		for b := 0; b < SeedSize; b++ {
 			aggY[b] = uint16((uint32(aggY[b]) + uint32(senderShare.Y[b])) % shamirPrime)
 		}

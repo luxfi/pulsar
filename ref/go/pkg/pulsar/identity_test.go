@@ -153,17 +153,17 @@ func TestEnvelopeEncryption_PlaintextIsRejected(t *testing.T) {
 	var encapSeed [32]byte
 	copy(encapSeed[:], "encap-seed-32-bytes-fixed-here!!")
 
-	env, err := sealEnvelope(dealer, recipient, committeeRoot, share, contribution,
+	env, err := sealEnvelope(dealer, recipient, committeeRoot, share[:], contribution,
 		recipientKey.PublicKey().KEMPub, encapSeed[:])
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Verify open round-trips.
-	gotShare, gotContrib, err := sealOpenEnvelope(dealer, recipient, committeeRoot, env, recipientKey)
+	gotShare, gotContrib, err := sealOpenEnvelope(dealer, recipient, committeeRoot, env, len(share), recipientKey)
 	if err != nil {
 		t.Fatalf("legitimate open: %v", err)
 	}
-	if gotShare != share {
+	if !bytes.Equal(gotShare, share[:]) {
 		t.Fatal("share round-trip mismatch")
 	}
 	if gotContrib != contribution {
@@ -174,13 +174,13 @@ func TestEnvelopeEncryption_PlaintextIsRejected(t *testing.T) {
 	//    simulate by handing in a different IdentityKey: decapsulation
 	//    yields garbage and the auth-tag check fails.
 	stranger, _ := GenerateIdentity(deterministicReader([]byte{0xCC}))
-	if _, _, err := sealOpenEnvelope(dealer, recipient, committeeRoot, env, stranger); err != ErrEnvelopeAuthBad {
+	if _, _, err := sealOpenEnvelope(dealer, recipient, committeeRoot, env, len(share), stranger); err != ErrEnvelopeAuthBad {
 		t.Fatalf("stranger decrypted envelope: %v", err)
 	}
 
 	// 2. Wrong dealer / recipient binding — auth tag fails.
 	wrongDealer := NodeID{0x99}
-	if _, _, err := sealOpenEnvelope(wrongDealer, recipient, committeeRoot, env, recipientKey); err != ErrEnvelopeAuthBad {
+	if _, _, err := sealOpenEnvelope(wrongDealer, recipient, committeeRoot, env, len(share), recipientKey); err != ErrEnvelopeAuthBad {
 		t.Fatalf("wrong-dealer binding accepted: %v", err)
 	}
 
@@ -190,12 +190,12 @@ func TestEnvelopeEncryption_PlaintextIsRejected(t *testing.T) {
 		Sealed:        append([]byte{}, env.Sealed...),
 	}
 	envTamp.Sealed[10] ^= 0x01
-	if _, _, err := sealOpenEnvelope(dealer, recipient, committeeRoot, envTamp, recipientKey); err != ErrEnvelopeAuthBad {
+	if _, _, err := sealOpenEnvelope(dealer, recipient, committeeRoot, envTamp, len(share), recipientKey); err != ErrEnvelopeAuthBad {
 		t.Fatalf("tampered sealed payload accepted: %v", err)
 	}
 
 	// 4. Determinism: same inputs → same envelope bytes (KAT gate).
-	env2, err := sealEnvelope(dealer, recipient, committeeRoot, share, contribution,
+	env2, err := sealEnvelope(dealer, recipient, committeeRoot, share[:], contribution,
 		recipientKey.PublicKey().KEMPub, encapSeed[:])
 	if err != nil {
 		t.Fatal(err)
