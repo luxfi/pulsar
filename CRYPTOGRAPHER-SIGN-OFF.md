@@ -287,52 +287,57 @@ algorithm or code change, but they are required before the
 package is shipped to NIST or relied upon by external
 auditors:
 
-- [ ] **GATE-1 (deployment runbook).** Before live Lux Quasar
-      consensus deployment of the v0.1 reconstruction-aggregator
-      path, the operator runbook MUST state, in the Security
-      Considerations section: "Each Combine invocation
-      reconstructs the master ML-DSA seed in the aggregator's
-      address space. Zeroization is in place. Operators MUST
-      run the aggregator inside the same trust boundary (HSM /
-      enclave / dedicated VM) as a single-party ML-DSA-65 signer
-      would be run; the threshold layer does NOT reduce the
-      Trusted Computing Base of the aggregator process below
-      that of the centralized signing alternative — it reduces
-      it of the **share-holders**, who never see the master
-      seed." This is the operational corollary of INF-1.
+- [x] **GATE-1 (deployment runbook).** **CLOSED 2026-05-18 in
+      `DEPLOYMENT-RUNBOOK.md` (v1.0.9)** — operator-facing
+      disclosure of the v0.1 reconstruction-aggregator TCB
+      equivalence, mandatory host hardening checklist (mlock /
+      core-dump-off / ptrace-off / TEE attestation recommended),
+      pre-deployment RACI sign-off, at-runtime zeroize-counter
+      monitoring, and v0.1 → v0.2 migration plan.
 
-- [ ] **GATE-2 (cross-link in SUBMISSION.md).** Add an
-      explicit "Trust model and protocol-variant disclosure"
-      paragraph to `./SUBMISSION.md` near the
-      headline claim, pointing at `pulsar.tex` §4.1 and
-      `BLOCKERS.md` "Spec ↔ Go-reference protocol drift" row.
-      The disclosure is real and well-written in the
-      documentation chain; what is missing is the
-      one-click reading path from cover sheet to disclosure.
+- [x] **GATE-2 (cross-link in SUBMISSION.md).** **CLOSED
+      2026-05-18 in `SUBMISSION.md` (v1.0.9)** — "Headline
+      claim" now carries a two-variant disclosure block with
+      explicit pointers to `BLOCKERS.md` "Spec ↔ Go-reference
+      protocol drift", `spec/pulsar.tex` §4.1, and
+      `CRYPTOGRAPHER-SIGN-OFF.md` §Gates. "What to read first"
+      §12 expanded with load-bearing BLOCKERS entries; §13
+      adds the cryptographer sign-off as a numbered reviewer
+      step.
 
-- [ ] **GATE-3 (dudect pin).** Run
-      `ct/dudect/dudect_combine` and `ct/dudect/dudect_verify`
-      to the documented sample target (≥10⁹ samples) on the
-      production CI fleet and pin the result file in
-      `ct/dudect/results/` with the exact build flags,
-      compiler version, CPU model, and run date. The
-      preliminary stdout files in `results/` show only
-      ~0.03 M measurements and the preliminary line "Probably
-      not constant time" which is **not enough samples to be
-      meaningful** under the dudect methodology — this is
-      explicitly noted in BLOCKERS.md and `PROOF-CLAIMS.md`
-      §3.2 as "advisory" / "WEAK assertion not measurement."
-      The fix is to actually run the experiment to its
-      documented target. (Not a finding about the code; a
-      finding about the evidence file.)
+- [ ] **GATE-3 (dudect pin).** **OPEN — operational.**
+      Harness builds clean on arm64 + x86_64 per
+      `ct/dudect/Makefile` (per-binary build tags
+      `pulsar_verify_ct` / `pulsar_combine_ct` + cgo
+      `#cgo arm64 CFLAGS: -include dudect_compat.h`). The
+      submission-grade 10⁹-sample run is queued for the next
+      nightly window via `ct/dudect/run-submission.sh`. Per-push
+      smoke runs (~30k samples) are informational only and
+      explicitly documented as "WEAK assertion not measurement"
+      in `PROOF-CLAIMS.md` §3.2. Closure of this gate moves the
+      harness from "wired" to "passed" — gates publish to NIST
+      MPTC as production-grade CT evidence, not gates v1.0.9
+      release.
 
-- [ ] **GATE-4 (minor doc updates).** Address MIN-1
-      (coverage %), MIN-3 (PROOF-CLAIMS cross-link to
-      dudect status), MIN-4 (spec text Ed25519 → ML-DSA-65
-      on the identity signer), and optionally MIN-5
-      (move dead-but-test-only `shamirReconstruct` to
-      `_test.go`). MIN-2 (date stamp) is a no-op
-      verification.
+- [x] **GATE-4 (minor doc updates).** **CLOSED 2026-05-18
+      in v1.0.9**:
+      MIN-1 (coverage 89.7% → 84.2%): closed in `SUBMISSION.md`
+      via earlier v1.0.7 propagation; no further change needed
+      in v1.0.9.
+      MIN-3 (PROOF-CLAIMS cross-link to dudect status): closed
+      in `PROOF-CLAIMS.md` §3.2 row 3 with operational caveat
+      pointing at GATE-3 and `CRYPTOGRAPHER-SIGN-OFF.md`. Row
+      "Zeroization" updated from "review TBD" to the CR-8
+      closure in `zeroize.go` (since v1.0.6).
+      MIN-4 (spec Ed25519 → ML-DSA-65): closed in
+      `spec/pulsar.tex` at both occurrences (lines 720, 1003
+      of v1.0.8 pre-patch). Identity signer now cites FIPS 204
+      ML-DSA-65 with CR-6 closure provenance.
+      MIN-5 (`shamirReconstruct` cleanup): deferred — the
+      function remains a `_test.go`-only helper after v1.0.6
+      consolidation; the relocation is cosmetic and tracked
+      in the v0.2 migration cleanup pass.
+      MIN-2 (date stamp): verified.
 
 ## Out-of-scope for this sign-off
 
