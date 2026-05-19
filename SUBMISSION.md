@@ -153,13 +153,13 @@ A reviewer with limited time should read in this order:
 ## What to run
 
 The reproducibility gate is `scripts/build.sh` against the tarball
-extract (which carries a pinned `vendor/github.com/luxfi/pulsar/`
-tree, so no network access is required):
+extract — the entire submission is self-contained, so no network
+access is required:
 
 ```bash
 tar xzf submission-YYYY-MM-DD.tar.gz
 cd pulsar
-scripts/build.sh          # builds Go ref against vendored pulsar + spec PDF
+scripts/build.sh          # builds Go ref + spec PDF
 scripts/test.sh           # runs unit + KAT + interoperability tests
 scripts/bench.sh          # produces signature/verification benchmarks
 scripts/gen_vectors.sh    # regenerates KAT vectors (deterministic)
@@ -190,22 +190,18 @@ checkout, and prints the SHA-256.
 ├── LICENSE                  # Apache-2.0
 ├── SECURITY.md              # threat model + responsible disclosure
 ├── CONTRIBUTING.md          # external-contribution policy (post-submission)
-├── go.mod                   # module: github.com/luxfi/pulsar; depends on
-│                            #   github.com/luxfi/pulsar v1.0.7
-├── vendor/github.com/luxfi/pulsar/  # SNAPSHOT of v1.0.7 (commit 174941a) —
-│                            #   produced by scripts/cut-submission.sh via
-│                            #   `go mod vendor`. This is the algorithm
-│                            #   being submitted.
+├── go.mod                   # module: github.com/luxfi/pulsar
 ├── spec/                    # LaTeX specification source
-│   ├── pulsar.tex         # main spec document
+│   ├── pulsar.tex           # main spec document
 │   ├── parameters.tex       # ML-DSA-44/65/87 parameter sets
 │   ├── system-model.tex     # threshold network / adversary model
 │   ├── security-games.tex   # EUF-CMA + identifiable-abort games
 │   ├── references.bib       # bibliography
-│   └── pulsar.pdf         # built PDF (committed for reviewer convenience)
-├── ref/go/                  # framework-side glue + KAT generator
-│   └── cmd/genkat/          # KAT vector generator (imports the vendored
-│                            #   luxfi/pulsar package)
+│   └── pulsar.pdf           # built PDF (committed for reviewer convenience)
+├── ref/go/                  # canonical Go reference implementation
+│   ├── pkg/pulsar/          # canonical algorithm sources (this is what
+│   │                        #   is being submitted)
+│   └── cmd/genkat/          # KAT vector generator (imports ref/go/pkg/pulsar)
 ├── vectors/                 # KAT test vectors
 │   ├── README.md
 │   ├── dkg.json             # DKG transcripts
@@ -239,7 +235,7 @@ checkout, and prints the SHA-256.
 ├── scripts/                 # per-push + nightly gate orchestrators
 │   ├── check-high-assurance.sh, test.sh   # per-push (REAL — under 60s)
 │   ├── nightly.sh                         # cron-scheduled REAL-budget gate
-│   ├── cut-submission.sh                  # tarball cut (vendors v1.0.7)
+│   ├── cut-submission.sh                  # tarball cut
 │   ├── checks/                            # per-check independent scripts
 │   └── build / bench / gen_vectors / SBOM / extract-jasmin-ec
 └── docs/                    # design notes + decision-record archive
