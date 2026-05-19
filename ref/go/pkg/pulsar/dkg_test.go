@@ -30,11 +30,12 @@ func TestDKG_HappyPath(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			params := MustParamsFor(ModeP65)
 			committee := makeCommittee(tc.n)
+			ident := newIdentityFixture(t, committee, []byte("dkg-happy"))
 
 			sessions := make([]*DKGSession, tc.n)
 			for i := 0; i < tc.n; i++ {
 				rng := deterministicReader([]byte{byte(i), 0xDE, 0xAD})
-				s, err := NewDKGSession(params, committee, tc.t, committee[i], rng)
+				s, err := NewDKGSession(params, committee, tc.t, committee[i], ident.keys[committee[i]], ident.directory, rng)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -110,9 +111,10 @@ func TestDKG_HappyPath(t *testing.T) {
 func TestDKG_Equivocation_Detected(t *testing.T) {
 	params := MustParamsFor(ModeP65)
 	committee := makeCommittee(3)
+	ident := newIdentityFixture(t, committee, []byte("dkg-equiv"))
 	sessions := make([]*DKGSession, 3)
 	for i := 0; i < 3; i++ {
-		s, _ := NewDKGSession(params, committee, 2, committee[i], deterministicReader([]byte{byte(i)}))
+		s, _ := NewDKGSession(params, committee, 2, committee[i], ident.keys[committee[i]], ident.directory, deterministicReader([]byte{byte(i)}))
 		sessions[i] = s
 	}
 	r1 := make([]*DKGRound1Msg, 3)
@@ -149,9 +151,10 @@ func TestDKG_ProducesValidPubkey_VerifiableSign(t *testing.T) {
 	params := MustParamsFor(ModeP65)
 	committee := makeCommittee(5)
 	threshold := 3
+	ident := newIdentityFixture(t, committee, []byte("dkg-valid-pub"))
 	sessions := make([]*DKGSession, 5)
 	for i := range sessions {
-		s, _ := NewDKGSession(params, committee, threshold, committee[i], deterministicReader([]byte{byte(i), 0xAB}))
+		s, _ := NewDKGSession(params, committee, threshold, committee[i], ident.keys[committee[i]], ident.directory, deterministicReader([]byte{byte(i), 0xAB}))
 		sessions[i] = s
 	}
 	r1 := make([]*DKGRound1Msg, 5)
@@ -218,7 +221,8 @@ func TestDKG_NodeNotInCommittee(t *testing.T) {
 	params := MustParamsFor(ModeP65)
 	committee := makeCommittee(3)
 	stranger := NodeID{0xff}
-	if _, err := NewDKGSession(params, committee, 2, stranger, nil); err != ErrNotInCommittee {
+	ident := newIdentityFixture(t, append(append([]NodeID{}, committee...), stranger), []byte("dkg-stranger"))
+	if _, err := NewDKGSession(params, committee, 2, stranger, ident.keys[stranger], ident.directory, nil); err != ErrNotInCommittee {
 		t.Fatalf("non-committee node not rejected: %v", err)
 	}
 }
@@ -226,14 +230,16 @@ func TestDKG_NodeNotInCommittee(t *testing.T) {
 func TestDKG_DuplicateCommittee(t *testing.T) {
 	params := MustParamsFor(ModeP65)
 	c := []NodeID{{1}, {2}, {1}}
-	if _, err := NewDKGSession(params, c, 2, NodeID{1}, nil); err != ErrCommitteeDuplicate {
+	ident := newIdentityFixture(t, []NodeID{{1}, {2}}, []byte("dkg-dup"))
+	if _, err := NewDKGSession(params, c, 2, NodeID{1}, ident.keys[NodeID{1}], ident.directory, nil); err != ErrCommitteeDuplicate {
 		t.Fatalf("dup committee not rejected: %v", err)
 	}
 }
 
 func TestDKG_EmptyCommittee(t *testing.T) {
 	params := MustParamsFor(ModeP65)
-	if _, err := NewDKGSession(params, nil, 1, NodeID{1}, nil); err != ErrCommitteeEmpty {
+	ident := newIdentityFixture(t, []NodeID{{1}}, []byte("dkg-empty"))
+	if _, err := NewDKGSession(params, nil, 1, NodeID{1}, ident.keys[NodeID{1}], ident.directory, nil); err != ErrCommitteeEmpty {
 		t.Fatalf("empty committee not rejected: %v", err)
 	}
 }

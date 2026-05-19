@@ -58,9 +58,9 @@ var precompileCtx = []byte("lux-evm-precompile-pulsar-v1")
 func TestPrecompile_E2E_Combine_FIPS204_VerifyCtx(t *testing.T) {
 	const n, threshold = 3, 2
 	params := MustParamsFor(ModeP65)
-	pub, shares, _ := runDKG(t, n, threshold, ModeP65)
+	pub, shares, _, ident := runDKGWithIdentities(t, n, threshold, ModeP65)
 
-	msg := []byte("pulsar-m threshold -> precompile ctx -> FIPS 204 verify")
+	msg := []byte("pulsar threshold -> precompile ctx -> FIPS 204 verify")
 	var sid [16]byte
 	copy(sid[:], "precompile-e2e01")
 	attempt := uint32(0)
@@ -70,9 +70,12 @@ func TestPrecompile_E2E_Combine_FIPS204_VerifyCtx(t *testing.T) {
 		quorum[i] = shares[i].NodeID
 	}
 
+	// CR-7 closure: per-pair ephemeral session keys for the quorum.
+	sessionKeys := ident.quorumSessionKeys(t, quorum, sid, msg)
+
 	signers := make([]*ThresholdSigner, threshold)
 	for i := 0; i < threshold; i++ {
-		s, err := NewThresholdSigner(params, sid, attempt, quorum, shares[i], msg, deterministicReader([]byte{byte(i), 'P', 'C'}))
+		s, err := NewThresholdSigner(params, sid, attempt, quorum, shares[i], sessionKeys[shares[i].NodeID], msg, deterministicReader([]byte{byte(i), 'P', 'C'}))
 		if err != nil {
 			t.Fatalf("NewThresholdSigner party %d: %v", i, err)
 		}
