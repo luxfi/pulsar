@@ -362,12 +362,10 @@ func SymmetricSession(
 	return keyA, nil
 }
 
-// envelopeSealedSize is the byte length of the Sealed payload:
-//   64 bytes Shamir share
-// + 32 bytes dealer contribution c_i
-// + 32 bytes authentication tag
-// = 128 bytes total.
-const envelopeSealedSize = 64 + 32 + 32
+// envelopeAuthTagSize is the fixed 32-byte KMAC256 tag suffix in the
+// sealed payload. Sealed-payload total length is
+//   len(shareWire) + SeedSize + envelopeAuthTagSize.
+const envelopeAuthTagSize = 32
 
 // sealEnvelope wraps the per-recipient Shamir share AND the full
 // dealer contribution under the recipient's long-term ML-KEM-768
@@ -379,10 +377,18 @@ const envelopeSealedSize = 64 + 32 + 32
 // passive network observers — who lack any recipient's KEM secret
 // key — read nothing.
 //
+// The shareWire slice is variable-width: 64 bytes for the GF(257)
+// small-committee path and 128 bytes for the GF(q) large-committee
+// path. The envelope key derivation, KEM ciphertext, KMAC256 auth tag
+// and cSHAKE256 stream cipher are width-agnostic, so the small and
+// large paths share a single identity stage (no duplicated sealing
+// primitive per path).
+//
 // Protocol:
 //   1. Encapsulate a fresh shared secret ss to recipient's KEM pub.
 //      Encapsulation seed is derived deterministically by the caller
-//      (DKGSession) so KAT regeneration is byte-stable.
+//      (DKGSession / ReshareSession / Large variants) so KAT
+//      regeneration is byte-stable.
 //   2. Derive an envelope key K_env = HKDF-SHA3-256(ss, salt=dealerID,
 //      info="PULSAR-DKG-ENVKEY-V1" || recipientID || committee_root).
 //   3. Seal (share || contribution || tag) under K_env via XOR with
@@ -393,7 +399,7 @@ const envelopeSealedSize = 64 + 32 + 32
 func sealEnvelope(
 	dealerID, recipientID NodeID,
 	committeeRoot [32]byte,
-	shareWire [64]byte,
+	shareWire []byte,
 	contribution [SeedSize]byte,
 	recipientKEMPub []byte,
 	encapSeed []byte,
@@ -402,6 +408,9 @@ func sealEnvelope(
 		return DKGShareEnvelope{}, ErrSessionIdentityPK
 	}
 	if len(encapSeed) != mlkem768.EncapsulationSeedSize {
+		return DKGShareEnvelope{}, ErrEnvelopeCiphertext
+	}
+	if len(shareWire) == 0 {
 		return DKGShareEnvelope{}, ErrEnvelopeCiphertext
 	}
 	var pk mlkem768.PublicKey
@@ -415,21 +424,22 @@ func sealEnvelope(
 	kEnv := deriveEnvelopeKey(ss, dealerID, recipientID, committeeRoot)
 
 	// Build the plaintext: share || contribution || tag.
-	plaintext := make([]byte, envelopeSealedSize)
-	copy(plaintext[:64], shareWire[:])
-	copy(plaintext[64:96], contribution[:])
+	sealedSize := len(shareWire) + SeedSize + envelopeAuthTagSize
+	plaintext := make([]byte, sealedSize)
+	copy(plaintext[:len(shareWire)], shareWire)
+	copy(plaintext[len(shareWire):len(shareWire)+SeedSize], contribution[:])
 	// Auth tag binds dealer + recipient + share + contribution so a
 	// relayed envelope under the same KEM ciphertext but different
 	// dealer/recipient pair fails the tag.
 	authInput := append(append([]byte{}, dealerID[:]...), recipientID[:]...)
-	authInput = append(authInput, shareWire[:]...)
+	authInput = append(authInput, shareWire...)
 	authInput = append(authInput, contribution[:]...)
-	tag := kmac256(kEnv[:], authInput, 32, dkgEnvelopeAuthTag)
-	copy(plaintext[96:], tag)
+	tag := kmac256(kEnv[:], authInput, envelopeAuthTagSize, dkgEnvelopeAuthTag)
+	copy(plaintext[len(shareWire)+SeedSize:], tag)
 
-	stream := cshake256(kEnv[:], envelopeSealedSize, dkgEnvelopeStreamTag)
-	sealed := make([]byte, envelopeSealedSize)
-	for i := 0; i < envelopeSealedSize; i++ {
+	stream := cshake256(kEnv[:], sealedSize, dkgEnvelopeStreamTag)
+	sealed := make([]byte, sealedSize)
+	for i := 0; i < sealedSize; i++ {
 		sealed[i] = plaintext[i] ^ stream[i]
 	}
 
@@ -440,16 +450,22 @@ func sealEnvelope(
 }
 
 // sealOpenEnvelope is the recipient-side counterpart to sealEnvelope.
-// Returns the 64-byte Shamir share and the 32-byte dealer
+// shareWireLen specifies the expected width of the recovered share
+// (64 for GF(257), 128 for GF(q)); the envelope's Sealed payload must
+// be exactly shareWireLen + SeedSize + envelopeAuthTagSize bytes.
+//
+// Returns the recovered Shamir share bytes and the 32-byte dealer
 // contribution on success; ErrEnvelopeAuthBad if the authentication
 // tag does not verify (envelope tampered or wrong dealer/recipient
-// binding).
+// binding); ErrEnvelopeCiphertext if the sealed payload length does
+// not match the expected width.
 func sealOpenEnvelope(
 	dealerID, recipientID NodeID,
 	committeeRoot [32]byte,
 	env DKGShareEnvelope,
+	shareWireLen int,
 	myIdentity *IdentityKey,
-) (shareWire [64]byte, contribution [SeedSize]byte, err error) {
+) (shareWire []byte, contribution [SeedSize]byte, err error) {
 	if myIdentity == nil {
 		err = ErrIdentityKeyMissing
 		return
@@ -458,7 +474,12 @@ func sealOpenEnvelope(
 		err = ErrEnvelopeCiphertext
 		return
 	}
-	if len(env.Sealed) != envelopeSealedSize {
+	if shareWireLen <= 0 {
+		err = ErrEnvelopeCiphertext
+		return
+	}
+	sealedSize := shareWireLen + SeedSize + envelopeAuthTagSize
+	if len(env.Sealed) != sealedSize {
 		err = ErrEnvelopeCiphertext
 		return
 	}
@@ -471,21 +492,21 @@ func sealOpenEnvelope(
 	sk.DecapsulateTo(ss, env.KEMCiphertext)
 
 	kEnv := deriveEnvelopeKey(ss, dealerID, recipientID, committeeRoot)
-	stream := cshake256(kEnv[:], envelopeSealedSize, dkgEnvelopeStreamTag)
-	plaintext := make([]byte, envelopeSealedSize)
-	for i := 0; i < envelopeSealedSize; i++ {
+	stream := cshake256(kEnv[:], sealedSize, dkgEnvelopeStreamTag)
+	plaintext := make([]byte, sealedSize)
+	for i := 0; i < sealedSize; i++ {
 		plaintext[i] = env.Sealed[i] ^ stream[i]
 	}
-	var gotShare [64]byte
+	gotShare := make([]byte, shareWireLen)
 	var gotContrib [SeedSize]byte
-	copy(gotShare[:], plaintext[:64])
-	copy(gotContrib[:], plaintext[64:96])
+	copy(gotShare, plaintext[:shareWireLen])
+	copy(gotContrib[:], plaintext[shareWireLen:shareWireLen+SeedSize])
 	// Recompute auth tag and constant-time compare.
 	authInput := append(append([]byte{}, dealerID[:]...), recipientID[:]...)
-	authInput = append(authInput, gotShare[:]...)
+	authInput = append(authInput, gotShare...)
 	authInput = append(authInput, gotContrib[:]...)
-	expectedTag := kmac256(kEnv[:], authInput, 32, dkgEnvelopeAuthTag)
-	if !ctEqualSlice(expectedTag, plaintext[96:]) {
+	expectedTag := kmac256(kEnv[:], authInput, envelopeAuthTagSize, dkgEnvelopeAuthTag)
+	if !ctEqualSlice(expectedTag, plaintext[shareWireLen+SeedSize:]) {
 		err = ErrEnvelopeAuthBad
 		return
 	}
