@@ -92,9 +92,9 @@ randomness, or power side-channels. Those are addressed separately:
 |---|---|
 | Timing leakage (threshold layer) | jasmin-ct 3/3 blocking — `round1.jazz`, `round2.jazz`, `combine.jazz` CT-clean |
 | Timing leakage (libjade sign) | Advisory (jasmin-ct issue #2 — documented in `ct/jasmin-ct-libjade.md`) |
-| Statistical timing (dudect 10⁹ samples) | Nightly gate `scripts/nightly.sh` |
+| Statistical timing (dudect 10⁹ samples) | Nightly gate `scripts/nightly.sh`; harness arm64 + x86_64 clean via `ct/dudect/Makefile`. Submission-grade 10⁹-sample run is the gate that promotes the harness from "wired" to "passed" — see `CRYPTOGRAPHER-SIGN-OFF.md` §Gates GATE-3 for the dudect-pending disclosure. Per-push smoke runs are informational only. |
 | Randomness misuse | Reference impl uses `crypto/rand`; production impl review TBD |
-| Zeroization | `ref/go/pkg/pulsar/`: review TBD |
+| Zeroization | `ref/go/pkg/pulsar/zeroize.go` (CR-8 closure since v1.0.6): `zeroizeBytes` / `zeroizeSeed` / `zeroizeU16` / `zeroizePrivateKey` best-effort wipes on every Combine/Sign/DKG exit path |
 | Fault attacks | Not addressed |
 
 ### §3.3 NOT proved: protocol-level adversarial robustness

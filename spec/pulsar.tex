@@ -719,9 +719,10 @@ content of the output-indistinguishability theorem
 \paragraph{Identifiable abort.}
 Round~1.5 and Round~2 each produce signed complaint records as a
 side-effect of detected deviations. The signing key is the party's
-long-term identity key (e.g.\ the Ed25519 key advertised in the
-chain's validator-set record). Complaint aggregation rules are
-specified per the system model (\S\ref{sec:system-model}).
+long-term FIPS~204 ML-DSA-65 identity key
+(\S\ref{sec:identity} \texttt{IdentityKey}; CR-6 closure since
+v1.0.6). Complaint aggregation rules are specified per the system
+model (\S\ref{sec:system-model}).
 
 \subsection{Threshold signing \texorpdfstring{$\Sign$}{Sign}}
 \label{sec:sign}
@@ -999,10 +1000,12 @@ where:
 \item \textsc{ComplaintRangeFailure}: the accused party's contribution would have caused the aggregated signature to fail the FIPS~204 norm check by an amount inconsistent with honest behaviour. Evidence: the per-party transcript line.
 \end{itemize}
 
-All complaints are signed under the accuser's long-term identity key
-(e.g.\ Ed25519). The system model's slashing layer
-(\S\ref{sec:system-model}) consumes complaints; a quorum of distinct
-accusers against the same accused is a disqualification event.
+All complaints are signed under the accuser's long-term FIPS~204
+ML-DSA-65 identity key (\texttt{IdentityKey} per
+\S\ref{sec:identity}; CR-6 closure since v1.0.6). The system model's
+slashing layer (\S\ref{sec:system-model}) consumes complaints; a
+quorum of distinct accusers against the same accused is a
+disqualification event.
 
 % =====================================================================
 \section{Security analysis}
