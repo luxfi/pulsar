@@ -9,7 +9,7 @@ fix lands and downstream consumers have had a 14-day private window.
 
 ## What is in-scope
 
-Pulsar-M is a **research / reference implementation** at this stage. The
+Pulsar is a **research / reference implementation** at this stage. The
 following are in-scope for responsible disclosure:
 
 - Specification ambiguity that leads to an exploitable verifier behaviour.
@@ -32,7 +32,7 @@ following are in-scope for responsible disclosure:
 
 ## CVE assignment
 
-Pulsar-M maintainers will request CVEs for any in-scope vulnerability prior
+Pulsar maintainers will request CVEs for any in-scope vulnerability prior
 to public disclosure. CVE numbers will be embedded in the ePrint changelog
 and the release tag's commit message.
 

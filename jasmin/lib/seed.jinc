@@ -1,0 +1,130 @@
+// Per-party, per-attempt rho_prime derivation for Pulsar Round-1.
+//
+// Per spec/pulsar-m.tex §4.4 (Round 1, line 757):
+//
+//   seed_i      = KMAC256(K_i^prng, tau_1, 256, "PULSAR-SIGN-PRNG-V1")
+//   rho_prime_i = SHAKE256(seed_i, 64)
+//
+// where K_i^prng is this party's long-lived PRNG key (32 bytes) and
+// tau_1 = (sid, kappa, T, i, pk, mu). The 256-bit seed_i is then
+// expanded to the 64-byte FIPS 204 rho_prime via a plain SHAKE256
+// absorption, so libjade's `expandMask` can consume it unchanged.
+//
+// We follow the same construction as ref/go/pkg/pulsar/transcript.go
+// so the Jasmin and Go signers agree byte-for-byte on rho_prime.
+
+require "pulsar_params.jinc"
+require "transcript.jinc"
+require "mac.jinc"
+from Jade require "crypto_sign/dilithium/common/amd64/fips202.jinc"
+
+// Absorb the cSHAKE256 prelude for KMAC256 with N="KMAC",
+// S="PULSAR-SIGN-PRNG-V1" (18 bytes -> 144 bits = 0x90), then the
+// key K. After this routine, state is ready to absorb the message X.
+inline
+fn kmac256_init_PRNG(reg ptr u64[25] state, reg ptr u8[32] K)
+    -> reg ptr u64[25]
+{
+    reg u64 i;
+    reg u8 c;
+
+    state = st0(state);
+    state[:u8 0]  = 0x01;
+    state[:u8 1]  = 0x88;
+    state[:u8 2]  = 0x01;
+    state[:u8 3]  = 0x20;
+    state[:u8 4]  = 0x4b; state[:u8 5]  = 0x4d; state[:u8 6]  = 0x41;
+    state[:u8 7]  = 0x43;
+    state[:u8 8]  = 0x01;
+    state[:u8 9]  = 0x90;
+    state[:u8 10] = 0x50; state[:u8 11] = 0x55; state[:u8 12] = 0x4c;
+    state[:u8 13] = 0x53; state[:u8 14] = 0x41; state[:u8 15] = 0x52;
+    state[:u8 16] = 0x2d; state[:u8 17] = 0x53; state[:u8 18] = 0x49;
+    state[:u8 19] = 0x47; state[:u8 20] = 0x4e; state[:u8 21] = 0x2d;
+    state[:u8 22] = 0x50; state[:u8 23] = 0x52; state[:u8 24] = 0x4e;
+    state[:u8 25] = 0x47; state[:u8 26] = 0x2d; state[:u8 27] = 0x56;
+    state[:u8 28] = 0x31;
+    state = __keccakf1600_ref(state);
+
+    // Key prefix: bytepad(encode_string(K), 136), |K|=32.
+    state[:u8 0] ^= 0x01;
+    state[:u8 1] ^= 0x88;
+    state[:u8 2] ^= 0x02;
+    state[:u8 3] ^= 0x01;
+    state[:u8 4] ^= 0x00;
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = K[i];
+        state[:u8 5 + i] ^= c;
+        i += 1;
+    }
+    state = __keccakf1600_ref(state);
+
+    return state;
+}
+
+// Derive rho_prime for party i, attempt kappa from:
+//   K           - 32-byte PRNG key K_i^prng (long-term secret)
+//   sid         - 16-byte session id (public)
+//   attempt     - kappa, 32-bit attempt counter (public)
+//   my_node_id  - 32-byte party id (public)
+//   pk_seed     - 32-byte ML-DSA-65 public-key seed rho (public)
+//   mu          - 64-byte FIPS 204 message hash binder (public)
+//
+// rho_prime_out receives 64 bytes. CT note: K is SECRET.
+inline
+fn derive_rho_prime(
+    reg ptr u8[32] K,
+    reg ptr u8[16] sid,
+    reg u32 attempt,
+    reg ptr u8[32] my_node_id,
+    reg ptr u8[32] pk_seed,
+    reg ptr u8[64] mu,
+    reg ptr u8[64] rho_prime_out)
+    -> reg ptr u8[64]
+{
+    stack u64[25] state;
+    reg ptr u64[25] state_rsp;
+    stack u8[32] seed_i;
+    reg ptr u8[32] seed_i_rsp;
+    reg ptr u8[32] tag_rsp;
+    reg u64 i, offset;
+    reg u8 c;
+
+    state_rsp = state;
+    state_rsp = kmac256_init_PRNG(state_rsp, K);
+
+    // Absorb tau_1 = sid || attempt(BE32) || my_node_id || pk_seed || mu.
+    ?{}, offset = #set0_64();
+    state_rsp, offset = absorb_array16(state_rsp, offset, sid);
+    state_rsp, offset = absorb_u32_be(state_rsp, offset, attempt);
+    state_rsp, offset = absorb_array32(state_rsp, offset, my_node_id);
+    state_rsp, offset = absorb_array32(state_rsp, offset, pk_seed);
+    state_rsp, offset = absorb_array64(state_rsp, offset, mu);
+
+    // KMAC finaliser + squeeze 32 bytes into seed_i.
+    seed_i_rsp = seed_i;
+    state_rsp, seed_i_rsp = kmac256_finalize_32(state_rsp, offset, seed_i_rsp);
+    seed_i = seed_i_rsp;
+
+    // ---- Expand seed_i to 64 bytes via SHAKE256 ----
+    state_rsp = st0(state_rsp);
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = seed_i[i];
+        state_rsp[:u8 i] ^= c;
+        i += 1;
+    }
+    // SHAKE256 finaliser at offset 32, padding bit at rate-1.
+    state_rsp[:u8 32] ^= 0x1f;
+    state_rsp[:u8 SHAKE256_RATE - 1] ^= 0x80;
+    state_rsp = __keccakf1600_ref(state_rsp);
+
+    ?{}, i = #set0_64();
+    while (i < 64) {
+        c = state_rsp[:u8 i];
+        rho_prime_out[i] = c;
+        i += 1;
+    }
+    return rho_prime_out;
+}

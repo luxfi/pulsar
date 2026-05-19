@@ -43,25 +43,25 @@ implementation defects.
     `abort.go`, `zeroize.go`, `types.go`, `params.go`.
   - `n1_byte_equality_test.go` — empirical realization of the
     Class N1 byte-equality theorem at (5,3), (7,4), (10,7); all pass.
-- **Spec.** `~/work/lux/pulsar-mptc/SPEC.md` and
-  `~/work/lux/pulsar-mptc/spec/pulsar.tex` (1,630 lines).
-- **Submission package.** `~/work/lux/pulsar-mptc/SUBMISSION.md`,
+- **Spec.** `~/work/lux/pulsar/SPEC.md` and
+  `~/work/lux/pulsar/spec/pulsar.tex` (1,630 lines).
+- **Submission package.** `~/work/lux/pulsar/SUBMISSION.md`,
   `STATUS-SUBMISSION-READINESS.md`, `PROOF-CLAIMS.md`,
   `AXIOM-INVENTORY.md`, `BLOCKERS.md`.
 - **Machine-checked proofs.**
-  - EasyCrypt: 13 files at `~/work/lux/pulsar-mptc/proofs/easycrypt/`
+  - EasyCrypt: 13 files at `~/work/lux/pulsar/proofs/easycrypt/`
     (8.2k lines of EC source; admit budget `0 / 0` hard-pinned by
     `scripts/checks/ec-admits.sh`).
   - Lean ↔ EC bridge: 5 axioms at
     `~/work/lux/proofs/lean/Crypto/{Pulsar/,Threshold/}`
     citation-checked by `scripts/check-lean-bridge.sh`.
-- **Jasmin high-assurance.** `~/work/lux/pulsar-mptc/jasmin/`:
+- **Jasmin high-assurance.** `~/work/lux/pulsar/jasmin/`:
   `lib/`, `ml-dsa-65/`, `threshold/` (round1.jazz, round2.jazz,
   combine.jazz).
-- **Constant-time evidence.** `~/work/lux/pulsar-mptc/ct/dudect/`
+- **Constant-time evidence.** `~/work/lux/pulsar/ct/dudect/`
   (build + harness present; results in `results/` are preliminary —
   see Gates below).
-- **KAT vectors.** `~/work/lux/pulsar-mptc/vectors/{keygen,sign,
+- **KAT vectors.** `~/work/lux/pulsar/vectors/{keygen,sign,
   verify,threshold-sign,dkg}.json` (regenerated via
   `scripts/gen_vectors.sh`).
 
@@ -79,7 +79,7 @@ implementation defects.
       to centralized FIPS 204 ML-DSA-65 on the
       Lagrange-reconstructed master seed. Passes under race.
 - [x] **N1 interoperability vs cloudflare/circl FIPS 204.**
-      `go test ./test/interoperability/` in `pulsar-mptc` →
+      `go test ./test/interoperability/` in `pulsar` →
       19 / 19 subtests pass
       (TestN1_SinglePartySignatures_VerifyUnderFIPS204: 9 subtests
       across Pulsar-44/65/87; TestN1_ThresholdSignatures_VerifyUnderFIPS204:
@@ -212,7 +212,7 @@ implementation defects.
   exact `go test -coverpkg=...` invocation used to derive the
   claimed figure. Not blocking; not a security claim.
 
-- **MIN-2.** `STATUS-SUBMISSION-READINESS.md` lists pulsar-mptc
+- **MIN-2.** `STATUS-SUBMISSION-READINESS.md` lists pulsar
   HEAD as `c2e01e3` (2026-05-18); the v1.0.7 algorithm commit is
   `174941a` on the `luxfi/pulsar` side. These are two different
   repos (submission framework vs algorithm source) so the divergence
@@ -303,7 +303,7 @@ auditors:
 
 - [ ] **GATE-2 (cross-link in SUBMISSION.md).** Add an
       explicit "Trust model and protocol-variant disclosure"
-      paragraph to `pulsar-mptc/SUBMISSION.md` near the
+      paragraph to `./SUBMISSION.md` near the
       headline claim, pointing at `pulsar.tex` §4.1 and
       `BLOCKERS.md` "Spec ↔ Go-reference protocol drift" row.
       The disclosure is real and well-written in the
@@ -359,7 +359,7 @@ from this sign-off is not a finding:
 ## Sign-off
 
 I attest that, given the above review and the explicit non-claims
-documented in `pulsar-mptc/PROOF-CLAIMS.md`, `AXIOM-INVENTORY.md`,
+documented in `./PROOF-CLAIMS.md`, `AXIOM-INVENTORY.md`,
 and `BLOCKERS.md`:
 
 - `luxfi/pulsar` v1.0.7 (commit `174941a`) is **APPROVED for live
@@ -374,7 +374,7 @@ and `BLOCKERS.md`:
 
 - `luxfi/pulsar` v1.0.7 (commit `174941a`) is **APPROVED as the
   algorithm-source pin for the NIST MPTC v0.1 submission tarball
-  cut from `pulsar-mptc`**, conditional on GATE-2 (SUBMISSION.md
+  cut from `pulsar`**, conditional on GATE-2 (SUBMISSION.md
   cross-link), GATE-3 (dudect run to documented target), and
   GATE-4 (minor doc updates). The submission framework's
   artifact-coherence chain (algorithm pin → vendor snapshot →

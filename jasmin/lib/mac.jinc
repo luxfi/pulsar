@@ -1,0 +1,162 @@
+// Pulsar's KMAC256 - SP 800-185 §4.
+//
+// KMAC256(K, X, L, S) := cSHAKE256(newX, L, "KMAC", S)
+//   where newX = bytepad(encode_string(K), 136) || X || right_encode(L*8)
+//
+// Pulsar's Go reference (ref/go/pkg/pulsar/transcript.go::kmac256) uses
+// the customisation strings "PULSAR-SIGN-R1-MAC-V1", "PULSAR-SIGN-R2-V1"
+// etc.  The keccak rate is 136 bytes (SHAKE256), the key length is
+// fixed to 32 bytes throughout Pulsar (the ML-KEM-768-established
+// session key K_{i,j}), and the output length is fixed to 32 bytes
+// (a MAC tag).  This drastically simplifies the SP 800-185 encoder.
+//
+// We provide:
+//
+//   kmac256_init_R1MAC(state, K) - absorb the prelude + key for the
+//                                  PULSAR-SIGN-R1-MAC-V1 customisation.
+//   kmac256_init_R2(state, K)    - absorb the prelude + key for the
+//                                  PULSAR-SIGN-R2-V1 customisation
+//                                  (used by Round-2 transcript MAC).
+//
+// After init, the caller absorbs the message bytes via repeated calls
+// to absorb_byte_kmac256 / cshake256_absorb_bytes (from transcript.jinc),
+// then calls kmac256_finalize_32(state, tag_out) which appends
+// right_encode(256) followed by the cSHAKE finaliser and squeezes the
+// 32-byte MAC tag.
+
+require "pulsar_params.jinc"
+require "transcript.jinc"
+from Jade require "crypto_sign/dilithium/common/amd64/fips202.jinc"
+
+// Absorb the cSHAKE256 prelude bytes for KMAC256 with N="KMAC",
+// S="PULSAR-SIGN-R1-MAC-V1" (21 bytes -> 168 bits = 0xa8).
+//
+// bytepad(encode_string("KMAC") || encode_string(S), 136):
+//   left_encode(136)           = {0x01, 0x88}                 (2 bytes)
+//   || encode_string("KMAC")   = {0x01, 0x20, K, M, A, C}     (6 bytes)
+//   || encode_string(S)        = {0x01, 0xa8, S[0..21)}      (23 bytes)
+//   || zero-pad to 136 bytes                                 (105 bytes)
+//
+// The first block (136 bytes) is exactly one SHAKE256 absorption block.
+//
+// We then absorb the SP 800-185 key prefix:
+//   bytepad(encode_string(K), 136) where |K| = 32 bytes:
+//     left_encode(136)               = {0x01, 0x88}        (2 bytes)
+//     || encode_string(K) [|K|=256]  = {0x02, 0x01, 0x00, K[0..32)}
+//                                                          (35 bytes)
+//     || zero-pad to 136 bytes                             (99 bytes)
+//
+// After this routine, the state is ready to absorb the message body X,
+// starting at running offset 0 (the second 136-byte block having just
+// been permuted).
+inline
+fn kmac256_init_R1MAC(reg ptr u64[25] state, reg ptr u8[32] K)
+    -> reg ptr u64[25]
+{
+    reg u64 i;
+    reg u8 c;
+
+    // ---- First block: prelude ----
+    state = st0(state);
+    state[:u8 0]  = 0x01;
+    state[:u8 1]  = 0x88;
+    state[:u8 2]  = 0x01;
+    state[:u8 3]  = 0x20;
+    state[:u8 4]  = 0x4b; state[:u8 5]  = 0x4d; state[:u8 6]  = 0x41;
+    state[:u8 7]  = 0x43;
+    state[:u8 8]  = 0x01;
+    state[:u8 9]  = 0xa8;
+    state[:u8 10] = 0x50; state[:u8 11] = 0x55; state[:u8 12] = 0x4c;
+    state[:u8 13] = 0x53; state[:u8 14] = 0x41; state[:u8 15] = 0x52;
+    state[:u8 16] = 0x2d; state[:u8 17] = 0x53; state[:u8 18] = 0x49;
+    state[:u8 19] = 0x47; state[:u8 20] = 0x4e; state[:u8 21] = 0x2d;
+    state[:u8 22] = 0x52; state[:u8 23] = 0x31; state[:u8 24] = 0x2d;
+    state[:u8 25] = 0x4d; state[:u8 26] = 0x41; state[:u8 27] = 0x43;
+    state[:u8 28] = 0x2d; state[:u8 29] = 0x56; state[:u8 30] = 0x31;
+    state = __keccakf1600_ref(state);
+
+    // ---- Second block: key prefix ----
+    // Start fresh - we are now at the next block, so bytes 0..135 must
+    // be xored with the key prefix. We use plain assignment because the
+    // state was just permuted from a fresh st0() and the prelude block:
+    // its rate-block bytes are non-zero now, so we MUST xor.
+    state[:u8 0] ^= 0x01;
+    state[:u8 1] ^= 0x88;
+    state[:u8 2] ^= 0x02;
+    state[:u8 3] ^= 0x01;
+    state[:u8 4] ^= 0x00;
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = K[i];
+        state[:u8 5 + i] ^= c;
+        i += 1;
+    }
+    state = __keccakf1600_ref(state);
+
+    return state;
+}
+
+// Append the KMAC256 trailer right_encode(L*8 = 256) = {0x01,0x00,0x02}
+// followed by the cSHAKE256 finaliser (0x04 || ... || 0x80) and permute.
+// Squeezes the 32-byte tag into `tag_out`. Caller passes the current
+// absorption `offset` mod SHAKE256_RATE.
+inline
+fn kmac256_finalize_32(
+    reg ptr u64[25] state,
+    reg u64 offset,
+    reg ptr u8[32] tag_out)
+    -> reg ptr u64[25], reg ptr u8[32]
+{
+    reg u64 i;
+    reg u8 c;
+
+    // right_encode(256) = {0x01, 0x00, 0x02}
+    state[:u8 offset] ^= 0x01; offset += 1;
+    if (offset == SHAKE256_RATE) {
+        state = __keccakf1600_ref(state);
+        ?{}, offset = #set0_64();
+    }
+    state[:u8 offset] ^= 0x00; offset += 1;
+    if (offset == SHAKE256_RATE) {
+        state = __keccakf1600_ref(state);
+        ?{}, offset = #set0_64();
+    }
+    state[:u8 offset] ^= 0x02; offset += 1;
+    if (offset == SHAKE256_RATE) {
+        state = __keccakf1600_ref(state);
+        ?{}, offset = #set0_64();
+    }
+
+    // cSHAKE finaliser.
+    state[:u8 offset] ^= 0x04;
+    state[:u8 SHAKE256_RATE - 1] ^= 0x80;
+    state = __keccakf1600_ref(state);
+
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = state[:u8 i];
+        tag_out[i] = c;
+        i += 1;
+    }
+    return state, tag_out;
+}
+
+// Constant-time 32-byte equality. Returns 0 on equal, non-zero on differ.
+inline
+fn ct_eq_32(reg ptr u8[32] a, reg ptr u8[32] b) -> reg u8
+{
+    reg u64 i;
+    reg u8 acc, x, y, d;
+
+    ?{}, acc = #set0_8();
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        x = a[i];
+        y = b[i];
+        d = x;
+        d ^= y;
+        acc |= d;
+        i += 1;
+    }
+    return acc;
+}

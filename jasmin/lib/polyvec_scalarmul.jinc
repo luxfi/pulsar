@@ -1,0 +1,102 @@
+// Scalar-times-polynomial-vector multiplication over R_q for Pulsar's
+// threshold sign.
+//
+// Pulsar needs to multiply a Montgomery-form scalar lambda (the
+// per-party Lagrange coefficient) by polyvecl/polyveck values that
+// either are in coefficient domain or in NTT (Montgomery) domain.
+//
+// libjade's `mult_scalar_vec`/`mult_scalar_veck` (polyvec_end.jinc)
+// expect a polynomial f, not a scalar - they do POINTWISE NTT-domain
+// multiplication. To scale every coefficient of a polyvec by a single
+// scalar lambda we need a different primitive:
+//
+//   poly_scalar_mont(lambda_mont, p, out):
+//     for k in 0..256:
+//       out[k] = REDC(lambda_mont * p[k])
+//
+// This is correct in BOTH domains: scalar multiplication commutes with
+// NTT, so the result is the NTT of (lambda * p_coefdomain) if p is in
+// NTT domain, and the coefficient-domain form of (lambda * p_coefdomain)
+// if p is in coefficient domain.
+//
+// Constant-time: lambda is PUBLIC in every Pulsar call site (Lagrange
+// coefficients are computed from public EvalPoints), and `p` may be
+// secret. The routine has straight-line control flow and no
+// data-dependent memory accesses by construction.
+
+require "pulsar_params.jinc"
+from Jade require "crypto_sign/dilithium/common/amd64/montgomery.jinc"
+
+// Scale a single polynomial by a Montgomery-form scalar.
+//   out[k] = REDC(lambda_mont * p[k])
+// The output coefficients live in Montgomery form. If `p` was in normal
+// form, the output is `lambda * p` in Montgomery form, ready for an
+// `ifft_to_mont` to bring it to normal form. If `p` was in Montgomery
+// form (e.g. NTT output), the output is `lambda * p` still in Mont
+// form, ready for a further Montgomery-domain operation.
+inline
+fn poly_scalar_mont(
+    reg u32 lambda_mont,
+    reg ptr u32[Li2_polydeg] p,
+    reg ptr u32[Li2_polydeg] out)
+    -> reg ptr u32[Li2_polydeg]
+{
+    reg u64 i;
+    reg u32 a, r;
+    reg u64 lam64, prod;
+    reg u32 prod_redc;
+
+    lam64 = (64u) lambda_mont;
+
+    ?{}, i = #set0_64();
+    while (i < Li2_polydeg) {
+        a = p[i];
+        prod = (64u) a;
+        prod *= lam64;
+        prod_redc = montgomery_REDC(prod);
+        out[i] = prod_redc;
+        i += 1;
+    }
+    return out;
+}
+
+// Scale every polynomial of a polyvecl (l = Li2_l polynomials) by a
+// scalar lambda (Montgomery form). Result stored in `out`.
+inline
+fn polyvecl_scalar_mont(
+    reg u32 lambda_mont,
+    reg ptr u32[Li2_l * Li2_polydeg] v,
+    reg ptr u32[Li2_l * Li2_polydeg] out)
+    -> reg ptr u32[Li2_l * Li2_polydeg]
+{
+    inline int ii;
+    reg ptr u32[Li2_polydeg] p_in, p_out;
+
+    for ii = 0 to Li2_l {
+        p_in  = v[ii * Li2_polydeg : Li2_polydeg];
+        p_out = out[ii * Li2_polydeg : Li2_polydeg];
+        p_out = poly_scalar_mont(lambda_mont, p_in, p_out);
+        out[ii * Li2_polydeg : Li2_polydeg] = p_out;
+    }
+    return out;
+}
+
+// Same for a polyveck (k = Li2_k polynomials).
+inline
+fn polyveck_scalar_mont(
+    reg u32 lambda_mont,
+    reg ptr u32[Li2_k * Li2_polydeg] v,
+    reg ptr u32[Li2_k * Li2_polydeg] out)
+    -> reg ptr u32[Li2_k * Li2_polydeg]
+{
+    inline int ii;
+    reg ptr u32[Li2_polydeg] p_in, p_out;
+
+    for ii = 0 to Li2_k {
+        p_in  = v[ii * Li2_polydeg : Li2_polydeg];
+        p_out = out[ii * Li2_polydeg : Li2_polydeg];
+        p_out = poly_scalar_mont(lambda_mont, p_in, p_out);
+        out[ii * Li2_polydeg : Li2_polydeg] = p_out;
+    }
+    return out;
+}

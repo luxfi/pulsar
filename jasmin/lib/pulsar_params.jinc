@@ -1,0 +1,115 @@
+// Pulsar threshold-layer parameters.
+//
+// The single-party ML-DSA-65 constants come from libjade's
+// crypto_sign/dilithium/dilithium3/amd64/ref/params.jinc - we never
+// restate them. This file holds only the threshold-layer constants
+// that sit *above* the single-party kernel.
+
+from Jade require "crypto_sign/dilithium/dilithium3/amd64/ref/params.jinc"
+
+// ---------------------------------------------------------------------------
+// Threshold sizing
+// ---------------------------------------------------------------------------
+
+// Maximum quorum size (signing committee) supported by the wire format.
+// Pulsar-M's submitted KATs use t-of-n with n <= 21; the wire format
+// reserves slots up to that ceiling so per-party messages are
+// fixed-size and constant-time to parse. Per-attempt restarts re-use
+// the same wire format with kappa advanced.
+param int PULSARM_QUORUM_MAX = 21;
+
+// Per-party Shamir secret share: an unpacked polynomial vector over
+// R_q^l, with each coefficient living in F_q (a 32-bit slot suffices
+// since q = 8380417 < 2^23). Coefficients are NOT bounded by eta - the
+// Lagrange-interpolation arithmetic on shares produces F_q-valued
+// coefficients in general, even when the master secret s1 has
+// eta-bounded coefficients. Layout: l polys * 256 coeffs * 4 bytes.
+param int PULSARM_SHARE_BYTES = Li2_l * Li2_polydeg * 4;
+
+// Per-party Pedersen-blinding share u_i, same shape as the secret
+// share (a polyvecl over R_q with F_q-valued coefficients).
+param int PULSARM_BLIND_BYTES = Li2_l * Li2_polydeg * 4;
+
+// Round-1 state carried into Round-2: the secret mask y_i over R_q^l
+// (uniform on [-gamma_1, gamma_1)) plus the per-party w_i = A y_i over
+// R_q^k. Both stored in unpacked u32 form so Round-2 can use them
+// without re-decompressing. Layout:
+//   y_i:   l * 256 * 4
+//   w_i:   k * 256 * 4   (saves Round-2 re-running expandA + mat-vec)
+//   w1_i:  k * 256 * 4   (high-bits of w_i, used by Round-2 to recompute D_i)
+param int PULSARM_Y_STATE_BYTES = (Li2_l + 2 * Li2_k) * Li2_polydeg * 4;
+
+// Round-1 commit message wire format. Fixed size for CT parsing.
+//
+//   [0  .. 32)     D_i = cSHAKE(pack_w1(w1_i) || tau_1_digest)
+//   [32 .. 32+w1len) pack_w1(w1_i)  (Li2_pack_w1len = k * 128 = 768)
+//   [800 .. 800+672) sender MAC set: PULSARM_QUORUM_MAX slots of 32 bytes
+//   [1472 .. 1504)   tau_1_digest (32 bytes, cSHAKE256 of binding inputs)
+//   [1504 .. 1952)   reserved zero pad
+param int PULSARM_R1_D_OFFSET   = 0;
+param int PULSARM_R1_W1_OFFSET  = 32;
+param int PULSARM_R1_MAC_OFFSET = 32 + Li2_pack_w1len;
+param int PULSARM_R1_MAC_LEN    = PULSARM_QUORUM_MAX * 32;
+param int PULSARM_R1_TAU_OFFSET = PULSARM_R1_MAC_OFFSET + PULSARM_R1_MAC_LEN;
+param int PULSARM_R1_TAU_LEN    = 32;
+param int PULSARM_R1_RESERVED   = 448;
+param int PULSARM_COMMIT_BYTES  = 32 + Li2_pack_w1len + PULSARM_R1_MAC_LEN + PULSARM_R1_TAU_LEN + PULSARM_R1_RESERVED;
+// 32 + 768 + 672 + 32 + 448 = 1952  (matches scaffold)
+
+// Round-2 response wire format. Each party contributes
+// (z_i, r_i, w1_i, mac_set, tau_2_digest).
+//
+// z_i: a polyvecl over R_q (NOT bounded by gamma_1 in general - a
+//      single party's z_i may exceed gamma_1 since the rejection
+//      check fires on the *aggregate* z, not the per-party). Stored
+//      packed in the same 20-bit format the verifier expects (we will
+//      reduce mod q before packing).
+// r_i: a polyveck contribution to the aggregator's hint computation
+//      (r_i = c * lambda_i * u_i, an R_q^k element).
+// w1_i: the plaintext HighBits the aggregator needs to recover the
+//      single-party w1 (sent in Round-2 per spec lemma "commit digest
+//      is bound under MAC, not concealment").
+//
+//   [0   .. 32)         tau_2 digest (cSHAKE256 of Round-2 transcript)
+//   [32  .. 32+zlen*l)  pack_z(z_i)  - zlen = 640 = l * 128
+//                                      Li2_pack_zlen = 320 per poly,
+//                                      pack_zlen * l = 320 * 5 = 1600.
+//   [1632.. 1632+rlen)  packed r_i (an unpacked polyveck stored as u32
+//                                  to retain full F_q precision)
+//                                      rlen = k * 256 * 4 = 6144
+//   [7776 .. 7776+w1len) pack_w1(w1_i) - 768 bytes
+//   [8544 .. 8544+672)  per-peer MAC set
+//   [9216 .. 9300)      reserved
+//
+// Total: 9300 bytes. The 84-byte reserved tail matches the scaffold's
+// allowance and keeps room for forward-compat fields.
+param int PULSARM_R2_TAU_OFFSET = 0;
+param int PULSARM_R2_TAU_LEN    = 32;
+param int PULSARM_R2_Z_OFFSET   = PULSARM_R2_TAU_OFFSET + PULSARM_R2_TAU_LEN;
+param int PULSARM_R2_Z_LEN      = Li2_l * Li2_pack_zlen;             // 1600
+param int PULSARM_R2_R_OFFSET   = PULSARM_R2_Z_OFFSET + PULSARM_R2_Z_LEN;
+param int PULSARM_R2_R_LEN      = Li2_k * Li2_polydeg * 4;           // 6144
+param int PULSARM_R2_W1_OFFSET  = PULSARM_R2_R_OFFSET + PULSARM_R2_R_LEN;
+param int PULSARM_R2_W1_LEN     = Li2_pack_w1len;                    // 768
+param int PULSARM_R2_MAC_OFFSET = PULSARM_R2_W1_OFFSET + PULSARM_R2_W1_LEN;
+param int PULSARM_R2_MAC_LEN    = PULSARM_QUORUM_MAX * 32;           // 672
+param int PULSARM_R2_RESERVED   = 84;
+param int PULSARM_RESPONSE_BYTES = PULSARM_R2_TAU_LEN
+                                 + PULSARM_R2_Z_LEN
+                                 + PULSARM_R2_R_LEN
+                                 + PULSARM_R2_W1_LEN
+                                 + PULSARM_R2_MAC_LEN
+                                 + PULSARM_R2_RESERVED;
+// 32 + 1600 + 6144 + 768 + 672 + 84 = 9300
+
+// ---------------------------------------------------------------------------
+// Transcript / MAC domain separation tags
+// ---------------------------------------------------------------------------
+//
+// Pulsar's transcript layer (ref/go/pkg/pulsar/transcript.go) uses
+// SP 800-185 cSHAKE256 and KMAC256 with ASCII customisation strings
+// "PULSAR-SIGN-R1-V1", "PULSAR-SIGN-R1-MAC-V1", "PULSAR-SIGN-R2-V1",
+// "PULSAR-SEED-SHARE-V1" and "Pulsar" as the cSHAKE function-name N.
+// Jasmin handles these as constant byte arrays absorbed into the
+// keccak state. See lib/transcript.jinc for the inline absorption
+// routine and lib/mac.jinc for the KMAC256 wrapper.
