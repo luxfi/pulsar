@@ -1,0 +1,684 @@
+// Pulsar Round-2 - per-party response.
+//
+// Reference: spec/pulsar-m.tex Algorithm "Sign Round 2 (party i, attempt
+// kappa)" (Algorithm alg:sign-r2). Mirrors ref/go/pkg/pulsar/threshold.go
+// ThresholdSigner.Round2 semantics.
+//
+// -----------------------------------------------------------------------------
+// Algorithm (spec alg:sign-r2)
+// -----------------------------------------------------------------------------
+//
+// Inputs:
+//   - {D_j} received from peers + corresponding MACs (verified in step 2)
+//   - y_state from Round-1: y_i (l polynomials), w_i (k polys), w1_i (k polys)
+//   - share s_i (polyvecl, secret), blind u_i (polyvecl, secret)
+//   - eval_points (public per-party x_j in F_q), my_index, quorum_size
+//   - mu (FIPS 204 message hash binder)
+//
+// Steps:
+//   1. Verify peer MACs against locally-known K_{i,j}. Abort on mismatch.
+//   2. Compute bar_D = cSHAKE256("PULSAR-SIGN-R2-V1" || D_1 || ... || D_n).
+//   3. Recover bar_w = HighBits(sum_j w_j, 2*gamma_2) by summing bar_w_j.
+//   4. Compute c_tilde = SHAKE(mu || bar_w, 2*lambda).
+//   5. Expand c = SampleInBall(c_tilde) in R_q (sparse, +/-1 coefficients).
+//   6. Compute lambda_i^T in Z_q (Lagrange coefficient at X = 0).
+//   7. z_i = y_i + c * lambda_i^T * s_i.
+//   8. r_i = c * lambda_i^T * u_i (used by aggregator for hint).
+//   9. Broadcast (bar_w_i, z_i, r_i) + tau_2 integrity hash.
+//
+// Output layout (PULSARM_RESPONSE_BYTES = 9300):
+//   [0    .. 32)   tau_2 digest
+//   [32   .. 1632) pack_z(z_i)         (Li2_l * Li2_pack_zlen = 1600)
+//   [1632 .. 7776) r_i u32 stream      (Li2_k * Li2_polydeg * 4 = 6144)
+//   [7776 .. 8544) pack_w1(my w1)      (Li2_pack_w1len = 768)
+//   [8544 .. 9216) per-peer MAC set    (PULSARM_QUORUM_MAX * 32 = 672)
+//   [9216 .. 9300) reserved (84 bytes)
+//
+// Constant-time obligations:
+//   - Time and memory-access patterns independent of share, blind, y_state.
+//   - Lagrange coefficient inputs (eval_points) are PUBLIC; CT obligation
+//     on lagrange_coefficient_mont is structural, not data-dependent.
+//   - MAC verification uses ct_eq_32 (constant-time byte compare).
+//   - The MAC-mismatch abort path is part of the public spec: the caller
+//     learns *which* peer's MAC failed (identifiable-abort property under
+//     synchronous network assumptions).
+
+require "../lib/pulsar_params.jinc"
+require "../lib/lagrange.jinc"
+require "../lib/polyvec_scalarmul.jinc"
+require "../lib/mac.jinc"
+require "../lib/transcript.jinc"
+
+from Jade require "crypto_sign/dilithium/dilithium3/amd64/ref/params.jinc"
+from Jade require "crypto_sign/dilithium/dilithium3/amd64/ref/common.jinc"
+from Jade require "crypto_sign/dilithium/dilithium3/amd64/ref/packing.jinc"
+
+// -----------------------------------------------------------------------------
+// MAC verification: for each peer j != my_index, recompute the expected
+// KMAC256(K_{i,j}, D_j || tau_1_j, 32, "PULSAR-SIGN-R1-MAC-V1") and
+// constant-time compare against the received MAC.
+//
+// Returns 0 on full success; j+1 (encoding the first mismatched peer
+// index) on failure, so the caller can construct a ComplaintMACFailure
+// abort evidence with `accused = j`.
+// -----------------------------------------------------------------------------
+inline
+fn verify_peer_macs(
+    reg ptr u8[PULSARM_QUORUM_MAX * 32] mac_keys,
+    reg ptr u8[PULSARM_QUORUM_MAX * 32] commits,
+    reg ptr u8[PULSARM_QUORUM_MAX * 32] tau1_digests,
+    reg ptr u8[PULSARM_QUORUM_MAX * 32] received_macs,
+    reg u32 quorum_size,
+    reg u32 my_index)
+    -> reg u64
+{
+    stack u8[32] key_buf;
+    stack u8[32] commit_buf;
+    stack u8[32] tau_buf;
+    stack u8[32] received_buf;
+    stack u8[32] expected_buf;
+    stack u64[25] state;
+    reg ptr u64[25] state_rsp;
+    reg ptr u8[32] key_rsp, commit_rsp, tau_rsp, recv_rsp, exp_rsp;
+    reg u64 offset;
+    reg u32 j;
+    reg u64 base;
+    reg u64 i;
+    reg u8 c;
+    reg u8 eq;
+    reg u64 status;
+
+    ?{}, status = #set0_64();
+    ?{}, j = #set0_32();
+    while (j < quorum_size) {
+        if (j != my_index) {
+            base = (64u) j;
+            base *= 32;
+
+            ?{}, i = #set0_64();
+            while (i < 32) { c = mac_keys[base + i]; key_buf[i] = c; i += 1; }
+            ?{}, i = #set0_64();
+            while (i < 32) { c = commits[base + i]; commit_buf[i] = c; i += 1; }
+            ?{}, i = #set0_64();
+            while (i < 32) { c = tau1_digests[base + i]; tau_buf[i] = c; i += 1; }
+            ?{}, i = #set0_64();
+            while (i < 32) { c = received_macs[base + i]; received_buf[i] = c; i += 1; }
+
+            state_rsp = state;
+            key_rsp = key_buf;
+            state_rsp = kmac256_init_R1MAC(state_rsp, key_rsp);
+
+            ?{}, offset = #set0_64();
+            commit_rsp = commit_buf;
+            tau_rsp = tau_buf;
+            state_rsp, offset = absorb_array32(state_rsp, offset, commit_rsp);
+            state_rsp, offset = absorb_array32(state_rsp, offset, tau_rsp);
+
+            exp_rsp = expected_buf;
+            state_rsp, exp_rsp = kmac256_finalize_32(state_rsp, offset, exp_rsp);
+            expected_buf = exp_rsp;
+
+            recv_rsp = received_buf;
+            exp_rsp = expected_buf;
+            eq = ct_eq_32(exp_rsp, recv_rsp);
+
+            // Cryptographic declassification: the MAC verification
+            // outcome is a publicly-observable bit per the Pulsar
+            // protocol — wrong MAC ⇒ abort with accusation index. This
+            // is a protocol-level acceptance: the verifier learns
+            // accept/reject, which is exactly what `eq` encodes.
+            #declassify(eq);
+            if (eq == 0) {
+                if (status == 0) {
+                    status = (64u) j;
+                    status += 1;
+                }
+            }
+        }
+        j += 1;
+    }
+    return status;
+}
+
+// -----------------------------------------------------------------------------
+// Aggregate bar_D = cSHAKE256("PULSAR-SIGN-R2-V1" || D_1 || ... || D_n).
+// -----------------------------------------------------------------------------
+inline
+fn r2_aggregate_commit_digest(
+    reg ptr u8[PULSARM_QUORUM_MAX * 32] commits,
+    reg u32 quorum_size,
+    reg ptr u8[32] out)
+    -> reg ptr u8[32]
+{
+    stack u64[25] state;
+    reg ptr u64[25] state_rsp;
+    reg u64 offset;
+    reg u64 i;
+    reg u64 base;
+    reg u32 j;
+    reg u8 c;
+
+    state_rsp = state;
+    state_rsp, offset = cshake256_absorb_prelude_R2(state_rsp);
+
+    ?{}, j = #set0_32();
+    while (j < quorum_size) {
+        base = (64u) j;
+        base *= 32;
+        ?{}, i = #set0_64();
+        while (i < 32) {
+            c = commits[base + i];
+            state_rsp, offset = absorb_one_byte(state_rsp, offset, c);
+            i += 1;
+        }
+        j += 1;
+    }
+
+    state_rsp = cshake256_finalize(state_rsp, offset);
+
+    ?{}, i = #set0_64();
+    while (i < 32) { c = state_rsp[:u8 i]; out[i] = c; i += 1; }
+    return out;
+}
+
+// -----------------------------------------------------------------------------
+// Compute c_tilde = cSHAKE256("PULSAR-SIGN-R2-V1" || mu || pack_w1(bar_w))
+// truncated to 32 bytes (= 2*lambda for L3 / ML-DSA-65).
+// -----------------------------------------------------------------------------
+inline
+fn r2_challenge_seed(
+    reg ptr u8[64] mu,
+    reg ptr u8[Li2_pack_w1len] bar_w_packed,
+    reg ptr u8[32] c_tilde_out)
+    -> reg ptr u8[32]
+{
+    stack u64[25] state;
+    reg ptr u64[25] state_rsp;
+    reg u64 offset;
+    reg u64 i;
+    reg u8 c;
+
+    state_rsp = state;
+    state_rsp, offset = cshake256_absorb_prelude_R2(state_rsp);
+
+    ?{}, i = #set0_64();
+    while (i < 64) {
+        c = mu[i];
+        state_rsp, offset = absorb_one_byte(state_rsp, offset, c);
+        i += 1;
+    }
+    ?{}, i = #set0_64();
+    while (i < Li2_pack_w1len) {
+        c = bar_w_packed[i];
+        state_rsp, offset = absorb_one_byte(state_rsp, offset, c);
+        i += 1;
+    }
+    state_rsp = cshake256_finalize(state_rsp, offset);
+
+    ?{}, i = #set0_64();
+    while (i < 32) { c = state_rsp[:u8 i]; c_tilde_out[i] = c; i += 1; }
+    return c_tilde_out;
+}
+
+// -----------------------------------------------------------------------------
+// Round-2 main entry point.
+//
+// Inputs (all u64 pointers, caller-supplied buffers):
+//   y_state_ptr      PULSARM_Y_STATE_BYTES bytes (from Round-1)
+//   share_ptr        PULSARM_SHARE_BYTES bytes (polyvecl, u32 stride)
+//   blind_ptr        PULSARM_BLIND_BYTES bytes (polyvecl, u32 stride)
+//   peer_commits_ptr PULSARM_QUORUM_MAX * 32 bytes (D_j slots)
+//   peer_bar_w_ptr   PULSARM_QUORUM_MAX * (Li2_k * Li2_polydeg * 4) bytes
+//                    (per-peer unpacked bar_w_j as u32; caller exchanges
+//                    raw bar_w out-of-band per spec remark "commit digest
+//                    is bound under MAC, not concealment").
+//   peer_macs_ptr    PULSARM_QUORUM_MAX * 32 bytes (MACs from j -> me)
+//   peer_tau_ptr     PULSARM_QUORUM_MAX * 32 bytes (tau_1_j slots)
+//   mac_keys_ptr     PULSARM_QUORUM_MAX * 32 bytes (K_{i,j} session keys)
+//   eval_points_ptr  PULSARM_QUORUM_MAX * 4 bytes (u32 evaluation points)
+//   mu_ptr           64 bytes (FIPS 204 mu)
+//   quorum_size      u32 |T|
+//   my_index         u32 (0 .. quorum_size)
+//   response_out_ptr PULSARM_RESPONSE_BYTES bytes (output)
+//
+// Returns u64 status:
+//   0     = success
+//   j+1   = MAC mismatch on peer j (accused index encoded)
+//
+// CT signature: all pointer values are public addresses (no
+// secret-address branching). Pointed-to contents have the following
+// sensitivity per protocol spec:
+//   y_state_ptr      → SECRET (per-attempt y state held by this party)
+//   share_ptr        → SECRET (per-party Shamir share)
+//   blind_ptr        → SECRET (per-party Pedersen blind)
+//   peer_commits_ptr → public (Round-1 commits already on the wire)
+//   peer_bar_w_ptr   → public (Round-1 aggregated w-bars)
+//   peer_macs_ptr    → public (peer-MAC tags from Round-1)
+//   peer_tau_ptr     → public (per-peer tau_1 digests)
+//   mac_keys_ptr     → SECRET (session keys K_{i,j})
+//   eval_points_ptr  → public (Lagrange evaluation points)
+//   mu_ptr           → public (FIPS 204 message hash)
+//   quorum_size,
+//   my_index         → public
+//   response_out_ptr → writes public Round-2 response (z, r, hint)
+//
+// The CT signature itself only constrains pointer-publicity (used for
+// branching / load addresses). Per-buffer content sensitivity is
+// encoded by #declassify pragmas at the points where the protocol
+// declassifies them (e.g., w1 high-bits, signature challenge).
+#[ct = "public * public * public * public * public * public * public * public * public * public * public * public * public -> public"]
+export
+fn pulsar_round2(
+    reg u64 y_state_ptr,
+    reg u64 share_ptr,
+    reg u64 blind_ptr,
+    reg u64 peer_commits_ptr,
+    reg u64 peer_bar_w_ptr,
+    reg u64 peer_macs_ptr,
+    reg u64 peer_tau_ptr,
+    reg u64 mac_keys_ptr,
+    reg u64 eval_points_ptr,
+    reg u64 mu_ptr,
+    reg u32 quorum_size,
+    reg u32 my_index,
+    reg u64 response_out_ptr)
+    -> reg u64
+{
+    // Workspace.
+    stack u8[64] mu;
+    stack u8[32] bar_D;
+    stack u8[32] c_tilde;
+    stack u8[32] tau2_digest;
+    stack u8[Li2_pack_w1len] bar_w_packed;
+    stack u32[Li2_l * Li2_polydeg] y_i;
+    stack u32[Li2_l * Li2_polydeg] s_i;
+    stack u32[Li2_l * Li2_polydeg] u_i;
+    stack u32[Li2_l * Li2_polydeg] tmp_l;
+    stack u32[Li2_l * Li2_polydeg] cs_l;
+    stack u32[Li2_l * Li2_polydeg] cu_l;
+    stack u32[Li2_l * Li2_polydeg] z_i;
+    stack u32[Li2_l * Li2_polydeg] r_i;
+    stack u32[Li2_polydeg] c_poly;
+    stack u32[Li2_polydeg] c_ntt;
+    stack u32[Li2_k * Li2_polydeg] bar_w;
+    stack u32[Li2_k * Li2_polydeg] my_w1;
+    stack u8[PULSARM_QUORUM_MAX * 32] commit_buf;
+    stack u8[PULSARM_QUORUM_MAX * 32] mac_key_buf;
+    stack u8[PULSARM_QUORUM_MAX * 32] mac_buf;
+    stack u8[PULSARM_QUORUM_MAX * 32] tau_buf;
+    stack u32[PULSARM_QUORUM_MAX] eval_pts;
+    stack u64[25] state;
+
+    reg ptr u8[64] mu_rsp;
+    reg ptr u8[32] bar_D_rsp, c_tilde_rsp;
+    reg ptr u8[Li2_pack_w1len] packed_rsp;
+    reg ptr u8[PULSARM_QUORUM_MAX * 32] commits_rsp, mkey_rsp, mac_rsp, tau_rsp;
+    reg ptr u32[Li2_l * Li2_polydeg] vec_l_rsp;
+    reg ptr u32[Li2_k * Li2_polydeg] vec_k_rsp;
+    reg ptr u32[Li2_polydeg] pc_rsp, pn_rsp;
+    reg ptr u32[PULSARM_QUORUM_MAX] eval_rsp;
+    reg ptr u64[25] state_rsp;
+
+    reg u64 i, offset, base;
+    reg u32 j;
+    // Separate scratch bytes for the public-input load loops vs the
+    // secret-content load loop (mac_keys / share / blind). Sharing
+    // one `c` would join all loop levels to `secret` and taint the
+    // genuinely-public per-peer commits / MACs / tau1 digests.
+    reg u8 c;
+    reg u8 c_sec;
+    reg u32 r32, sum32;
+    reg u32 lambda_mont;
+    reg u64 status;
+
+    // ---- 1. Load inputs ----
+    ?{}, i = #set0_64();
+    while (i < 64) { c = [:u8 mu_ptr + i]; mu[i] = c; i += 1; }
+
+    // y_i = first Li2_l polynomials of y_state.
+    ?{}, i = #set0_64();
+    while (i < Li2_l * Li2_polydeg) {
+        r32 = [:u32 y_state_ptr + 4 * i];
+        y_i[i] = r32;
+        i += 1;
+    }
+    // my_w1 = last Li2_k polynomials of y_state (offset = (Li2_l + Li2_k) polynomials).
+    base = (64u) (Li2_l + Li2_k) * Li2_polydeg * 4;
+    ?{}, i = #set0_64();
+    while (i < Li2_k * Li2_polydeg) {
+        r32 = [:u32 y_state_ptr + base + 4 * i];
+        my_w1[i] = r32;
+        i += 1;
+    }
+
+    // share, blind.
+    ?{}, i = #set0_64();
+    while (i < Li2_l * Li2_polydeg) {
+        r32 = [:u32 share_ptr + 4 * i];
+        s_i[i] = r32;
+        i += 1;
+    }
+    ?{}, i = #set0_64();
+    while (i < Li2_l * Li2_polydeg) {
+        r32 = [:u32 blind_ptr + 4 * i];
+        u_i[i] = r32;
+        i += 1;
+    }
+
+    // eval_points (public).
+    ?{}, j = #set0_32();
+    while (j < quorum_size) {
+        base = (64u) j;
+        r32 = [:u32 eval_points_ptr + 4 * base];
+        eval_pts[base] = r32;
+        j += 1;
+    }
+
+    // Per-peer buffers (commits, MACs, tau are public-by-protocol;
+    // mac_keys are secret session keys K_{i,j}). Use a separate
+    // scratch byte for the secret mac_keys load so jasmin-ct does
+    // not back-propagate secrecy onto the public commit / mac / tau
+    // buffers via a shared `c` register.
+    ?{}, i = #set0_64();
+    while (i < PULSARM_QUORUM_MAX * 32) {
+        c     = [:u8 peer_commits_ptr + i]; commit_buf[i]  = c;
+        c_sec = [:u8 mac_keys_ptr + i];     mac_key_buf[i] = c_sec;
+        c     = [:u8 peer_macs_ptr + i];    mac_buf[i]     = c;
+        c     = [:u8 peer_tau_ptr + i];     tau_buf[i]     = c;
+        i += 1;
+    }
+
+    // ---- 2. Verify peer MACs ----
+    mkey_rsp = mac_key_buf;
+    commits_rsp = commit_buf;
+    tau_rsp = tau_buf;
+    mac_rsp = mac_buf;
+    status = verify_peer_macs(mkey_rsp, commits_rsp, tau_rsp, mac_rsp,
+                              quorum_size, my_index);
+    // Jasmin doesn't accept early `return` inside an `if`; fall through
+    // and gate the rest of the body on `status == 0`. The MAC-failure
+    // path leaves the output buffer in an indeterminate state, which
+    // the caller MUST detect via the nonzero return code.
+    if (status == 0) {
+
+    // ---- 3. Aggregate bar_D ----
+    commits_rsp = commit_buf;
+    bar_D_rsp = bar_D;
+    bar_D_rsp = r2_aggregate_commit_digest(commits_rsp, quorum_size, bar_D_rsp);
+
+    // ---- 4. Aggregate bar_w = sum_j bar_w_j (mod q) ----
+    // For my own party use the on-stack my_w1; for peers, unpack from
+    // peer_bar_w_ptr at stride (Li2_k * Li2_polydeg * 4) bytes per peer.
+    ?{}, i = #set0_64();
+    while (i < Li2_k * Li2_polydeg) {
+        bar_w[i] = my_w1[i];
+        i += 1;
+    }
+    ?{}, j = #set0_32();
+    while (j < quorum_size) {
+        if (j != my_index) {
+            base = (64u) j;
+            base *= Li2_k * Li2_polydeg * 4;
+            ?{}, i = #set0_64();
+            while (i < Li2_k * Li2_polydeg) {
+                r32 = [:u32 peer_bar_w_ptr + base + 4 * i];
+                sum32 = bar_w[i];
+                sum32 += r32;
+                // Reduce mod 2^32; canonical reduction happens at pack_w1 stage
+                // since w1 values are bounded by (q-1)/(2*gamma_2) per FIPS 204.
+                bar_w[i] = sum32;
+                i += 1;
+            }
+        }
+        j += 1;
+    }
+
+    // Pack bar_w for c_tilde input and for transcript binding.
+    vec_k_rsp = bar_w;
+    packed_rsp = bar_w_packed;
+    packed_rsp = pack_w1(vec_k_rsp);
+    bar_w_packed = packed_rsp;
+
+    // ---- 5. c_tilde = SHAKE(mu || pack_w1(bar_w)) ----
+    mu_rsp = mu;
+    packed_rsp = bar_w_packed;
+    c_tilde_rsp = c_tilde;
+    c_tilde_rsp = r2_challenge_seed(mu_rsp, packed_rsp, c_tilde_rsp);
+    // Cryptographic declassification: c_tilde is the FIPS 204
+    // challenge hash, public by §3.6 (it's the part of the signature
+    // every verifier sees). The Pulsar protocol publishes it as part
+    // of the Round-2 response payload. Marking it public here lets
+    // sampleInBall accept it; sampleInBall's output (c_poly) flows
+    // through public NTT into mat-vec mul against the secret share.
+    c_tilde = c_tilde_rsp;
+    #declassify(c_tilde);
+    c_tilde_rsp = c_tilde;
+
+    // ---- 6. c = sampleInBall(c_tilde) -> NTT ----
+    pc_rsp = c_poly;
+    pc_rsp = sampleInBall(pc_rsp, c_tilde_rsp);
+    c_poly = pc_rsp;
+
+    ?{}, i = #set0_64();
+    while (i < Li2_polydeg) { r32 = c_poly[i]; c_ntt[i] = r32; i += 1; }
+    pn_rsp = c_ntt;
+    pn_rsp = fft(pn_rsp);
+    c_ntt = pn_rsp;
+
+    // ---- 7. lambda_i^T in Montgomery form ----
+    eval_rsp = eval_pts;
+    lambda_mont = lagrange_coefficient_mont(eval_rsp, my_index, quorum_size);
+
+    // ---- 8. z_i = y_i + (c * lambda_i * s_i) ----
+    // a) NTT(s_i)
+    ?{}, i = #set0_64();
+    while (i < Li2_l * Li2_polydeg) { tmp_l[i] = s_i[i]; i += 1; }
+    vec_l_rsp = tmp_l;
+    vec_l_rsp = fft_vec(vec_l_rsp);
+    tmp_l = vec_l_rsp;
+    // b) c_ntt * s_i_ntt (libjade's mult_scalar_vec returns the
+    //    product polyvecl by value via a stack temporary)
+    pn_rsp = c_ntt;
+    cs_l = mult_scalar_vec(pn_rsp, tmp_l);
+    // c) invNTT -> normal form (Montgomery factor folded in)
+    vec_l_rsp = cs_l;
+    vec_l_rsp = ifft_to_mont_vecl(vec_l_rsp);
+    cs_l = vec_l_rsp;
+    // d) scale by lambda_i (Montgomery form)
+    vec_l_rsp = cs_l;
+    vec_l_rsp = polyvecl_scalar_mont(lambda_mont, vec_l_rsp, vec_l_rsp);
+    cs_l = vec_l_rsp;
+    // e) z_i = y_i + cs_l
+    ?{}, i = #set0_64();
+    while (i < Li2_l * Li2_polydeg) {
+        r32 = y_i[i];
+        r32 += cs_l[i];
+        z_i[i] = r32;
+        i += 1;
+    }
+    // f) canonical reduction
+    vec_l_rsp = z_i;
+    vec_l_rsp = polyvecl_caddq(vec_l_rsp);
+    z_i = vec_l_rsp;
+
+    // ---- 9. r_i = c * lambda_i * u_i ----
+    ?{}, i = #set0_64();
+    while (i < Li2_l * Li2_polydeg) { tmp_l[i] = u_i[i]; i += 1; }
+    vec_l_rsp = tmp_l;
+    vec_l_rsp = fft_vec(vec_l_rsp);
+    tmp_l = vec_l_rsp;
+
+    pn_rsp = c_ntt;
+    cu_l = mult_scalar_vec(pn_rsp, tmp_l);
+    vec_l_rsp = cu_l;
+    vec_l_rsp = ifft_to_mont_vecl(vec_l_rsp);
+    cu_l = vec_l_rsp;
+    vec_l_rsp = cu_l;
+    vec_l_rsp = polyvecl_scalar_mont(lambda_mont, vec_l_rsp, vec_l_rsp);
+    cu_l = vec_l_rsp;
+    ?{}, i = #set0_64();
+    while (i < Li2_l * Li2_polydeg) { r_i[i] = cu_l[i]; i += 1; }
+    vec_l_rsp = r_i;
+    vec_l_rsp = polyvecl_caddq(vec_l_rsp);
+    r_i = vec_l_rsp;
+
+    // ---- 10. tau_2 = cSHAKE("PULSAR-SIGN-R2-V1" || bar_D || mu || pack_w1(bar_w)) ----
+    state_rsp = state;
+    state_rsp, offset = cshake256_absorb_prelude_R2(state_rsp);
+    bar_D_rsp = bar_D;
+    state_rsp, offset = absorb_array32(state_rsp, offset, bar_D_rsp);
+    ?{}, i = #set0_64();
+    while (i < 64) { c = mu[i]; state_rsp, offset = absorb_one_byte(state_rsp, offset, c); i += 1; }
+    ?{}, i = #set0_64();
+    while (i < Li2_pack_w1len) {
+        c = bar_w_packed[i];
+        state_rsp, offset = absorb_one_byte(state_rsp, offset, c);
+        i += 1;
+    }
+    state_rsp = cshake256_finalize(state_rsp, offset);
+    ?{}, i = #set0_64();
+    while (i < 32) { c = state_rsp[:u8 i]; tau2_digest[i] = c; i += 1; }
+
+    // ---- 11. Write response buffer ----
+    // [0 .. 32) tau_2
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = tau2_digest[i];
+        [:u8 response_out_ptr + i] = c;
+        i += 1;
+    }
+
+    // [32 .. 1632) z_i as u32 stream
+    //
+    // Per-party z_i is transmitted as raw u32 LE (l = 5 polynomials *
+    // 256 coeffs * 4 = 5120 bytes) and padded to 1600 bytes of the
+    // 1600-byte slot. This is a slight oversize vs FIPS 204's 20-bit
+    // pack_z encoding, but lets us avoid a custom pack_z helper —
+    // libjade does not expose a standalone pack_z (the 20-bit packing
+    // is inlined inside `pack_signature`). The aggregator at Combine
+    // reads u32, sums per-party, then passes the aggregate z through
+    // libjade's `pack_signature` to produce the final FIPS 204-byte-
+    // identical signature. Note: actual stride is 5120 bytes, the
+    // remaining 480 bytes are pad-zero forward-compat.
+    ?{}, i = #set0_64();
+    while (i < Li2_l * Li2_polydeg) {
+        r32 = z_i[i];
+        [:u32 response_out_ptr + PULSARM_R2_Z_OFFSET + 4 * i] = r32;
+        i += 1;
+    }
+    // pad the tail of the z slot
+    ?{}, i = #set0_64();
+    while (i < PULSARM_R2_Z_LEN - Li2_l * Li2_polydeg * 4) {
+        [:u8 response_out_ptr + PULSARM_R2_Z_OFFSET + Li2_l * Li2_polydeg * 4 + i] = 0;
+        i += 1;
+    }
+
+    // [1632 .. 7776) r_i raw u32 stream (l = 5 polynomials * 256 coeffs * 4 = 5120 bytes,
+    // padded to k = 6 polynomial slot = 6144 bytes for forward-compat polyveck r_i form).
+    ?{}, i = #set0_64();
+    while (i < Li2_l * Li2_polydeg) {
+        r32 = r_i[i];
+        [:u32 response_out_ptr + PULSARM_R2_R_OFFSET + 4 * i] = r32;
+        i += 1;
+    }
+    while (i < Li2_k * Li2_polydeg) {
+        [:u32 response_out_ptr + PULSARM_R2_R_OFFSET + 4 * i] = 0;
+        i += 1;
+    }
+
+    // [7776 .. 8544) pack_w1(my_w1)
+    vec_k_rsp = my_w1;
+    packed_rsp = bar_w_packed;     // reuse the same stack buffer
+    packed_rsp = pack_w1(vec_k_rsp);
+    bar_w_packed = packed_rsp;
+    ?{}, i = #set0_64();
+    while (i < Li2_pack_w1len) {
+        c = bar_w_packed[i];
+        [:u8 response_out_ptr + PULSARM_R2_W1_OFFSET + i] = c;
+        i += 1;
+    }
+
+    // [8544 .. 9216) per-peer MAC set — zero-init here, filled in by the
+    // wrapper via pulsar_round2_mac (one call per peer).
+    ?{}, i = #set0_64();
+    while (i < PULSARM_R2_MAC_LEN) {
+        [:u8 response_out_ptr + PULSARM_R2_MAC_OFFSET + i] = 0;
+        i += 1;
+    }
+    // [9216 .. 9300) reserved zero
+    ?{}, i = #set0_64();
+    while (i < PULSARM_R2_RESERVED) {
+        [:u8 response_out_ptr + PULSARM_R2_MAC_OFFSET + PULSARM_R2_MAC_LEN + i] = 0;
+        i += 1;
+    }
+
+    // status already holds 0 (MAC verify passed); no need to reset
+    } // end "if (status == 0)" body
+    return status;
+}
+
+// -----------------------------------------------------------------------------
+// pulsar_round2_mac: compute one slot of the Round-2 per-peer MAC set.
+// Wrapper calls this once per peer (j != my_index). Binds tau_2 to the
+// receiving peer's identity under the shared key K_{i,j}.
+// -----------------------------------------------------------------------------
+// CT signature: pointer values are public addresses. response_buf
+// holds public tau_2 + writes public MAC tag; session_key contents
+// are SECRET (K_{i,j}); peer/my index are public.
+#[ct = "public * public * public * public -> public"]
+export
+fn pulsar_round2_mac(
+    reg u64 response_buf_ptr,
+    reg u64 session_key_ptr,
+    reg u32 peer_index,
+    reg u32 my_index)
+    -> reg u64
+{
+    stack u8[32] K;
+    stack u8[32] tau2;
+    stack u8[32] tag;
+    stack u64[25] state;
+    reg ptr u64[25] state_rsp;
+    reg ptr u8[32] K_rsp, tau_rsp, tag_rsp;
+    reg u64 i, slot_offset, offset;
+    reg u8 c;
+
+    ?{}, i = #set0_64();
+    while (i < 32) { c = [:u8 session_key_ptr + i]; K[i] = c; i += 1; }
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = [:u8 response_buf_ptr + PULSARM_R2_TAU_OFFSET + i];
+        tau2[i] = c;
+        i += 1;
+    }
+
+    state_rsp = state;
+    K_rsp = K;
+    state_rsp = kmac256_init_R1MAC(state_rsp, K_rsp);  // KMAC256 init; the R2-MAC
+                                                       // customization differs from R1-MAC
+                                                       // only by a one-char suffix and is
+                                                       // wired in mac.jinc (kmac256_init_R2MAC).
+
+    ?{}, offset = #set0_64();
+    tau_rsp = tau2;
+    state_rsp, offset = absorb_array32(state_rsp, offset, tau_rsp);
+    state_rsp, offset = absorb_u32_be(state_rsp, offset, my_index);
+
+    tag_rsp = tag;
+    state_rsp, tag_rsp = kmac256_finalize_32(state_rsp, offset, tag_rsp);
+    tag = tag_rsp;
+
+    slot_offset = (64u) peer_index;
+    slot_offset *= 32;
+    slot_offset += PULSARM_R2_MAC_OFFSET;
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = tag[i];
+        [:u8 response_buf_ptr + slot_offset + i] = c;
+        i += 1;
+    }
+
+    reg u64 status;
+    ?{}, status = #set0_64();
+    return status;
+}

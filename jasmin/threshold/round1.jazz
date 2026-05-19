@@ -1,0 +1,441 @@
+// Pulsar Round-1 - per-party commit message.
+//
+// Reference: spec/pulsar-m.tex Algorithm "Sign Round 1 (party i, attempt
+// kappa)" (Algorithm alg:sign-r1). Mirrors ref/go/pkg/pulsar/threshold.go
+// ThresholdSigner.Round1 semantics.
+//
+// -----------------------------------------------------------------------------
+// Algorithm
+// -----------------------------------------------------------------------------
+//
+// Inputs (in order):
+//   share       - this party's polyvecl secret share s_i (secret).
+//                 Layout: Li2_l polynomials, each Li2_polydeg u32
+//                 coefficients in F_q canonical form.
+//   blind       - this party's polyvecl Pedersen-blinding share u_i
+//                 (secret). Same layout as share.
+//   randomness  - 32 bytes of PRNG key material K_i^prng (secret).
+//                 In production: a KMS-backed long-lived key. For KAT
+//                 runs: a deterministic seed.
+//   session_id  - 16-byte session id (public).
+//   attempt     - u32 attempt counter kappa (public).
+//   my_node_id  - 32-byte node id of this party (public).
+//   pk_seed     - 32-byte ML-DSA-65 public-key seed rho (public).
+//   mu          - 64-byte FIPS 204 message hash binder (public).
+//
+// Outputs:
+//   commit_out (PULSARM_COMMIT_BYTES = 1952 bytes):
+//     [0    .. 32)   D_i = cSHAKE256(pack_w1(w1_i), "PULSAR-SIGN-R1-V1")
+//     [32   .. 800)  pack_w1(w1_i)  (Li2_pack_w1len = 768)
+//     [800  .. 1472) per-peer MAC set (zero-initialised here; the
+//                    wrapper fills slot j with KMAC(K_{i,j}, D_i||tau,
+//                    "PULSAR-SIGN-R1-MAC-V1") via pulsar_round1_mac)
+//     [1472 .. 1504) tau1_digest (32 bytes)
+//     [1504 .. 1952) reserved zero (448 bytes)
+//
+//   y_state_out (PULSARM_Y_STATE_BYTES = 17408 bytes):
+//     [0     .. 5120)   y_i  (Li2_l polys, 256 u32 coeffs each)
+//     [5120  .. 11264)  w_i  (Li2_k polys, 256 u32 coeffs each)
+//     [11264 .. 17408)  w1_i (Li2_k polys, 256 u32 coeffs each)
+//
+// Constant-time obligations:
+//   - Time and memory-access patterns independent of share, blind,
+//     randomness. (Round-1 itself only touches `randomness`; share /
+//     blind are passed through unchanged for symmetry with Round-2.)
+//   - Polynomial sampling uses libjade's CT-proven expandMask.
+//   - MACs use libjade's keccakf1600 + this layer's CT KMAC256.
+//
+// Note on scaffold-vs-real signatures:
+//   The original scaffold's Round-1 signature was incomplete (no
+//   pk_seed, no mu, no node id, no Pedersen-blinding share). We extend
+//   the input set with the additional PUBLIC values required to
+//   actually compute the round.  The high-level (commit, y_state)
+//   return shape is preserved.
+
+require "../lib/pulsar_params.jinc"
+require "../lib/seed.jinc"
+require "../lib/transcript.jinc"
+require "../lib/mac.jinc"
+
+// libjade Dilithium3-ref single-party kernel.
+from Jade require "crypto_sign/dilithium/dilithium3/amd64/ref/params.jinc"
+from Jade require "crypto_sign/dilithium/dilithium3/amd64/ref/common.jinc"
+from Jade require "crypto_sign/dilithium/dilithium3/amd64/ref/packing.jinc"
+
+// Compute D_i = cSHAKE256(pack_w1(w1_i), 32, "Pulsar",
+// "PULSAR-SIGN-R1-V1") - the Round-1 commit digest.
+inline
+fn round1_commit_digest(
+    reg ptr u8[Li2_pack_w1len] w1_packed,
+    reg ptr u8[32] D_out)
+    -> reg ptr u8[32]
+{
+    stack u64[25] state;
+    reg ptr u64[25] state_rsp;
+    reg u64 offset;
+    reg u64 i;
+    reg u8 c;
+
+    state_rsp = state;
+    state_rsp, offset = cshake256_absorb_prelude_R1(state_rsp);
+
+    ?{}, i = #set0_64();
+    while (i < Li2_pack_w1len) {
+        c = w1_packed[i];
+        state_rsp, offset = absorb_one_byte(state_rsp, offset, c);
+        i += 1;
+    }
+
+    state_rsp = cshake256_finalize(state_rsp, offset);
+
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = state_rsp[:u8 i];
+        D_out[i] = c;
+        i += 1;
+    }
+    return D_out;
+}
+
+// Compute tau_1 = cSHAKE256("PULSAR-SIGN-R1-V1") over:
+//   session_id || attempt(BE32) || my_node_id || pk_seed || mu
+inline
+fn round1_tau1_digest(
+    reg ptr u8[16] sid,
+    reg u32 attempt,
+    reg ptr u8[32] my_node_id,
+    reg ptr u8[32] pk_seed,
+    reg ptr u8[64] mu,
+    reg ptr u8[32] tau_out)
+    -> reg ptr u8[32]
+{
+    stack u64[25] state;
+    reg ptr u64[25] state_rsp;
+    reg u64 offset;
+    reg u64 i;
+    reg u8 c;
+
+    state_rsp = state;
+    state_rsp, offset = cshake256_absorb_prelude_R1(state_rsp);
+
+    state_rsp, offset = absorb_array16(state_rsp, offset, sid);
+    state_rsp, offset = absorb_u32_be(state_rsp, offset, attempt);
+    state_rsp, offset = absorb_array32(state_rsp, offset, my_node_id);
+    state_rsp, offset = absorb_array32(state_rsp, offset, pk_seed);
+    state_rsp, offset = absorb_array64(state_rsp, offset, mu);
+
+    state_rsp = cshake256_finalize(state_rsp, offset);
+
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = state_rsp[:u8 i];
+        tau_out[i] = c;
+        i += 1;
+    }
+    return tau_out;
+}
+
+// Pulsar Round-1 entry point. The function signature extends the
+// original scaffold with the additional public inputs (blind share,
+// my_node_id, pk_seed, mu) required to actually compute Round-1.
+// The CT discipline is preserved over (share, blind, randomness).
+//
+// Returns 0 on success. The output buffer is laid out as
+// [PULSARM_COMMIT_BYTES commit][PULSARM_Y_STATE_BYTES y_state] starting
+// at `outputs_ptr`. Public inputs are packed into a single 144-byte
+// blob at `public_inputs_ptr` with layout [sid:16][my_node_id:32]
+// [pk_seed:32][mu:64]. Secrets stay as separate pointers so the
+// caller does not have to memcpy them.
+//
+// Six register parameters total, fitting the x86_64 SysV ABI.
+//
+// CT signature: pointer values themselves are PUBLIC (they're just
+// addresses used for memory loads/stores — leaking an address is OK
+// here, the secrets are the *contents*). The attempt counter is
+// PUBLIC. The return is a PUBLIC status code.
+//
+// The pointed-to data carries its own secrecy level: share/blind/
+// randomness are SECRET in the cryptographic-content sense, but the
+// loads from those buffers go into stack arrays which carry the
+// secrecy forward. The public_inputs blob (sid, my_node_id, pk_seed,
+// mu) is loaded into stack arrays that flow into expandA / KMAC and
+// must be PUBLIC by the FIPS 204 + Pulsar-protocol spec; we mark
+// those explicitly via #public on the stack arrays where needed.
+#[ct = "public * public * public * public * public * public -> public"]
+export fn pulsar_round1_commit(
+    reg u64 share_ptr,
+    reg u64 blind_ptr,
+    reg u64 randomness_ptr,
+    reg u64 public_inputs_ptr,
+    reg u32 attempt,
+    reg u64 outputs_ptr)
+    -> reg u64
+{
+    // Derived output pointers within outputs_ptr.
+    reg u64 commit_out_ptr;
+    reg u64 y_state_out_ptr;
+    commit_out_ptr = outputs_ptr;
+    y_state_out_ptr = outputs_ptr;
+    y_state_out_ptr += PULSARM_COMMIT_BYTES;
+
+    // Stack workspace
+    stack u8[16] sid;
+    stack u8[32] node_id;
+    stack u8[32] pk_seed;
+    stack u8[64] mu;
+    stack u8[32] randomness;
+    stack u8[64] rho_prime;
+    stack u8[32] tau1_digest;
+    stack u8[Li2_pack_w1len] w1_packed;
+    stack u8[32] D_i;
+    stack u32[Li2_l * Li2_polydeg] y_i;
+    stack u32[Li2_l * Li2_polydeg] fft_y_i;
+    stack u32[Li2_k * Li2_l * Li2_polydeg] fft_matA;
+    stack u32[Li2_k * Li2_polydeg] w_i;
+    stack u32[Li2_k * Li2_polydeg] w0_i;
+    stack u32[Li2_k * Li2_polydeg] w1_i;
+    stack u16 nonce_local;
+    reg u16 nonce_reg;
+    reg u64 i;
+    // Separate scratch bytes for the public-input copy loops (sid,
+    // node_id, pk_seed, mu) versus the secret randomness copy loop.
+    // Sharing `c` across all five would make jasmin-ct join its level
+    // to `secret` (from the randomness load), tainting pk_seed et al.
+    reg u8  c;
+    reg u8  c_sec;
+    reg u32 r32;
+
+    reg ptr u8[16] sid_rsp;
+    reg ptr u8[32] node_id_rsp;
+    reg ptr u8[32] pk_seed_rsp;
+    reg ptr u8[64] mu_rsp;
+    reg ptr u8[32] randomness_rsp;
+    reg ptr u8[64] rho_prime_rsp;
+    reg ptr u8[32] tau1_rsp;
+    reg ptr u8[32] D_rsp;
+    reg ptr u8[Li2_pack_w1len] w1_rsp;
+
+    // ---- 1. Copy inputs into stack workspace ----
+    // Public inputs blob layout: [sid:16][node_id:32][pk_seed:32][mu:64]
+    ?{}, i = #set0_64();
+    while (i < 16) { c = [:u8 public_inputs_ptr + i];       sid[i] = c;        i += 1; }
+    ?{}, i = #set0_64();
+    while (i < 32) { c = [:u8 public_inputs_ptr + 16 + i];  node_id[i] = c;    i += 1; }
+    ?{}, i = #set0_64();
+    while (i < 32) { c = [:u8 public_inputs_ptr + 48 + i];  pk_seed[i] = c;    i += 1; }
+    ?{}, i = #set0_64();
+    while (i < 64) { c = [:u8 public_inputs_ptr + 80 + i];  mu[i] = c;         i += 1; }
+    ?{}, i = #set0_64();
+    while (i < 32) { c_sec = [:u8 randomness_ptr + i];      randomness[i] = c_sec; i += 1; }
+
+    // The four public-spec arrays loaded above (sid, node_id,
+    // pk_seed, mu) flow into expandA / KMAC absorb contexts that the
+    // FIPS 204 + Pulsar protocol treats as public. Mark them public
+    // explicitly so jasmin-ct's flow inference does not back-propagate
+    // secrecy from subsequent (intentionally-declassified) uses.
+    #declassify(sid);
+    #declassify(node_id);
+    #declassify(pk_seed);
+    #declassify(mu);
+
+    // ---- 2. Derive rho_prime_i via KMAC(K, tau_1, "PULSAR-SIGN-PRNG-V1") ----
+    randomness_rsp = randomness;
+    sid_rsp        = sid;
+    node_id_rsp    = node_id;
+    pk_seed_rsp    = pk_seed;
+    mu_rsp         = mu;
+    rho_prime_rsp  = rho_prime;
+    rho_prime_rsp = derive_rho_prime(
+        randomness_rsp, sid_rsp, attempt,
+        node_id_rsp, pk_seed_rsp, mu_rsp,
+        rho_prime_rsp);
+    rho_prime = rho_prime_rsp;
+
+    // ---- 3. Sample y_i = expandMask(rho_prime, nonce = attempt) ----
+    rho_prime_rsp = rho_prime;
+    nonce_local = (16u) attempt;
+    nonce_reg = nonce_local;
+    y_i = expandMask(rho_prime_rsp, nonce_reg);
+
+    // ---- 4. Expand public matrix A from pk_seed ----
+    fft_matA = expandA(pk_seed);
+
+    // ---- 5. Compute w_i = A * y_i in NTT domain, then bring back ----
+    fft_y_i = deep_copy_vecl(y_i);
+    fft_y_i = fft_vec(fft_y_i);
+    w_i = mult_mat_vec(fft_matA, fft_y_i);
+    w_i = reduce32_veck(w_i);
+    w_i = ifft_to_mont_vec(w_i);
+    w_i = polyveck_caddq(w_i);
+
+    // ---- 6. Decompose w_i = w1_i * 2*gamma2 + w0_i ----
+    w0_i, w1_i = decompose_vec(w_i);
+    w1_rsp = w1_packed;
+    w1_rsp = pack_w1(w1_i);
+    w1_packed = w1_rsp;
+
+    // ---- 7. Compute tau1_digest ----
+    sid_rsp     = sid;
+    node_id_rsp = node_id;
+    pk_seed_rsp = pk_seed;
+    mu_rsp      = mu;
+    tau1_rsp    = tau1_digest;
+    tau1_rsp = round1_tau1_digest(
+        sid_rsp, attempt, node_id_rsp, pk_seed_rsp, mu_rsp, tau1_rsp);
+    tau1_digest = tau1_rsp;
+
+    // ---- 8. Compute D_i = cSHAKE256(pack_w1(w1_i)) ----
+    w1_rsp = w1_packed;
+    D_rsp = D_i;
+    D_rsp = round1_commit_digest(w1_rsp, D_rsp);
+    D_i = D_rsp;
+
+    // ---- 9. Write commit_out ----
+    // [0..32)
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = D_i[i];
+        [:u8 commit_out_ptr + i] = c;
+        i += 1;
+    }
+    // [32..800)
+    ?{}, i = #set0_64();
+    while (i < Li2_pack_w1len) {
+        c = w1_packed[i];
+        [:u8 commit_out_ptr + PULSARM_R1_W1_OFFSET + i] = c;
+        i += 1;
+    }
+    // [800..1472) MAC slots - zero. The wrapper fills these via
+    // pulsar_round1_mac once per peer.
+    ?{}, i = #set0_64();
+    while (i < PULSARM_R1_MAC_LEN) {
+        [:u8 commit_out_ptr + PULSARM_R1_MAC_OFFSET + i] = 0;
+        i += 1;
+    }
+    // [1472..1504) tau1_digest
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = tau1_digest[i];
+        [:u8 commit_out_ptr + PULSARM_R1_TAU_OFFSET + i] = c;
+        i += 1;
+    }
+    // [1504..1952) reserved zero
+    ?{}, i = #set0_64();
+    while (i < PULSARM_R1_RESERVED) {
+        [:u8 commit_out_ptr + PULSARM_R1_TAU_OFFSET + PULSARM_R1_TAU_LEN + i] = 0;
+        i += 1;
+    }
+
+    // ---- 10. Write y_state_out ----
+    // y_i (l polys, 4 bytes per coeff, little-endian)
+    ?{}, i = #set0_64();
+    while (i < Li2_l * Li2_polydeg) {
+        r32 = y_i[i];
+        [:u8 y_state_out_ptr + 4*i + 0] = (8u)(r32 >>  0);
+        [:u8 y_state_out_ptr + 4*i + 1] = (8u)(r32 >>  8);
+        [:u8 y_state_out_ptr + 4*i + 2] = (8u)(r32 >> 16);
+        [:u8 y_state_out_ptr + 4*i + 3] = (8u)(r32 >> 24);
+        i += 1;
+    }
+    // w_i (k polys)
+    ?{}, i = #set0_64();
+    while (i < Li2_k * Li2_polydeg) {
+        r32 = w_i[i];
+        [:u8 y_state_out_ptr + 4*(Li2_l*Li2_polydeg) + 4*i + 0] = (8u)(r32 >>  0);
+        [:u8 y_state_out_ptr + 4*(Li2_l*Li2_polydeg) + 4*i + 1] = (8u)(r32 >>  8);
+        [:u8 y_state_out_ptr + 4*(Li2_l*Li2_polydeg) + 4*i + 2] = (8u)(r32 >> 16);
+        [:u8 y_state_out_ptr + 4*(Li2_l*Li2_polydeg) + 4*i + 3] = (8u)(r32 >> 24);
+        i += 1;
+    }
+    // w1_i (k polys)
+    ?{}, i = #set0_64();
+    while (i < Li2_k * Li2_polydeg) {
+        r32 = w1_i[i];
+        [:u8 y_state_out_ptr + 4*((Li2_l + Li2_k)*Li2_polydeg) + 4*i + 0] = (8u)(r32 >>  0);
+        [:u8 y_state_out_ptr + 4*((Li2_l + Li2_k)*Li2_polydeg) + 4*i + 1] = (8u)(r32 >>  8);
+        [:u8 y_state_out_ptr + 4*((Li2_l + Li2_k)*Li2_polydeg) + 4*i + 2] = (8u)(r32 >> 16);
+        [:u8 y_state_out_ptr + 4*((Li2_l + Li2_k)*Li2_polydeg) + 4*i + 3] = (8u)(r32 >> 24);
+        i += 1;
+    }
+
+    // Touch share/blind to satisfy the linker (they're passed through
+    // for the higher-level driver; Round-1 itself does not consume
+    // them).
+    c = [:u8 share_ptr];
+    c = [:u8 blind_ptr];
+
+    reg u64 status;
+    ?{}, status = #set0_64();
+    return status;
+}
+
+// Per-peer MAC emission.
+//
+// Computes MAC_{i->j} = KMAC256(K_{i,j}, D_i || tau_1, 32,
+// "PULSAR-SIGN-R1-MAC-V1") and writes the 32-byte tag into slot
+// peer_index of commit_buf's per-peer MAC region.
+//
+// The caller is expected to call this once per peer j != i after
+// pulsar_round1_commit has populated commit_buf[0..32) (= D_i) and
+// commit_buf[1472..1504) (= tau1_digest).
+// CT signature: pointer values are public addresses (no
+// secret-address branching). The pointed-to session key K_{i,j} is
+// SECRET; the commit_buf contents (D_i + tau1) are public-by-Round-1-
+// protocol (they're already on the wire). peer_index is public.
+#[ct = "public * public * public -> public"]
+export fn pulsar_round1_mac(
+    reg u64 session_key_ptr,    // *u8[32] K_{i,j} (secret contents)
+    reg u64 commit_buf_ptr,     // *u8[PULSARM_COMMIT_BYTES] (public contents)
+    reg u32 peer_index)
+    -> reg u64
+{
+    stack u8[32] K;
+    stack u8[32] D_i;
+    stack u8[32] tau1;
+    stack u8[32] tag;
+    stack u64[25] state;
+    reg ptr u64[25] state_rsp;
+    reg ptr u8[32] K_rsp, D_rsp, tau_rsp, tag_rsp;
+    reg u64 i, slot_offset, offset;
+    reg u8 c;
+
+    // Load session key, D_i, tau1.
+    ?{}, i = #set0_64();
+    while (i < 32) { c = [:u8 session_key_ptr + i];                              K[i]   = c; i += 1; }
+    ?{}, i = #set0_64();
+    while (i < 32) { c = [:u8 commit_buf_ptr + PULSARM_R1_D_OFFSET   + i];       D_i[i] = c; i += 1; }
+    ?{}, i = #set0_64();
+    while (i < 32) { c = [:u8 commit_buf_ptr + PULSARM_R1_TAU_OFFSET + i];       tau1[i]= c; i += 1; }
+
+    // KMAC256 init for PULSAR-SIGN-R1-MAC-V1 + absorb K.
+    state_rsp = state;
+    K_rsp     = K;
+    state_rsp = kmac256_init_R1MAC(state_rsp, K_rsp);
+
+    // Absorb message X = D_i || tau1 (64 bytes total).
+    ?{}, offset = #set0_64();
+    D_rsp = D_i;
+    tau_rsp = tau1;
+    state_rsp, offset = absorb_array32(state_rsp, offset, D_rsp);
+    state_rsp, offset = absorb_array32(state_rsp, offset, tau_rsp);
+
+    // Finalise + squeeze 32 bytes.
+    tag_rsp = tag;
+    state_rsp, tag_rsp = kmac256_finalize_32(state_rsp, offset, tag_rsp);
+    tag = tag_rsp;
+
+    // Write tag into commit_buf at peer_index slot.
+    slot_offset = (64u) peer_index;
+    slot_offset *= 32;
+    slot_offset += PULSARM_R1_MAC_OFFSET;
+    ?{}, i = #set0_64();
+    while (i < 32) {
+        c = tag[i];
+        [:u8 commit_buf_ptr + slot_offset + i] = c;
+        i += 1;
+    }
+
+    reg u64 status;
+    ?{}, status = #set0_64();
+    return status;
+}
