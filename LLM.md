@@ -203,15 +203,15 @@ FIPS 204 signature on the same message + public key.
 
 ## Where to look for X
 
-- Keygen / sign / verify (single-party): `ref/go/pkg/pulsarm/keygen.go`,
+- Keygen / sign / verify (single-party): `ref/go/pkg/pulsar/keygen.go`,
   `sign.go`, `verify.go`.
-- 2-round threshold sign: `ref/go/pkg/pulsarm/threshold.go`
-- Epoch DKG (identifiable abort): `ref/go/pkg/pulsarm/dkg.go`
-- Proactive reshare (beacon randomization): `ref/go/pkg/pulsarm/reshare.go`
-- Small-committee Shamir (GF(257)): `ref/go/pkg/pulsarm/shamir.go`
-- Large-committee Shamir (GF(q)): `ref/go/pkg/pulsarm/shamir_gfq.go`,
+- 2-round threshold sign: `ref/go/pkg/pulsar/threshold.go`
+- Epoch DKG (identifiable abort): `ref/go/pkg/pulsar/dkg.go`
+- Proactive reshare (beacon randomization): `ref/go/pkg/pulsar/reshare.go`
+- Small-committee Shamir (GF(257)): `ref/go/pkg/pulsar/shamir.go`
+- Large-committee Shamir (GF(q)): `ref/go/pkg/pulsar/shamir_gfq.go`,
   `largeshamir.go`
-- Field auto-selection logic: `ref/go/pkg/pulsarm/types.go:resolveField`
+- Field auto-selection logic: `ref/go/pkg/pulsar/types.go:resolveField`
 - KAT vectors: `vectors/`
 - LaTeX submission spec: `spec/pulsar-m.tex` (full; not a stub),
   `spec/parameters.tex`, `spec/system-model.tex`, `spec/security-games.tex`
