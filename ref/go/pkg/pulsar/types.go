@@ -132,9 +132,97 @@ type KeyShare struct {
 // FIPS 204 §7.2 (Algorithm 28 sigEncode); no Pulsar envelope is
 // applied. A relying party that can verify ML-DSA can verify a
 // Pulsar Signature with no code change.
+//
+// Trust-model note for the threshold path: Combine() briefly
+// reconstructs the master ML-DSA secret key in the aggregator's
+// memory before calling FIPS 204 sign. This is byte-equal to a
+// non-threshold ML-DSA-65 signature by construction (that is the
+// whole point — relying parties verify with stock FIPS 204), but
+// the aggregator MUST run inside a hardware enclave for the
+// post-quantum guarantee to hold against the aggregator host.
+// Production deployments populate Attestation with the SGX/SEV/TDX
+// quote covering the reconstruction window; relying parties that
+// distrust the aggregator host MUST check Attestation in addition
+// to ML-DSA Verify. The signature bytes alone are not evidence
+// that the reconstruction was enclave-confined.
 type Signature struct {
 	Mode  Mode
 	Bytes []byte
+
+	// Attestation is the optional TEE evidence covering the
+	// aggregator's Combine() reconstruction. nil when the aggregator
+	// ran outside a TEE (single-tenant operator, dev/test, or a
+	// deployment where the trust model places the aggregator inside
+	// the TCB by policy). When non-nil this is a vendor quote
+	// (Intel SGX DCAP, AMD SEV-SNP attestation report, ARM CCA token,
+	// or a TDX quote) over a transcript hash that binds:
+	//   sid || attempt || quorum || groupPubkey || message ||
+	//   SHA3-256(reconstructed_sk_lifetime_marker)
+	// The exact attestation envelope is platform-specific; relying
+	// parties verify the quote against the platform CA and then
+	// match the report-data binding.
+	Attestation *TEEAttestation
+}
+
+// TEEAttestation carries a hardware-enclave attestation quote that
+// covers the aggregator's Combine() reconstruction window.
+//
+// The signature bytes themselves are stock FIPS 204 ML-DSA — a
+// relying party can verify them with any conformant implementation.
+// The TEE attestation is an INDEPENDENT layer that lets a relying
+// party who does not trust the aggregator host (only the TEE
+// vendor) confirm that the brief master-key reconstruction inside
+// Combine() happened in an enclave with measured code, sealed
+// memory, and no key egress.
+//
+// Without this attestation the threshold's post-quantum guarantee
+// degrades to "trust the aggregator host" for the duration of the
+// reconstruction call — typically <1 ms on the master path, but
+// long enough for a memory-snooping coresident attacker to exfil
+// the ML-DSA sk if the aggregator host is compromised. The TEE
+// closes that window.
+type TEEAttestation struct {
+	// Platform is the TEE family that produced Quote.
+	//   "sgx-dcap"     — Intel SGX Data Center Attestation Primitives
+	//   "sev-snp"      — AMD SEV-SNP attestation report
+	//   "tdx"          — Intel TDX quote
+	//   "cca"          — ARM Confidential Compute Architecture token
+	//   "nitro"        — AWS Nitro Enclaves attestation document
+	// Relying parties that do not recognise Platform MUST refuse the
+	// signature (fail-closed); never silently downgrade to "no TEE".
+	Platform string
+
+	// Quote is the raw vendor-formatted attestation evidence. Its
+	// internal layout is platform-specific; relying parties parse it
+	// with the platform's verification library (e.g. Intel TGX/QVL,
+	// AMD's snpguest, AWS nitro-cli). The relying party MUST verify
+	// the quote against the platform's trust anchor (root CA) before
+	// trusting any field inside it.
+	Quote []byte
+
+	// ReportData is the 64-byte (SGX/TDX) or 32-byte (SEV-SNP) field
+	// inside Quote that this aggregator bound to. It is computed as
+	// SHA3-256 (truncated/padded to the platform's slot width) of:
+	//   sid || attempt || groupPubkey || message ||
+	//   sha3-256("pulsar-combine-window-v1")
+	// Relying parties recompute ReportData from the signature
+	// envelope and refuse the signature if it does not match the
+	// value inside Quote — this is what binds the attestation to
+	// THIS signing event rather than some other event the same
+	// enclave attested to earlier.
+	ReportData []byte
+
+	// EnclaveMeasurement is the platform's code-identity hash for
+	// the aggregator binary. Relying parties pin the expected
+	// measurement out-of-band (governance vote, signed allowlist,
+	// hardware-rooted manifest); the attestation only proves the
+	// reconstruction was inside SOME enclave at that measurement.
+	// Whether that measurement is acceptable is the relying party's
+	// policy.
+	//   SGX: MRENCLAVE (32 bytes)
+	//   SEV-SNP: MEASUREMENT (48 bytes)
+	//   TDX: MRTD (48 bytes)
+	EnclaveMeasurement []byte
 }
 
 // Round1Message is the broadcast emitted by ThresholdSigner.Round1.

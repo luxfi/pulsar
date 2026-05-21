@@ -232,7 +232,16 @@ func (s *DKGSession) Round1() (*DKGRound1Msg, error) {
 	}
 	stream := cshake256(keyMaterial, streamLen, tagSeedShare)
 
-	shares, err := shamirDealRandom(s.myContribution, len(s.Committee), s.Threshold, stream)
+	// Per-party polynomial evaluation runs through the backend-dispatched
+	// path (dkg_gpu.go). Defaults to the byte-identical CPU path; switches
+	// to a parallel byte-slot fan-out when the runtime resolves to GPU and
+	// the input shape clears the dispatch threshold. Output is byte-equal
+	// to the historical reference (proved by TestDKG_GPU_ByteEqual).
+	var gf [SeedSize]uint16
+	for b := 0; b < SeedSize; b++ {
+		gf[b] = uint16(s.myContribution[b])
+	}
+	shares, err := shamirDealRandomGFAccel(gf, len(s.Committee), s.Threshold, stream)
 	if err != nil {
 		return nil, err
 	}
