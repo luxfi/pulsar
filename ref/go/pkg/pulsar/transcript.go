@@ -60,6 +60,14 @@ const (
 	tagExpandB       = "PULSAR-EXPANDB-V1"
 	tagComplaint     = "PULSAR-COMPLAINT-V1"
 	tagSeedShare     = "PULSAR-SEED-SHARE-V1"
+	// tagCombineWindow: scopes the 64-byte report-data that the
+	// aggregator binds into a TEE attestation quote covering the
+	// Combine() reconstruction window. Domain-separated from every
+	// other Pulsar transcript tag so a quote attesting to (say) a
+	// DKG ceremony or a key resharing cannot be replayed as proof
+	// of a Combine reconstruction with a chosen (sid, attempt,
+	// groupPubkey, message). See threshold.go CombineReportData.
+	tagCombineWindow = "PULSAR-COMBINE-WINDOW-V1"
 )
 
 // functionName is the SP 800-185 cSHAKE function-name parameter.
