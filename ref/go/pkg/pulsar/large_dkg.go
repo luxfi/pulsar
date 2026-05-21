@@ -182,7 +182,9 @@ func (s *LargeDKGSession) Round1() (*LargeDKGRound1Msg, error) {
 	}
 	stream := cshake256(keyMaterial, streamLen, tagSeedShare)
 
-	shares, err := shamirDealRandomQ(s.myContribution, len(s.Committee), s.Threshold, stream)
+	// Backend-dispatched GF(q) Shamir; byte-equal to shamirDealRandomQ.
+	// See dkg_gpu.go for the dispatch policy.
+	shares, err := shamirDealRandomQAccel(s.myContribution, len(s.Committee), s.Threshold, stream)
 	if err != nil {
 		return nil, err
 	}
