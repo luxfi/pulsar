@@ -119,20 +119,24 @@ encoding differs) but byte-equivalent at the output (final FIPS 204
 signature is identical). Coordinated validator-set rollover is
 required.
 
-## v0.2 algebraic threshold — public-BFT path
+## v0.2 transitional threshold — trust model
 
-> **Status (v1.0.13)**: v0.2 wire shape ships in
-> `ref/go/pkg/pulsar/threshold_v02.go`. The protocol surface
-> implements the FROST-for-FSwA flow: parties hold polynomial-vector
-> Shamir shares of `(s_1, s_2, t_0)` over GF(q) (not seed shares),
+> **Status (v1.0.14)**: v0.2 ships in
+> `ref/go/pkg/pulsar/threshold_v02.go` under the **Transitional**
+> name. The wire protocol is honestly algebraic — parties hold
+> polynomial-vector Shamir shares of `(s_1, s_2, t_0)` over GF(q),
 > Round 1 commits `w_i = A·y_i`, an intermediate `w`-reveal pass
 > exchanges per-party `w_i` under MAC, Round 2 contributes
-> `(z_i, cs2_i, ct0_i)` algebraically, and `AlgebraicCombine`
-> aggregates after verifying every commit-bind and Round-2 MAC.
+> `(z_i, cs2_i, ct0_i)` algebraically. **The aggregator side is NOT
+> yet algebraic**: `TransitionalAggregate` validates every
+> commit-bind and MAC, then calls `mldsa{44,65,87}.SignTo` against
+> the master sk packed in `TransitionalSetup.SkBytes`. This is the
+> v0.2 honesty caveat the rename from `Algebraic*` to
+> `Transitional*` exists to declare.
 
 ### Two paths, two trust models
 
-Pulsar v1.0.13 ships **both** trust-model targets in parallel:
+Pulsar v1.0.14 ships **both** trust-model targets in parallel:
 
 - **v0.1 reveal-and-aggregate path** — `pulsar.Combine` in
   `ref/go/pkg/pulsar/threshold.go`. The aggregator briefly
@@ -142,65 +146,107 @@ Pulsar v1.0.13 ships **both** trust-model targets in parallel:
   funds-bearing networks; the aggregator process is in the trusted
   computing base for the duration of one sign call.
 
-- **v0.2 algebraic-threshold path** — `pulsar.AlgebraicCombine` in
-  `ref/go/pkg/pulsar/threshold_v02.go`. The protocol-side wire shape
-  is the FROST-for-FSwA structure with polynomial-vector shares as
-  the carrier. Parties never hold the master seed in any form. **At
-  the inner sign step the current v1.0.13 implementation invokes
-  `mldsa{44,65,87}.SignTo` via the `AlgebraicSetup.SkBytes` field;
-  see the file header status block for the v0.3 work that closes
-  this transitional gap.** The wire shape, share distribution,
-  Round-1 commitments, intermediate `w`-reveal, and Round-2 MACs are
-  all production-grade and exercised by the test suite.
+- **v0.2 transitional path** — `pulsar.TransitionalAggregate` in
+  `ref/go/pkg/pulsar/threshold_v02.go`. The protocol-side wire
+  shape is FROST-for-FSwA with polynomial-vector shares as the
+  carrier; parties never broadcast a share of the master seed in
+  any form. **The aggregator side still holds the master sk** via
+  `TransitionalSetup.SkBytes` and signs with it — the per-party
+  `(Z, CS2, CT0)` contributions are validated for commit-bind /
+  MAC integrity but are NOT consumed by the inner sign step. The
+  aggregator TCB at sign time is identical to v0.1; only the
+  parties' side of the protocol is honestly algebraic.
+  `TransitionalAggregate` enforces `len(setup.SkBytes) > 0` —
+  `TestTransitional_DependsOnSkBytes` pins this in code as the
+  load-bearing v0.3 graduation criterion.
 
-### Public-BFT custody choice
+### v0.2 trust model — when is it safe to deploy?
 
-The v0.2 path is the **target** for public-BFT custody surfaces (Lux
-consensus quorums where no single operator can be assumed in the TCB).
-While the v0.3 work to remove the transitional `SkBytes` field is in
-flight, integrators MUST choose between:
+`TransitionalAggregate` IS safe to deploy when:
 
-1. **v0.1 with TEE attestation** — production-ready today; operator
-   sign-off on the TEE requirement is on file.
-2. **v0.2 wire-shape adoption** — production-deploy the protocol
-   surface today (the consensus-layer message routing, share
-   directory, and commit-and-reveal exchange match v0.3 byte-for-
-   byte); the inner sign step delegates to the v0.1 reconstruction
-   path **at the aggregator role only**, gated behind the same TEE
-   requirement until v0.3 ships. Adopters get the v0.2 wire-shape
-   migration done; the v0.3 inner-sign swap is a drop-in replacement
-   that preserves the message flow and test vectors.
+1. The aggregator host is **already in the TCB by other means**
+   (TEE attestation pinned to a reproducible Pulsar build; HSM-
+   custody; single-operator deployment where the operator already
+   sees all key material).
+2. M-Chain bridge custody where the bridge MPC node is the
+   aggregator and TEE attestation is mandatory at the operator
+   layer.
+3. A-Chain confidential-compute subnets where the entire
+   aggregator process runs inside SGX/TDX with remote attestation.
 
-### What v0.2 buys today (v1.0.13)
+`TransitionalAggregate` is **NOT** safe to deploy when:
 
-- **No seed-share leakage at parties**: polynomial-vector shares are
-  the only secret material parties hold. A `PolyKeyShare` is
-  information-theoretically `(t-1)`-secret against any coalition of
-  fewer than `t` parties.
+1. The aggregator host is **not** in the TCB (public adversarial
+   deployment where any node may be compromised).
+2. The validator set assumes "no single host holds the master sk
+   ever" — v0.2 violates this at the aggregator's brief sign
+   window.
+
+For deployments in the "NOT safe" bucket, use v0.1 Combine behind
+an explicit TEE attestation layer at the consumer (the wire shape
+is mature, the TCB caveat is well-documented in the v0.1
+disclosure section above), OR wait for v0.3.
+
+### v0.3 milestone — graduation gate
+
+The v0.3 work removes the `SkBytes` field from `TransitionalSetup`
+entirely. The graduation gate is one bit:
+
+> When `TransitionalAggregate` no longer needs `setup.SkBytes` —
+> i.e. when it emits the FIPS 204 signature directly from the
+> aggregated per-party `(Z, CS2, CT0)` contributions — the v0.3
+> milestone is met.
+
+Operationally this is tracked by `TestTransitional_DependsOnSkBytes`
+in `threshold_v02_test.go`. The test currently PASSES (because
+`TransitionalAggregate` does depend on `SkBytes`); when v0.3 lands,
+that test FAILS, and the failure is the load-bearing red flag that
+the v0.3 graduation is complete. At that point:
+
+1. Delete the `SkBytes` field from `TransitionalSetup`.
+2. Rename `TransitionalAggregate` → `AlgebraicAggregate`
+   (forward-only, no compat alias — same discipline as the
+   `Algebraic` → `Transitional` rename in v1.0.14).
+3. Rewrite the file-header honesty block to drop the SkBytes
+   caveat.
+4. Delete or rewrite `TestTransitional_DependsOnSkBytes`.
+5. Update this section of DEPLOYMENT-RUNBOOK.md to reflect that
+   v0.3 is safe for public adversarial deployments.
+6. Close `PULSAR-V03-1` in BLOCKERS.md.
+
+Tracked in `BLOCKERS.md` as **PULSAR-V03-1**.
+
+### What v0.2 buys today (v1.0.14)
+
+- **No seed-share leakage at parties**: polynomial-vector shares
+  are the only secret material parties hold. A `PolyKeyShare` is
+  information-theoretically `(t-1)`-secret against any coalition
+  of fewer than `t` parties.
 - **Wire-shape stability**: the v0.2 message flow (commit /
   intermediate w-reveal / sign-contribute / aggregate) is stable
   across v0.2 → v0.3. Consensus integrators that adopt the v0.2
   protocol surface today get the message routing right;
-  v0.3 only changes the cryptographic content of `AlgebraicCombine`.
+  v0.3 only changes the cryptographic content of
+  `TransitionalAggregate` → `AlgebraicAggregate`.
 - **Identifiable-abort gates**: every MAC and commit-bind check in
-  `AlgebraicCombine` emits `AbortEvidence` on tamper detection,
-  matching v0.1's complaint taxonomy.
+  `TransitionalAggregate` emits `AbortEvidence` on tamper
+  detection, matching v0.1's complaint taxonomy.
 
-### What v0.2 does NOT yet do (v1.0.13)
+### What v0.2 does NOT yet do (v1.0.14)
 
 - The inner sign step still uses the master FIPS 204 packed sk via
-  `AlgebraicSetup.SkBytes`. This means the aggregator side of the
-  v0.2 path has the same TCB property as v0.1 at sign time. The v0.3
-  patch removes `SkBytes` from `AlgebraicSetup` and emits the
-  signature from the aggregated per-party contributions directly.
-- The byte-equality test (`v0.2 algebraic signature byte-equal to
-  stock FIPS 204 ML-DSA on the same y aggregate`) is delivered via
-  the transitional path; the v0.3 pure-algebraic emission requires
-  a self-contained FIPS 204 sign-side polynomial-ring implementation
-  in `mldsa_lattice.go` (NTT, Montgomery, decompose, MakeHint) that
-  currently has a subtle Montgomery-scaling discrepancy against
-  cloudflare/circl's internal package — see `threshold_v02.go`
-  header status block for the diagnosis.
+  `TransitionalSetup.SkBytes`. The aggregator TCB at sign time is
+  identical to v0.1. The v0.3 patch removes `SkBytes` from
+  `TransitionalSetup` and emits the signature from the aggregated
+  per-party contributions directly.
+- The byte-equality test (`v0.2 transitional signature byte-equal
+  to stock FIPS 204 ML-DSA on the same y aggregate`) is delivered
+  via the transitional path; the v0.3 pure-algebraic emission
+  requires a self-contained FIPS 204 sign-side polynomial-ring
+  implementation in `mldsa_lattice.go` (NTT, Montgomery, decompose,
+  MakeHint) that currently has a subtle Montgomery-scaling
+  discrepancy against cloudflare/circl's internal package — see
+  `threshold_v02.go` header for the diagnosis.
 
 ## Reference: Cryptographer GATEs
 
@@ -224,6 +270,10 @@ The four gates from `CRYPTOGRAPHER-SIGN-OFF.md`:
 **Document metadata**
 
 - Name: `DEPLOYMENT-RUNBOOK.md`
-- Version: v0.1 (matches Pulsar v1.0.8)
-- Date: 2026-05-18
+- Version: v0.2 (matches Pulsar v1.0.14)
 - Closes: `CRYPTOGRAPHER-SIGN-OFF.md` GATE-1.
+- v1.0.14: renamed v0.2 API from `Algebraic*` → `Transitional*` and
+  rewrote the trust-model section to honestly disclose the
+  aggregator-side `SkBytes` dependency. The v0.2 wire protocol is
+  algebraic; the v0.2 aggregator is not. v0.3 (PULSAR-V03-1) closes
+  the gap.

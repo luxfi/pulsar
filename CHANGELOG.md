@@ -4,6 +4,76 @@ This file tracks substantive changes to the EasyCrypt proof
 artifact, the spec, and the residual trust footprint. For
 implementation-level changes see `git log`.
 
+## v1.0.14 — v0.2 honesty rename (Algebraic → Transitional)
+
+The v0.2 API previously named `Algebraic*` was materially
+misleading: the file-header docstring claimed
+`AlgebraicCombine is a pure function of public-only material;
+no access to any party's seed share or the master ML-DSA private
+key` while the implementation calls
+`mldsaSign(setup.SkBytes, message, ...)` against the master sk
+packed in `AlgebraicSetup.SkBytes`. The aggregator TCB at sign
+time is therefore identical to v0.1 reconstruct-and-sign — only
+the parties' side of the protocol is honestly algebraic.
+
+v1.0.14 fixes the honesty defect without changing the algorithm:
+
+**API rename (forward-only, no compat aliases):**
+
+- `AlgebraicThresholdSigner` → `TransitionalThresholdSigner`
+- `NewAlgebraicThresholdSigner` → `NewTransitionalThresholdSigner`
+- `AlgebraicCombine` → `TransitionalAggregate`
+- `AlgebraicSetup` → `TransitionalSetup`
+- `AlgebraicRound1Message` → `TransitionalRound1Message`
+- `AlgebraicRound2Message` → `TransitionalRound2Message`
+- `DealAlgebraicShares` → `DealTransitionalShares`
+- `ErrAlgRound1MACBad` → `ErrTransitionalRound1MACBad`
+- `ErrAlgRound2MACBad` → `ErrTransitionalRound2MACBad`
+- `ErrAlgRound2CommitBad` → `ErrTransitionalRound2CommitBad`
+- `ErrAlgRestart` → `ErrTransitionalRestart`
+- `ErrAlgNoSetup` → `ErrTransitionalNoSetup`
+- All `TestV02_*` test functions renamed to `TestTransitional_*`.
+
+**Honesty docstrings rewritten:**
+
+- `threshold_v02.go` file header now opens with HONEST SCOPE
+  declaring the aggregator-side SkBytes dependency.
+- `TransitionalAggregate` docstring spells out the TCB equivalence
+  with v0.1 at sign time.
+- `TransitionalSetup` docstring declares SkBytes as the v0.2 TCB
+  defect and the v0.3 graduation gate.
+- `types.go` Signature docstring rewritten.
+- `DEPLOYMENT-RUNBOOK.md` v0.2 section rewritten with explicit
+  "suitable / not suitable" deployment guidance and a v0.3
+  milestone section.
+
+**New load-bearing test:**
+
+- `TestTransitional_DependsOnSkBytes` — runs the full Round1/Round2
+  cycle then sets `setup.SkBytes = nil` and asserts
+  `TransitionalAggregate` returns `ErrTransitionalNoSetup`. The
+  test currently PASSES (because v0.2 indeed depends on SkBytes).
+  When v0.3 ships and removes the SkBytes dependency, this test
+  starts FAILING — that failure is the load-bearing red flag
+  documenting the v0.3 graduation.
+
+**New blocker tracker:**
+
+- `BLOCKERS.md` entry `PULSAR-V03-1` documents the v0.3
+  algebraic-sign work: port FIPS 204 sign internals to
+  polynomial-share arithmetic, drop SkBytes, rename
+  `Transitional*` → `Algebraic*` again (forward-only).
+
+The wire protocol is byte-for-byte unchanged: protocol constants
+(`PULSAR-ALG-*` customisation strings) are preserved so any
+existing v0.2 test vectors continue to verify.
+
+## v1.0.13
+
+(See git log; v0.2 algebraic threshold wire shape — the rename
+above retroactively documents the honesty caveat that should have
+shipped with this tag.)
+
 ## v0.1.0 (target tag: `submission-2026-11-16`)
 
 ### Proof artifact progression (v4 → v11)

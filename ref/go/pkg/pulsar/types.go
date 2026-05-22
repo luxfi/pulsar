@@ -133,7 +133,7 @@ type KeyShare struct {
 // applied. A relying party that can verify ML-DSA can verify a
 // Pulsar Signature with no code change.
 //
-// Two production paths (v1.0.13):
+// Two production paths today (v1.0.14):
 //
 //   - Combine (threshold.go): v0.1 reveal-and-aggregate. The
 //     aggregator briefly reconstructs the master ML-DSA seed via
@@ -142,13 +142,26 @@ type KeyShare struct {
 //     funds-bearing networks; the aggregator process is in the
 //     TCB for the sign call.
 //
-//   - AlgebraicCombine (threshold_v02.go): v0.2 algebraic
-//     threshold. Parties hold polynomial-vector Shamir shares of
-//     (s_1, s_2, t_0) over GF(q) and never hold the master seed.
-//     This is the public-BFT-safe path. NEW CODE SHOULD TARGET
-//     AlgebraicCombine; the v0.1 Combine remains for TEE-bound
-//     custody use cases where a single operator already runs the
-//     aggregator (M-Chain bridge, A-Chain confidential compute).
+//   - TransitionalAggregate (threshold_v02.go): v0.2 transitional
+//     threshold. PARTIES hold polynomial-vector Shamir shares of
+//     (s_1, s_2, t_0) over GF(q) — no party (other than the
+//     aggregator) ever materialises the master seed. HOWEVER the
+//     AGGREGATOR running TransitionalAggregate briefly holds the
+//     master sk (via TransitionalSetup.SkBytes) because the inner
+//     FIPS 204 sign step is not yet ported to polynomial-share
+//     arithmetic. The aggregator TCB at sign time is therefore
+//     identical to v0.1 — only the parties' side of the protocol
+//     is honestly algebraic. v0.3 (PULSAR-V03-1 in BLOCKERS.md)
+//     removes the SkBytes dependency; until then "Transitional"
+//     names this honestly.
+//
+// Suitable today for: M-Chain bridge custody (TEE in aggregator
+// TCB), A-Chain confidential compute, single-operator deployments
+// where the aggregator host is already trusted.
+//
+// NOT suitable today for: public adversarial deployments where the
+// aggregator host is not in the TCB. For those, use v0.1 Combine
+// behind an explicit TEE attestation layer, or wait for v0.3.
 //
 // Callers that wish to additionally TEE-bind the aggregator wire
 // TEE attestation at THEIR layer using
