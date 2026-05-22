@@ -213,10 +213,12 @@ func TestAlgebraic_Debug_ZSumVsCircl(t *testing.T) {
 	_, _, _, gamma2 := modeTauOmega(ModeP65)
 	w1, _ := decomposeVec(w, gamma2)
 	w1Packed := packW1Vec(w1, gamma2, K)
+	// μ = SHAKE-256(tr || 0x00 || |ctx| || ctx || M, 64) per FIPS 204 §5.4.
 	var mu [64]byte
 	{
 		h := newShake256()
 		_, _ = h.Write(setup.Tr[:])
+		_, _ = h.Write([]byte{0x00, 0x00})
 		_, _ = h.Write(msg)
 		_, _ = h.Read(mu[:])
 	}
