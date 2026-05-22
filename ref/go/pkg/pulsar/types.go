@@ -133,32 +133,29 @@ type KeyShare struct {
 // applied. A relying party that can verify ML-DSA can verify a
 // Pulsar Signature with no code change.
 //
-// Trust-model note for the threshold path: the v0.1 reconstruction-
-// aggregator instantiation of Combine() briefly reconstructs the
-// master ML-DSA secret key in the aggregator's memory before
-// calling FIPS 204 sign. This is byte-equal to a non-threshold
-// ML-DSA-65 signature by construction (that is the point — relying
-// parties verify with stock FIPS 204), but reconstruction-at-the-
-// aggregator is NOT a public-BFT-safe trust model: a compromised
-// or coresident-snooping aggregator can exfiltrate the master sk.
+// Two production paths (v1.0.13):
 //
-// v0.1 is therefore a development / single-operator-custody path,
-// NOT the public-chain production path. The production path is the
-// v0.2 Lagrange-linearity sign (see threshold.go header) where each
-// party signs its own ML-DSA share and the aggregator combines
-// signature shares — the master key is never reconstructed in any
-// party's memory, so the security model reduces to "honest
-// supermajority", which is exactly what Lux's BFT consensus already
-// assumes. No TEE assumption is required and no TEE vendor enters
-// the trust root.
+//   - Combine (threshold.go): v0.1 reveal-and-aggregate. The
+//     aggregator briefly reconstructs the master ML-DSA seed via
+//     Lagrange interpolation over byte-wise GF(257) shares before
+//     calling FIPS 204 sign. TEE-attestation is required on
+//     funds-bearing networks; the aggregator process is in the
+//     TCB for the sign call.
 //
-// Callers that wish to additionally TEE-bind the aggregator (e.g.
-// M-Chain bridge custody where a single operator runs the
-// aggregator, or A-Chain compute providers under aivm) wire TEE
-// attestation at THEIR layer using github.com/luxfi/ai/pkg/attestation
-// — Pulsar itself stays TEE-agnostic so the same protocol works on
-// the public chain (no TEE) and on a confidential-compute subnet
-// (with TEE), without bifurcating the wire format.
+//   - AlgebraicCombine (threshold_v02.go): v0.2 algebraic
+//     threshold. Parties hold polynomial-vector Shamir shares of
+//     (s_1, s_2, t_0) over GF(q) and never hold the master seed.
+//     This is the public-BFT-safe path. NEW CODE SHOULD TARGET
+//     AlgebraicCombine; the v0.1 Combine remains for TEE-bound
+//     custody use cases where a single operator already runs the
+//     aggregator (M-Chain bridge, A-Chain confidential compute).
+//
+// Callers that wish to additionally TEE-bind the aggregator wire
+// TEE attestation at THEIR layer using
+// github.com/luxfi/ai/pkg/attestation — Pulsar itself stays TEE-
+// agnostic so the same protocol works on the public chain (no
+// TEE) and on a confidential-compute subnet (with TEE), without
+// bifurcating the wire format.
 type Signature struct {
 	Mode  Mode
 	Bytes []byte
