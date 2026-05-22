@@ -3,48 +3,47 @@
 
 package pulsar
 
-// threshold_v02.go — algebraic threshold ML-DSA scaffolding. The v0.2 path.
+// threshold_v02.go — v0.2 TRANSITIONAL threshold ML-DSA.
 //
-// Status. v0.1 (threshold.go) reconstructs the master ML-DSA seed at
-// the aggregator before calling stock FIPS 204 Sign. That instantiation
-// is byte-equal to single-party signing — exactly the property we want
-// — but the aggregator must be in the trusted computing base for the
-// duration of one Sign call. v0.2, implemented here, is the public-
-// BFT-safe construction at the protocol surface: parties hold
-// polynomial-vector Shamir shares of (s_1, s_2, t_0) over GF(q) (not
-// seed shares), they exchange commitments and reveals in the FROST-
-// for-FSwA shape, and AlgebraicCombine aggregates contributions
-// algebraically.
+// HONEST SCOPE (read this before claiming public-BFT-safe):
 //
-// Implementation status (v1.0.13). The protocol wire shape, share
-// distribution, commit-and-reveal Round 1, and aggregation Round 2
-// are all implemented and tested. The FINAL aggregation step that
-// produces a FIPS 204 byte-equal signature from the algebraic
-// contributions currently uses cloudflare/circl's mldsa65.SignTo
-// after assembling a polynomial-form PrivateKey from the per-party
-// contributions. This is BYTE-EQUAL to FIPS 204 (it IS FIPS 204), and
-// the assembled polynomial-form sk in the aggregator is the SAME
-// secret material the master seed would derive — so the trust model
-// at sign time is identical to v0.1's. The structural property that
-// PARTIES never hold the master seed in any form is preserved
-// (polynomial shares are the carrier, not seed shares), which is the
-// PRECONDITION for a true algebraic instantiation in a follow-up
-// patch.
+//   v0.2 carries polynomial-vector Shamir shares of (s_1, s_2, t_0)
+//   over GF(q) across all parties. The Round-1 + Round-2 wire
+//   protocol IS algebraic — no party broadcasts a share of the
+//   master ML-DSA seed at any point during signing.
 //
-// True-algebraic gap (v0.3 work). A from-scratch FROST-for-FSwA
-// instantiation that emits a FIPS 204 byte-equal signature WITHOUT
-// any aggregator-side polynomial-form sk reconstruction requires a
-// self-contained FIPS 204 sign-side polynomial-ring implementation
-// (NTT, Montgomery, decompose, MakeHint, packing). The current
-// mldsa_lattice.go contains keygen-grade primitives validated against
-// circl byte-for-byte; the sign-path equivalents are correct in
-// algebraic intent but have a subtle Montgomery-scaling discrepancy
-// against circl's internal package that is non-trivial to diagnose
-// without access to circl's internal NTT test fixtures. The
-// transitional sign path through circl.SignTo preserves the v0.2
-// wire format and protocol structure so a v0.3 swap-in of the pure
-// algebraic AlgebraicCombine inner step does not change the message
-// flow or test vectors.
+//   HOWEVER, the inner FIPS 204 sign step inside
+//   TransitionalAggregate currently materialises the master sk
+//   bytes (TransitionalSetup.SkBytes) and calls
+//   mldsa{44,65,87}.SignTo on it. This means:
+//
+//     - The PROTOCOL surface is public-BFT-safe (validators only
+//       see algebraic shares, never the master seed).
+//     - The OPERATIONAL TCB at the aggregator is identical to v0.1
+//       reconstruct-and-sign. Whoever runs TransitionalAggregate
+//       briefly holds the master sk in process memory.
+//
+//   This is INTENTIONAL for v0.2 — it lets the wire shape stabilise
+//   while the FIPS 204 sign internals are ported to polynomial-share
+//   arithmetic. The v0.3 work (tracked in BLOCKERS.md as PULSAR-V03-1)
+//   gates on a self-contained polynomial sign implementation that
+//   never materialises the master sk.
+//
+//   v0.2 IS suitable for: M-Chain bridge custody (TEE in TCB),
+//   A-Chain confidential compute, single-operator deployments where
+//   the aggregator host is already trusted.
+//
+//   v0.2 IS NOT suitable for: public adversarial deployments where
+//   the aggregator host is not in the TCB. For those, use v0.1
+//   Combine + an explicit TEE attestation layer at the consumer, OR
+//   wait for v0.3 which removes the SkBytes dependency.
+//
+// Naming. The exported API uses "Transitional" (not "Algebraic")
+// precisely because the wire shape is algebraic but the inner sign
+// step is not. When v0.3 removes SkBytes and emits the signature
+// directly from per-party (z_i, cs2_i, ct0_i) contributions, the
+// "Transitional" prefix retires and a new pure-algebraic API ships
+// alongside (forward-only, no compat alias).
 //
 // Construction. FROST-for-FSwA, the Fiat–Shamir-with-aborts shape of
 // FROST (RFC 9591). The same algebraic shape implemented for R-LWE in
@@ -71,32 +70,23 @@ package pulsar
 //       where c = SampleInBall(c̃), c̃ = H(μ ‖ EncodeHigh(Σ w_j)).
 //     - Local rejection: if ‖z_i‖_∞ ≥ γ_1 - β · λ_i_bound, restart κ+1
 //       (the per-party local check is a fast-fail; the global check
-//       runs in AlgebraicCombine).
+//       runs in TransitionalAggregate).
 //
-//   AlgebraicCombine
-//     - Sums z = Σ z_i, cs2 = Σ cs2_i, ct0 = Σ ct0_i (all in NTT-domain
-//       over GF(q)).
-//     - Recomputes w = Σ w_i, c̃, c by replay from Round-2 reveals.
-//     - Global rejection bounds (FIPS 204 §6.2): if ‖z‖_∞ ≥ γ_1 - β
-//       or ‖r_0‖_∞ ≥ γ_2 - β or ‖c·t_0‖_∞ ≥ γ_2 or popcount(h) > ω,
-//       return ErrRestart so the caller can rerun with κ+1.
-//     - Computes hint h, packages FIPS 204 (c̃, z, h) signature
-//       byte-identical to stock FIPS 204 Sign on the master sk.
-//
-// Public-BFT safety. AlgebraicCombine is a pure function of public-
-// only material: Round-1 broadcasts, Round-2 reveals (y_i, z_i, cs2_i,
-// ct0_i are all sent in the clear under MAC), and the group public
-// key. No call to KeyFromSeed; no access to any party's seed share or
-// the master ML-DSA private key. A snooping aggregator learns nothing
-// it could not also learn from passively watching the wire — and the
-// wire reveals no party's s_{1,i}, s_{2,i}, t_{0,i} polynomial shares
-// directly (they appear only contracted with the public c · λ_i).
+//   TransitionalAggregate
+//     - Validates Round-1 commit-bind on every revealed w_i.
+//     - Validates Round-2 MACs (tamper detection on z_i, cs2_i, ct0_i).
+//     - Calls mldsaSign(setup.SkBytes, message, ...) for the inner
+//       sign step — this is the SkBytes dependency the v0.3 work
+//       removes (PULSAR-V03-1). The per-party Z, CS2, CT0
+//       contributions are validated for commit-bind / MAC integrity
+//       but are NOT yet consumed by the inner sign step. v0.3 swaps
+//       the inner step for direct (z, h) emission from the per-party
+//       contributions.
 //
 // Byte-equality with FIPS 204. The final (c̃, z, h) packs through the
-// same FIPS 204 sigEncode (Algorithm 28). Any party that knew the
-// master seed and produced y = Σ y_i, c̃, c identically would emit
-// the same bytes. The v0.2 path is therefore Class N1 (FIPS 204
-// output interchangeability) preserving by construction.
+// same FIPS 204 sigEncode (Algorithm 28). The v0.2 path is therefore
+// Class N1 (FIPS 204 output interchangeability) preserving by
+// construction.
 //
 // References.
 //   - FIPS 204 — Module-Lattice-Based Digital Signature Standard
@@ -113,7 +103,7 @@ package pulsar
 //     Signatures
 //
 // File scope. This file owns the v0.2 wire types, signer state, and
-// the AlgebraicCombine pure function. The FIPS 204 polynomial-ring
+// the TransitionalAggregate function. The FIPS 204 polynomial-ring
 // primitives live in mldsa_lattice.go; the GF(q) polynomial-Shamir
 // helpers live in shamir_poly.go; the seed-to-key expansion lives in
 // mldsa_keyderive.go.
@@ -131,10 +121,14 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
-// Customisation tags for the v0.2 algebraic path. Each tag is rotated
-// independently of the v0.1 commit-and-reveal tags so a cross-protocol
-// replay (v0.1 broadcast fed into v0.2 verifier or vice versa) is
-// guaranteed to fail at the transcript hash.
+// Customisation tags for the v0.2 transitional path. Each tag is
+// rotated independently of the v0.1 commit-and-reveal tags so a
+// cross-protocol replay (v0.1 broadcast fed into v0.2 verifier or
+// vice versa) is guaranteed to fail at the transcript hash.
+//
+// The literal string values ("PULSAR-ALG-*") are wire-format
+// constants pinned for test-vector stability; the Go identifier
+// prefix (tagAlg*) is package-private and tracks the literal.
 const (
 	tagAlgR1     = "PULSAR-ALG-R1-V1"
 	tagAlgR1MAC  = "PULSAR-ALG-R1-MAC-V1"
@@ -143,30 +137,30 @@ const (
 	tagAlgY      = "PULSAR-ALG-Y-V1"
 )
 
-// Errors specific to the v0.2 algebraic threshold path.
+// Errors specific to the v0.2 transitional threshold path.
 var (
-	// ErrAlgRound1MACBad is returned by Round2 when a peer's Round-1
+	// ErrTransitionalRound1MACBad is returned by Round2 when a peer's Round-1
 	// MAC fails to verify under the per-pair session key.
-	ErrAlgRound1MACBad = errors.New("pulsar: v0.2 Round-1 MAC verification failed")
+	ErrTransitionalRound1MACBad = errors.New("pulsar: v0.2 Round-1 MAC verification failed")
 
-	// ErrAlgRound2MACBad is returned by AlgebraicCombine when a
+	// ErrTransitionalRound2MACBad is returned by TransitionalAggregate when a
 	// Round-2 reveal carries an invalid MAC. v0.2 MACs Round-2 messages
 	// so the aggregator can attribute tampering during reconstruction.
-	ErrAlgRound2MACBad = errors.New("pulsar: v0.2 Round-2 MAC verification failed")
+	ErrTransitionalRound2MACBad = errors.New("pulsar: v0.2 Round-2 MAC verification failed")
 
-	// ErrAlgRound2CommitBad is returned by AlgebraicCombine when the
+	// ErrTransitionalRound2CommitBad is returned by TransitionalAggregate when the
 	// per-party w_i revealed in Round 2 does not match the Round-1
 	// commit D_i.
-	ErrAlgRound2CommitBad = errors.New("pulsar: v0.2 Round-2 reveal does not match Round-1 commit")
+	ErrTransitionalRound2CommitBad = errors.New("pulsar: v0.2 Round-2 reveal does not match Round-1 commit")
 
-	// ErrAlgRestart is returned by AlgebraicCombine when the global
+	// ErrTransitionalRestart is returned by TransitionalAggregate when the global
 	// FIPS 204 norm bounds reject the candidate signature. Caller
 	// restarts the protocol with κ+1.
-	ErrAlgRestart = errors.New("pulsar: v0.2 rejection-restart triggered (κ+1)")
+	ErrTransitionalRestart = errors.New("pulsar: v0.2 rejection-restart triggered (κ+1)")
 
-	// ErrAlgNoSetup is returned when v0.2 is invoked without prior
+	// ErrTransitionalNoSetup is returned when v0.2 is invoked without prior
 	// trusted-dealer setup or DKG-for-v0.2 (which produces PolyKeyShares).
-	ErrAlgNoSetup = errors.New("pulsar: v0.2 requires PolyKeyShare; v0.1 KeyShare is incompatible")
+	ErrTransitionalNoSetup = errors.New("pulsar: v0.2 requires PolyKeyShare; v0.1 KeyShare is incompatible")
 )
 
 // PolyKeyShare is one party's polynomial-vector Shamir share of the
@@ -195,9 +189,9 @@ type PolyKeyShare struct {
 	Mode      Mode
 }
 
-// AlgebraicSetup carries the public per-party state derived once at
+// TransitionalSetup carries the per-committee state derived once at
 // trusted-dealer setup (or DKG-for-v0.2). Every party in the committee
-// holds the same AlgebraicSetup; only the PolyKeyShare differs.
+// holds the same TransitionalSetup; only the PolyKeyShare differs.
 //
 // A is the K × L public matrix in NTT-domain (so every party can do
 // matrix–vector mul in the NTT domain at sign time without re-deriving
@@ -205,20 +199,29 @@ type PolyKeyShare struct {
 // and FIPS 204 challenge derivation reproducibility). Tr is the SHAKE-
 // 256(pk, 64) hash bound into the message digest μ per FIPS 204.
 //
-// SkBytes carries the full packed FIPS 204 ML-DSA private key needed
-// for the transitional AlgebraicCombine inner sign call. In a v0.3
-// pure-algebraic implementation, SkBytes would not appear in the
-// AlgebraicSetup; it is here only to bridge the wire-shape correct
-// FROST-for-FSwA outer protocol with a circl-backed inner sign step.
-// IMPORTANT: SkBytes contains the master ML-DSA private key. It is
-// stored in the AlgebraicSetup ONLY for the transitional path and
-// MUST be wiped after the protocol moves to v0.3. The trust model at
-// sign time is currently equivalent to v0.1's reveal-and-aggregate.
+// SkBytes carries the FULL packed FIPS 204 ML-DSA master private key.
+// It is the load-bearing reason v0.2 is "Transitional" rather than
+// "Algebraic":
+//
+//   - At sign time, TransitionalAggregate calls
+//     mldsaSign(params.Mode, setup.SkBytes, message, ...) — i.e. it
+//     materialises the master sk in process memory and signs with it.
+//     The per-party (Z, CS2, CT0) contributions are validated for
+//     wire-shape integrity but NOT consumed by the sign step.
+//
+//   - Whoever holds a TransitionalSetup holds the master sk. The
+//     aggregator TCB is therefore identical to v0.1 reconstruct-and-
+//     sign at sign time, only with a different storage layer.
+//
+//   - v0.3 (PULSAR-V03-1) removes SkBytes from TransitionalSetup
+//     entirely. The signature is then emitted from the per-party
+//     contributions directly; no party (including the aggregator) ever
+//     holds the master sk.
 //
 // The setup is byte-equal to what FIPS 204 ML-DSA-KeyGen would produce
 // from the master seed: A, ρ, t1, tr are all derived from the same
 // expansion path as cloudflare/circl's NewKeyFromSeed.
-type AlgebraicSetup struct {
+type TransitionalSetup struct {
 	Mode Mode
 	Pub  *PublicKey
 
@@ -226,12 +229,14 @@ type AlgebraicSetup struct {
 	Tr  [64]byte
 	A   []polyVec // K × L matrix in NTT-domain
 
-	// SkBytes is the full FIPS 204 packed private key. Transitional
-	// path; v0.3 removes this. See package-header status block.
+	// SkBytes is the full FIPS 204 packed MASTER private key. It is
+	// the v0.2 TCB defect — v0.3 removes this field. See the file
+	// header and TransitionalAggregate docstring for the full TCB
+	// story.
 	SkBytes []byte
 }
 
-// DealAlgebraicShares is the trusted-dealer setup for the v0.2 path.
+// DealTransitionalShares is the trusted-dealer setup for the v0.2 path.
 // Given a 32-byte master seed (caller-controlled; MUST be wiped after),
 // a committee directory (sorted NodeIDs), and the reconstruction
 // threshold t, deals one PolyKeyShare per party such that any t parties
@@ -248,16 +253,16 @@ type AlgebraicSetup struct {
 //
 // Production note. A real v0.2 deployment will run a polynomial-share
 // DKG (a follow-up to this PR) so no single party ever holds the
-// master seed. DealAlgebraicShares is the trusted-dealer baseline used
+// master seed. DealTransitionalShares is the trusted-dealer baseline used
 // by KATs, tests, and single-operator deployments that already trust
 // one dealer to materialise the seed once.
-func DealAlgebraicShares(
+func DealTransitionalShares(
 	params *Params,
 	committee []NodeID,
 	threshold int,
 	seed [SeedSize]byte,
 	rng io.Reader,
-) (*AlgebraicSetup, []*PolyKeyShare, error) {
+) (*TransitionalSetup, []*PolyKeyShare, error) {
 	if err := params.Validate(); err != nil {
 		return nil, nil, err
 	}
@@ -291,11 +296,11 @@ func DealAlgebraicShares(
 	}
 	defer zeroizeKeyMaterial(km)
 
-	// Build the public AlgebraicSetup. A is already in NTT-domain
+	// Build the public TransitionalSetup. A is already in NTT-domain
 	// inside deriveKeyMaterial. SkBytes is included as the transitional
 	// material for the inner sign call (see header status block).
 	pub := &PublicKey{Mode: params.Mode, Bytes: append([]byte{}, km.pub...)}
-	setup := &AlgebraicSetup{
+	setup := &TransitionalSetup{
 		Mode:    params.Mode,
 		Pub:     pub,
 		Rho:     km.rho,
@@ -387,13 +392,13 @@ func DealAlgebraicShares(
 	return setup, out, nil
 }
 
-// AlgebraicRound1Message is the broadcast emitted by
-// AlgebraicThresholdSigner.Round1.
+// TransitionalRound1Message is the broadcast emitted by
+// TransitionalThresholdSigner.Round1.
 //
 // Commit binds the party's w_i polynomial vector under τ_1; w_i is
 // not revealed in Round 1 (only its hash digest) so a half-completed
 // protocol leaks no signing randomness. The Round-2 reveal carries
-// w_i alongside the per-party z_i, cs2_i, ct0_i; AlgebraicCombine
+// w_i alongside the per-party z_i, cs2_i, ct0_i; TransitionalAggregate
 // re-derives the commit and rejects on mismatch.
 //
 // MACs is the per-peer MAC of (Commit ‖ τ_1) under the pair session
@@ -401,7 +406,7 @@ func DealAlgebraicShares(
 // ML-KEM-768 + ML-DSA-65 exchange used by v0.1 (identity.go's
 // EstablishSession / SymmetricSession); no fresh key material is
 // invented here.
-type AlgebraicRound1Message struct {
+type TransitionalRound1Message struct {
 	NodeID    NodeID
 	SessionID [16]byte
 	Attempt   uint32
@@ -409,12 +414,12 @@ type AlgebraicRound1Message struct {
 	MACs      map[NodeID][32]byte
 }
 
-// AlgebraicRound2Message is the broadcast emitted by
-// AlgebraicThresholdSigner.Round2.
+// TransitionalRound2Message is the broadcast emitted by
+// TransitionalThresholdSigner.Round2.
 //
 // W is the per-party w_i in packed polynomial-vector form (K · 4 · N
 // bytes; un-normalised little-endian per-coefficient). After every
-// quorum member's Round-2 lands, AlgebraicCombine sums them to recover
+// quorum member's Round-2 lands, TransitionalAggregate sums them to recover
 // w, derives c̃ and c, then validates the per-party Z, CS2, CT0
 // contributions against the bound and emits the final signature.
 //
@@ -424,16 +429,16 @@ type AlgebraicRound1Message struct {
 //
 // CS2 is c · λ_i · s_{2,i}, summed across the quorum to recover c·s_2.
 // CT0 is c · λ_i · t_{0,i}, summed across the quorum to recover c·t_0.
-// AlgebraicCombine uses these to compute the FIPS 204 r_0 vector and
+// TransitionalAggregate uses these to compute the FIPS 204 r_0 vector and
 // hint h.
 //
 // MAC binds Round-2 under the pair session key the same way Round-1
 // does. Tampering with any of (W, Z, CS2, CT0) flips the MAC and is
-// caught at AlgebraicCombine. The v0.1 path relied on commit-bind for
+// caught at TransitionalAggregate. The v0.1 path relied on commit-bind for
 // Round-2 integrity; v0.2 adopts explicit MACs because the Round-2
 // payload binds material the aggregator cannot re-derive from Round-1
 // alone (CS2, CT0).
-type AlgebraicRound2Message struct {
+type TransitionalRound2Message struct {
 	NodeID    NodeID
 	SessionID [16]byte
 	Attempt   uint32
@@ -453,18 +458,22 @@ type AlgebraicRound2Message struct {
 
 	// MAC binds (NodeID, sid, attempt, W, Z, CS2, CT0) under the
 	// per-peer session key. Per-peer MACs (one per peer) follow the
-	// v0.1 pattern; AlgebraicCombine looks up the MAC for itself when
+	// v0.1 pattern; TransitionalAggregate looks up the MAC for itself when
 	// verifying a peer's Round-2.
 	MACs map[NodeID][32]byte
 }
 
-// AlgebraicThresholdSigner is the v0.2 algebraic-threshold party state.
+// TransitionalThresholdSigner is the v0.2 transitional-threshold
+// party state. The "party side" of v0.2 is honestly algebraic
+// (PolyKeyShare-only, no master seed). The "aggregator side" runs
+// TransitionalAggregate and still holds the master sk briefly —
+// see the file header for the full TCB story.
 //
 // Single-use: one (sid, attempt) per instance. On rejection-restart
 // the protocol-layer driver allocates a fresh signer with attempt+1.
-type AlgebraicThresholdSigner struct {
+type TransitionalThresholdSigner struct {
 	Params *Params
-	Setup  *AlgebraicSetup
+	Setup  *TransitionalSetup
 	NodeID NodeID
 	Share  *PolyKeyShare
 
@@ -492,7 +501,7 @@ type AlgebraicThresholdSigner struct {
 	lambda uint32
 }
 
-// NewAlgebraicThresholdSigner constructs a v0.2 party-state machine.
+// NewTransitionalThresholdSigner constructs a v0.2 party-state machine.
 //
 // quorum is the t-element committee for this signature attempt, sorted
 // ascending by NodeID. share is THIS party's PolyKeyShare. sessionKeys
@@ -502,9 +511,9 @@ type AlgebraicThresholdSigner struct {
 //
 // rng may be nil — crypto/rand is used by default. Pass a deterministic
 // reader for KAT runs.
-func NewAlgebraicThresholdSigner(
+func NewTransitionalThresholdSigner(
 	params *Params,
-	setup *AlgebraicSetup,
+	setup *TransitionalSetup,
 	sessionID [16]byte,
 	attempt uint32,
 	quorum []NodeID,
@@ -512,12 +521,12 @@ func NewAlgebraicThresholdSigner(
 	sessionKeys map[NodeID][32]byte,
 	message []byte,
 	rng io.Reader,
-) (*AlgebraicThresholdSigner, error) {
+) (*TransitionalThresholdSigner, error) {
 	if err := params.Validate(); err != nil {
 		return nil, err
 	}
 	if setup == nil {
-		return nil, ErrAlgNoSetup
+		return nil, ErrTransitionalNoSetup
 	}
 	if share == nil {
 		return nil, ErrNilKey
@@ -576,7 +585,7 @@ func NewAlgebraicThresholdSigner(
 	// Instead: each party knows ONLY its own EvalPoint and the quorum's
 	// NodeID list. We require the EvalPoint of every quorum member to
 	// be deterministically derivable from its NodeID OR from its
-	// committee position. The trusted-dealer DealAlgebraicShares uses
+	// committee position. The trusted-dealer DealTransitionalShares uses
 	// committee-position-based EvalPoints, so we recover the same
 	// mapping by sorting the quorum (which we already require) and
 	// indexing the quorum into the original sorted committee. For the
@@ -590,7 +599,7 @@ func NewAlgebraicThresholdSigner(
 	// therefore needs the quorum's EvalPoint set, not just NodeIDs.
 	//
 	// The Signer keeps only its own share — it does not know peers'
-	// EvalPoints from the NewAlgebraicThresholdSigner inputs alone.
+	// EvalPoints from the NewTransitionalThresholdSigner inputs alone.
 	// We accept this and require the protocol-layer driver to thread
 	// the EvalPoint set through. The cleanest API encodes the quorum's
 	// EvalPoints in NodeID-sorted order alongside the quorum list. To
@@ -599,7 +608,7 @@ func NewAlgebraicThresholdSigner(
 	// pin position-based points OR we require the trusted-dealer setup
 	// to use EvalPointFromIDQ.
 	//
-	// Decision: DealAlgebraicShares above uses committee-position+1
+	// Decision: DealTransitionalShares above uses committee-position+1
 	// for KAT stability; we mirror that here by deriving the EvalPoint
 	// of every quorum member from its index in the sorted quorum AND
 	// the caller's pre-passed committee directory. To keep the API
@@ -608,15 +617,15 @@ func NewAlgebraicThresholdSigner(
 	// See QuorumEvalPoints helper below.
 	//
 	// In this constructor, we expect the caller to have set
-	// share.EvalPoint via DealAlgebraicShares and pass the quorum
+	// share.EvalPoint via DealTransitionalShares and pass the quorum
 	// EvalPoints implicitly via the SetEvalPoints method or via the
-	// AlgebraicSetup.QuorumEvalPoints field (preferred). We keep the
+	// TransitionalSetup.QuorumEvalPoints field (preferred). We keep the
 	// session minimal here and require the caller to call
 	// signer.SetQuorumEvalPoints AFTER construction; sign attempts
-	// without that call get ErrAlgNoSetup at Round1.
+	// without that call get ErrTransitionalNoSetup at Round1.
 	_ = myIdxInQuorum
 
-	s := &AlgebraicThresholdSigner{
+	s := &TransitionalThresholdSigner{
 		Params:    params,
 		Setup:     setup,
 		NodeID:    share.NodeID,
@@ -638,7 +647,7 @@ func NewAlgebraicThresholdSigner(
 // The session-keyed driver is responsible for collecting EvalPoints
 // from PolyKeyShares at quorum-selection time (the trusted-dealer set
 // or DKG-for-v0.2 output) and feeding them here.
-func (s *AlgebraicThresholdSigner) SetQuorumEvalPoints(xs []uint32) error {
+func (s *TransitionalThresholdSigner) SetQuorumEvalPoints(xs []uint32) error {
 	if len(xs) != len(s.Quorum) {
 		return errors.New("pulsar: quorum EvalPoint count does not match quorum size")
 	}
@@ -675,9 +684,9 @@ func (s *AlgebraicThresholdSigner) SetQuorumEvalPoints(xs []uint32) error {
 // τ · η is the FIPS 204 challenge-share bound. This is the FROST-for-
 // FSwA scaling described in Boschini–Takahashi–Tibouchi 2024/1113 §4,
 // adapted to the FIPS 204 uniform-y distribution.
-func (s *AlgebraicThresholdSigner) Round1() (*AlgebraicRound1Message, error) {
+func (s *TransitionalThresholdSigner) Round1() (*TransitionalRound1Message, error) {
 	if s.lambda == 0 {
-		return nil, ErrAlgNoSetup
+		return nil, ErrTransitionalNoSetup
 	}
 	K, L, eta := modeShape(s.Params.Mode)
 	tau, _, _, _ := modeTauOmega(s.Params.Mode)
@@ -771,7 +780,7 @@ func (s *AlgebraicThresholdSigner) Round1() (*AlgebraicRound1Message, error) {
 	s.myW = wCopy
 	s.myWCoeff = wCoeff
 
-	return &AlgebraicRound1Message{
+	return &TransitionalRound1Message{
 		NodeID:    s.NodeID,
 		SessionID: s.SessionID,
 		Attempt:   s.Attempt,
@@ -783,13 +792,13 @@ func (s *AlgebraicThresholdSigner) Round1() (*AlgebraicRound1Message, error) {
 // Round2 verifies the Round-1 MACs from every peer and emits this
 // party's signature contribution.
 //
-// The aggregator (any quorum member running AlgebraicCombine) combines
+// The aggregator (any quorum member running TransitionalAggregate) combines
 // the per-party (w_i, z_i, cs2_i, ct0_i) to produce the final FIPS 204
 // signature.
 //
-// On MAC failure, returns ErrAlgRound1MACBad with AbortEvidence the
+// On MAC failure, returns ErrTransitionalRound1MACBad with AbortEvidence the
 // caller broadcasts as a complaint.
-func (s *AlgebraicThresholdSigner) Round2(round1 []*AlgebraicRound1Message) (*AlgebraicRound2Message, *AbortEvidence, error) {
+func (s *TransitionalThresholdSigner) Round2(round1 []*TransitionalRound1Message) (*TransitionalRound2Message, *AbortEvidence, error) {
 	// Two-pass staging. FROST-for-FSwA has a fundamental need for the
 	// per-party w_i values to be known across the quorum BEFORE each
 	// party can compute its signature contribution (because c =
@@ -816,11 +825,11 @@ func (s *AlgebraicThresholdSigner) Round2(round1 []*AlgebraicRound1Message) (*Al
 // If peerW is nil, Round2 enters a "W-only" mode that emits just
 // this party's w_i for the intermediate reveal. The caller follows
 // up with Round2Sign once peerW is collected.
-func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Message, peerW map[NodeID]polyVec) (*AlgebraicRound2Message, *AbortEvidence, error) {
+func (s *TransitionalThresholdSigner) round2EmitFull(round1 []*TransitionalRound1Message, peerW map[NodeID]polyVec) (*TransitionalRound2Message, *AbortEvidence, error) {
 	// Verify MACs (already done in the public Round2 caller above; this
 	// helper assumes that gate has passed, but we repeat for direct
 	// callers via Round2Sign). Note: this is the bottom-half routine;
-	// any MAC failure returns ErrAlgRound1MACBad as in v0.1.
+	// any MAC failure returns ErrTransitionalRound1MACBad as in v0.1.
 	for _, m := range round1 {
 		if m.SessionID != s.SessionID {
 			return nil, nil, ErrSessionMismatch
@@ -841,7 +850,7 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 				Kind:    ComplaintMACFailure,
 				Accuser: s.NodeID,
 				Accused: m.NodeID,
-			}, ErrAlgRound1MACBad
+			}, ErrTransitionalRound1MACBad
 		}
 		if !ctEqualSlice(expectedMAC, gotMAC[:]) {
 			return nil, &AbortEvidence{
@@ -849,14 +858,14 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 				Accuser:  s.NodeID,
 				Accused:  m.NodeID,
 				Evidence: append(append([]byte{}, expectedMAC...), gotMAC[:]...),
-			}, ErrAlgRound1MACBad
+			}, ErrTransitionalRound1MACBad
 		}
 	}
 
 	K, L, _ := modeShape(s.Params.Mode)
 	_, _, _, gamma2 := modeTauOmega(s.Params.Mode)
 
-	r2 := &AlgebraicRound2Message{
+	r2 := &TransitionalRound2Message{
 		NodeID:    s.NodeID,
 		SessionID: s.SessionID,
 		Attempt:   s.Attempt,
@@ -877,13 +886,13 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 		}
 		wj, ok := peerW[m.NodeID]
 		if !ok {
-			return nil, nil, ErrAlgRound2CommitBad
+			return nil, nil, ErrTransitionalRound2CommitBad
 		}
 		tau := algTranscriptTau1(s.SessionID, s.Attempt, s.Quorum, m.NodeID, s.Setup.Pub, s.Message)
 		commitInput := append(append([]byte{}, packPolyVec(wj)...), tau...)
 		recomputed := transcriptHash32(tagAlgR1, commitInput)
 		if !ctEqual32(recomputed, m.Commit) {
-			return nil, nil, ErrAlgRound2CommitBad
+			return nil, nil, ErrTransitionalRound2CommitBad
 		}
 	}
 
@@ -953,7 +962,7 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 	// IMPORTANT. poly.ntt() operates in-place; we MUST work on a copy
 	// of the share polynomial each call, otherwise repeated Sign
 	// invocations on the same signer (or attempts under the same
-	// AlgebraicThresholdSigner if we ever supported retry-in-place)
+	// TransitionalThresholdSigner if we ever supported retry-in-place)
 	// would NTT-an-already-NTT'd value. Take a stack copy below.
 	z := make(polyVec, L)
 	for i := 0; i < L; i++ {
@@ -1020,7 +1029,7 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 // Round-1.5 reveal) packed in a Round-2 message with Z=CS2=CT0=nil.
 // The protocol-layer driver calls Round2W on every party, collects
 // the peer-W map, then calls Round2Sign to produce the full broadcast.
-func (s *AlgebraicThresholdSigner) Round2W(round1 []*AlgebraicRound1Message) (*AlgebraicRound2Message, *AbortEvidence, error) {
+func (s *TransitionalThresholdSigner) Round2W(round1 []*TransitionalRound1Message) (*TransitionalRound2Message, *AbortEvidence, error) {
 	return s.round2EmitFull(round1, nil)
 }
 
@@ -1030,47 +1039,62 @@ func (s *AlgebraicThresholdSigner) Round2W(round1 []*AlgebraicRound1Message) (*A
 // peerW maps every other quorum member's NodeID to its revealed w_j.
 // (This party's own w_i is taken from local state — do not include
 // it in peerW.)
-func (s *AlgebraicThresholdSigner) Round2Sign(round1 []*AlgebraicRound1Message, peerW map[NodeID]polyVec) (*AlgebraicRound2Message, *AbortEvidence, error) {
+func (s *TransitionalThresholdSigner) Round2Sign(round1 []*TransitionalRound1Message, peerW map[NodeID]polyVec) (*TransitionalRound2Message, *AbortEvidence, error) {
 	return s.round2EmitFull(round1, peerW)
 }
 
-// AlgebraicCombine aggregates Round-1 and Round-2 messages into a
+// TransitionalAggregate aggregates Round-1 and Round-2 messages into a
 // FIPS 204 ML-DSA signature.
 //
 // The function returns:
 //   - sig != nil, err == nil  : signature emits cleanly
 //   - sig == nil, err != nil  : tampering/invalid input
 //
-// Protocol wire shape (commits, MACs, w-reveals) is fully checked
-// here. The inner sign step uses circl.SignTo with setup.SkBytes —
-// this is the transitional path documented at the top of this file.
-// The polynomial-share contributions are verified for consistency
-// (each party's commit binds its w_i; MACs bind Round-2 payloads),
-// but the actual signature production is delegated to circl. v0.3
-// replaces this with a pure-algebraic AlgebraicCombine that emits
-// the FIPS 204 signature from the per-party (z_i, cs2_i, ct0_i)
-// contributions directly.
-func AlgebraicCombine(
+// TCB HONESTY (read the file header before claiming public-BFT-safe):
+//
+//   The protocol wire shape (commits, MACs, w-reveals, Z/CS2/CT0
+//   contributions) is fully checked here. The per-party Z, CS2, CT0
+//   contributions are validated for commit-bind and MAC integrity but
+//   are NOT consumed by the inner sign step. The actual signature
+//   comes from mldsaSign(setup.SkBytes, message, ...) — i.e. the
+//   master ML-DSA private key packed in TransitionalSetup.SkBytes.
+//
+//   Therefore: whoever runs TransitionalAggregate briefly holds the
+//   master sk in process memory. The aggregator TCB is identical to
+//   v0.1 reconstruct-and-sign; only the storage layer for the master
+//   sk differs. The wire shape is the v0.2 deliverable; the v0.3
+//   deliverable (PULSAR-V03-1 in BLOCKERS.md) removes the SkBytes
+//   dependency by porting FIPS 204 sign internals to polynomial-share
+//   arithmetic and emits (z, h) directly from the per-party (Z, CS2,
+//   CT0) contributions.
+//
+// Suitable for: TEE-bound custody (M-Chain bridge, A-Chain confidential
+// compute), single-operator deployments where the aggregator host is
+// already in the TCB.
+//
+// NOT suitable for: public adversarial deployments where the aggregator
+// host is not in the TCB.
+func TransitionalAggregate(
 	params *Params,
-	setup *AlgebraicSetup,
+	setup *TransitionalSetup,
 	message []byte,
 	sessionID [16]byte,
 	attempt uint32,
 	quorum []NodeID,
 	quorumEvalPoints []uint32,
 	threshold int,
-	round1 []*AlgebraicRound1Message,
-	round2 []*AlgebraicRound2Message,
+	round1 []*TransitionalRound1Message,
+	round2 []*TransitionalRound2Message,
 	sessionKeys map[NodeID]map[NodeID][32]byte,
 ) (*Signature, error) {
 	if err := params.Validate(); err != nil {
 		return nil, err
 	}
 	if setup == nil {
-		return nil, ErrAlgNoSetup
+		return nil, ErrTransitionalNoSetup
 	}
 	if len(setup.SkBytes) == 0 {
-		return nil, ErrAlgNoSetup
+		return nil, ErrTransitionalNoSetup
 	}
 	if len(round1) < threshold || len(round2) < threshold {
 		return nil, ErrInsufficientQuor
@@ -1080,7 +1104,7 @@ func AlgebraicCombine(
 	}
 
 	// Index Round-1 by sender; verify session/attempt.
-	r1ByID := make(map[NodeID]*AlgebraicRound1Message, len(round1))
+	r1ByID := make(map[NodeID]*TransitionalRound1Message, len(round1))
 	for _, m := range round1 {
 		if m.SessionID != sessionID || m.Attempt != attempt {
 			return nil, ErrSessionMismatch
@@ -1090,7 +1114,7 @@ func AlgebraicCombine(
 
 	// Index Round-2 by sender; verify session/attempt, MAC, and
 	// commit-bind on W.
-	r2ByID := make(map[NodeID]*AlgebraicRound2Message, len(round2))
+	r2ByID := make(map[NodeID]*TransitionalRound2Message, len(round2))
 	for _, r2 := range round2 {
 		if r2.SessionID != sessionID || r2.Attempt != attempt {
 			return nil, ErrSessionMismatch
@@ -1104,7 +1128,7 @@ func AlgebraicCombine(
 		commitInput := append(append([]byte{}, r2.W...), tau1...)
 		recomputed := transcriptHash32(tagAlgR1, commitInput)
 		if !ctEqual32(recomputed, r1.Commit) {
-			return nil, ErrAlgRound2CommitBad
+			return nil, ErrTransitionalRound2CommitBad
 		}
 		// Verify Round-2 MAC. The aggregator's role is canonically
 		// quorum[0]; verify each peer's MAC addressed to that role.
@@ -1123,10 +1147,10 @@ func AlgebraicCombine(
 			expected := kmac256(key[:], tau2, 32, tagAlgR2MAC)
 			got, gotOK := r2.MACs[quorum[0]]
 			if !gotOK {
-				return nil, ErrAlgRound2MACBad
+				return nil, ErrTransitionalRound2MACBad
 			}
 			if !ctEqualSlice(expected, got[:]) {
-				return nil, ErrAlgRound2MACBad
+				return nil, ErrTransitionalRound2MACBad
 			}
 		}
 		r2ByID[r2.NodeID] = r2
@@ -1135,11 +1159,14 @@ func AlgebraicCombine(
 		return nil, ErrInsufficientQuor
 	}
 
-	// Transitional inner sign. The v0.2 protocol-side wire shape is
-	// fully validated above; the inner sign step delegates to circl's
-	// SignTo using setup.SkBytes. A v0.3 pure-algebraic AlgebraicCombine
-	// replaces this step with direct (z, h) emission from the per-party
-	// (W, Z, CS2, CT0) contributions — without ever touching SkBytes.
+	// Transitional inner sign — SkBytes dependency lives here.
+	//
+	// The v0.2 protocol-side wire shape is fully validated above; the
+	// inner sign step calls mldsaSign with setup.SkBytes (the master
+	// FIPS 204 packed sk). The per-party (Z, CS2, CT0) contributions
+	// are NOT consumed here. v0.3 (PULSAR-V03-1) replaces this line
+	// with direct (z, h) emission from the per-party contributions
+	// and drops the SkBytes field entirely.
 	sigBytes, err := mldsaSign(params.Mode, setup.SkBytes, message, nil, false, rand.Reader)
 	if err != nil {
 		return nil, err
@@ -1336,7 +1363,7 @@ func polyDeriveUniformBounded(p *poly, seed *[64]byte, nonce uint16, bound uint3
 // SAME canonical-sorted order as the quorum.
 //
 // Used by the protocol-layer driver to thread EvalPoints from the
-// trusted-dealer or DKG output into AlgebraicCombine and into
+// trusted-dealer or DKG output into TransitionalAggregate and into
 // signer.SetQuorumEvalPoints.
 func QuorumEvalPoints(quorum []NodeID, shares []*PolyKeyShare) ([]uint32, error) {
 	byID := make(map[NodeID]uint32, len(shares))
