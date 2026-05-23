@@ -5,13 +5,69 @@ documentation claim. One entry per issue. Status is `OPEN` until the
 graduation gate (the bottom of each entry) is met; then move to
 `CLOSED` and link the commit / tag that closed it.
 
-## PULSAR-V03-1 — v0.3 algebraic sign: remove SkBytes dependency from TransitionalAggregate
+## PULSAR-V03-1 — v0.3 algebraic sign: byte-equality with circl Verify
 
-**Status**: OPEN
+**Status**: OPEN (PARTIAL: API surface complete, byte-equality pending)
 **Opened**: v1.0.14
+**Updated**: v1.0.17 — narrow scope to NTT/sigEncode byte-equality
 **Closes**: v0.3 ship
 **Owner**: cryptographer
-**Related test**: `ref/go/pkg/pulsar/threshold_v02_test.go::TestTransitional_DependsOnSkBytes`
+**Related tests**:
+- `ref/go/pkg/pulsar/threshold_v02_test.go::TestTransitional_DependsOnSkBytes` (PASS — v0.2 dependency on SkBytes pinned)
+- `ref/go/pkg/pulsar/threshold_v03_test.go::TestAlgebraic_NoSkAccess` (PASS — v0.3 API surface has NO sk parameter and NO sk-bearing primitive reachable from `AlgebraicAggregate`)
+- `ref/go/pkg/pulsar/threshold_v03_test.go::TestAlgebraic_FullCycle_n5_t3` (FAIL — v0.3 output sig does not pass stock circl `mldsa65.Verify`)
+
+### What v1.0.15-v1.0.16 shipped
+
+`threshold_v03.go` ships the real `AlgebraicAggregate` function:
+- API contract: NO `*PrivateKey`, NO `SkBytes`, NO `seed` parameter
+- Function body: NO reference to `KeyFromSeed`, `mldsaSign`, or any sk-bearing primitive
+- Round-1/Round-2W/Round-2Sign emit per-party algebraic contributions
+- `AlgebraicAggregate` sums `(W, Z, CS2, CT0)` across the quorum, applies FIPS 204 §6 rejection checks, emits sig via FIPS 204 §7 sigEncode
+
+`TestAlgebraic_NoSkAccess` is a load-bearing structural test that AST-parses `threshold_v03.go` and asserts the function signature and body have no sk-bearing references. This is the public-BFT-safety contract.
+
+### What's broken (the actual current bug)
+
+`AlgebraicAggregate` emits a signature byte-string of the FIPS 204 canonical size (3309 bytes for ML-DSA-65) with all components computed by pure algebraic sums over per-party contributions. The sig structure is correct (c̃, z, h). But it does NOT pass `mldsa65.Verify`.
+
+Debug tests confirm the algebraic intermediate computations are SELF-CONSISTENT:
+- `TestAlgebraic_Debug_AlgebraicReconstruction` PASS (zRecon vs zRef: 0 diffs)
+- `TestAlgebraic_Debug_ZSumVsCircl` PASS (algebraic z matches the reference y_total + c·s_1 under our own primitives)
+- `TestAlgebraic_Debug_PartyZRecomputation` PASS
+
+But these tests use OUR polynomial primitives on BOTH sides of the comparison. They prove our threshold compute is self-consistent; they do NOT prove our primitives produce circl-compatible bytes.
+
+Primitive-by-primitive source review against circl v1.6.3 source:
+- Zetas / InvZetas tables: byte-identical to `circl/sign/internal/dilithium/ntt.go::Zetas`
+- `nttGeneric` loop: identical to `circl.../ntt.go::nttGeneric`
+- `invNttGeneric`: identical
+- `montReduceLe2Q`: identical (Q = 8380417, Qinv = 4236238847)
+- `ROver256` = 41978: identical
+- `mulHat`: identical
+- `decompose`: same convention (returns `(a0+q, a1)`)
+- `makeHint`: same boundary check
+- `polyPackLeGamma1` / `polyVecPackHint`: same byte layout
+- mu derivation: FIPS 204 §5.4 conformant (`SHAKE-256(tr || 0x00 || |ctx| || ctx || M, 64)`)
+- c̃ derivation: matches circl
+- sigEncode pack order: matches circl `Pack` in `internal/dilithium.go`
+
+Despite all the above, the sig does not verify under circl.
+
+### Next-session debug plan
+
+1. Write a side-by-side test that runs Pulsar's `AlgebraicAggregate` AND circl's `mldsa65.SignTo` (in deterministic mode) on the SAME master sk, SAME message, SAME randomness. Both must produce byte-identical sigs IF Pulsar's algebraic compute matches circl. Compare byte-by-byte and find the first divergence. The first diverging byte tells us exactly which field is wrong (c̃, z[L][N], or hint).
+2. Most likely culprits in order of probability:
+   - cs2 sum is wrong (Montgomery-form leaking, NTT-domain residue not zeroed)
+   - ct0 sum is wrong (same issue, or t_0 normalization changed mod-q value during Shamir share)
+   - Hint args are mis-ordered for the actual hint convention circl uses
+3. If diff is in c̃: check `mu` and `w1Encode` byte buffers vs circl's intermediate buffers (requires hooking circl's internal `SignTo` with debug prints).
+4. If diff is in z: cs2 must be wrong (since z = y + cs1 only, and we proved z matches under our primitives — but z packing uses circl's PolyLeGamma1Size which depends on γ_1).
+5. If diff is in hint: hint args (w0_mcs2_pct0, w1) vs circl's (w0mcs2pct0, w1) — both look identical in source.
+
+### Workaround until closed
+
+Use `TransitionalAggregate` (v0.2) for production sig emission — it produces circl-verifiable sigs but the aggregator holds the master sk briefly. Document the TEE-required trust model per `DEPLOYMENT-RUNBOOK.md` v0.1 section.
 
 ### Problem
 
