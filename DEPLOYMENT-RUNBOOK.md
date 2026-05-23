@@ -5,6 +5,20 @@
 > mandated by the cryptographer sign-off (GATE-1) and pins the
 > safe operating envelope.
 
+## TL;DR: Which Combine variant for which deployment?
+
+| Deployment scenario | Use | Why |
+|---|---|---|
+| **Public BFT, no aggregator-host trust** | `AlgebraicAggregate` (v0.3) | NO sk materialized at any party. PROTOCOL-correct by construction. INTEROP NOTE: v0.3 sig wire-format does not yet pass stock circl `mldsa65.Verify` due to a subtle bug in our NTT-based polynomial arithmetic (v1.0.16 BLOCKERS.md::PULSAR-V03-1). All primitive checks against circl source verified equivalent — bug needs side-by-side runtime debugging. Use v0.3 today ONLY where the verifier accepts Pulsar's algebraic sig as-is (i.e., a custom Lux-precompile verifier that uses Pulsar's own polynomial layer). |
+| **Public BFT, interop with stock FIPS 204** | `Combine` (v0.1) **inside a TEE** | sig byte-equals circl, accepted by any FIPS 204 verifier. But aggregator host MUST be in TCB. Use SGX/SEV-SNP/TDX with remote attestation. |
+| **M-Chain bridge custody (single operator, TEE in TCB by design)** | `Combine` (v0.1) | Same wire as above, dealer/aggregator trust is acceptable by deployment policy. |
+| **A-Chain confidential compute (TEE-attested provider)** | `Combine` (v0.1) | TEE is part of the AI-provider attestation envelope (see aivm). |
+| **Dev/test, no security guarantees** | Either | Both produce valid threshold sigs; choose by interop need. |
+
+## Public-BFT graduation gate
+
+The v0.3 → public-BFT-production gate is: **`TestAlgebraic_FullCycle_n5_t3` passes** (output sig verifies under stock circl `mldsa65.Verify`). Today this test FAILS. Tracked in `BLOCKERS.md::PULSAR-V03-1`. Once it passes, the v0.3 wire becomes the canonical wire and v0.1 becomes deprecated.
+
 ## Audience
 
 - Validator operators bringing up a Pulsar-enabled Lux chain (or
