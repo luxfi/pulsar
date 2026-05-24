@@ -191,13 +191,18 @@ func deriveKeyMaterial(mode Mode, seed *[SeedSize]byte) (*mldsaKeyMaterial, erro
 		off += 416
 	}
 
-	// Pre-NTT the matrix A — every signing call uses A in NTT-domain,
-	// so cache it now.
-	for i := 0; i < K; i++ {
-		for j := 0; j < L; j++ {
-			km.a[i][j].ntt()
-		}
-	}
+	// NOTE: km.a is already in NTT-domain. PolyDeriveUniform is FIPS 204
+	// §3.5 ExpandA, which samples coefficients DIRECTLY into the NTT
+	// representation — no forward NTT step is required. Confirmed by
+	// byte-equal comparison against cloudflare/circl's pk.A field
+	// (PolyDeriveUniform output == circl's stored A matrix).
+	//
+	// A previous version of this file NTT'd km.a once more here; that
+	// produced double-NTT'd values which caused v0.3 AlgebraicAggregate
+	// signatures to fail mldsa{44,65,87}.Verify even though keygen pub
+	// was byte-equal (because keygen uses A correctly while signing
+	// consumed setup.A = km.a in its double-NTT'd form). See
+	// PULSAR-V03-1 in BLOCKERS.md.
 
 	return &km, nil
 }
