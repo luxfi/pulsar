@@ -61,7 +61,7 @@ func TestCirclInternalShape_VsPulsar(t *testing.T) {
 
 	t.Logf("pulsar rho[0..8]: %x", km.rho[0:8])
 	t.Logf("pulsar t1[0][0..4]: %v", km.t1[0][0:5])
-	t.Logf("pulsar A[0][0][0..4]: %v (note: km.a is post-NTT)", km.a[0][0][0:5])
+	t.Logf("pulsar A[0][0][0..4]: %v (km.a in NTT-domain == polyDeriveUniform == circl's SampleNTT)", km.a[0][0][0:5])
 
 	// Compare rho.
 	if circlPkAny.rho != km.rho {
@@ -88,7 +88,9 @@ func TestCirclInternalShape_VsPulsar(t *testing.T) {
 		t.Logf("t1 ✓")
 	}
 
-	// Compare A polynomial-wise. circl's A is post-NTT (cached); ours is also post-NTT.
+	// Compare A polynomial-wise. Both sides hold A in NTT-domain — sampled
+	// directly via polyDeriveUniform (== circl's SampleNTT, FIPS 204 ExpandA).
+	// No separate forward NTT is applied.
 	if A != nil {
 		aDiffs := 0
 		for k := 0; k < 6; k++ {
