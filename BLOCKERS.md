@@ -235,5 +235,23 @@ checks pass:
 - `TestAlgebraic_NoSkAccess` PASS (public-BFT safety contract intact)
 - `TestTransitional_DependsOnSkBytes` PASS (v0.2 still requires SkBytes;
   the SkBytes-free path is v0.3 `AlgebraicAggregate`)
-- Full pulsar suite: 155 PASS / 0 FAIL / 2 SKIP (-race green)
+- Full pulsar suite: 157 PASS / 0 FAIL / 0 SKIP (-race green; the 2
+  SKIPs Blue's v1.0.20 report mentioned only appear under `-short` in
+  `shamir_gfq_test.go` and were not part of the v0.3 fix scope)
 - Class N1 byte-equality preserved (`TestN1_ByteEquality_*` PASS)
+
+**v1.0.21 hardened the regression guards** (Red feedback after v1.0.20):
+`TestAMatrix_IsAlreadyInNTTDomain` now compares `km.a` (the field that
+was wrong) at corners `[0][0]` and `[K-1][L-1]`, not just the
+standalone `polyDeriveUniform` output. Stale "post-NTT" comments in
+`threshold_v03_unsafediff_test.go` rewritten. AST banned-call list in
+`TestAlgebraic_NoSkAccess` extended to include `polyDeriveUniformLeqEta`
+and `polyDeriveUniformBounded` (defence-in-depth — secret-coefficient
+samplers banned from `AlgebraicAggregate` body).
+
+**v1.0.22 closed Red's final non-blocking finding**: AST guard now
+also walks `*ast.SelectorExpr.Sel.Name` and `*ast.Ident` against the
+banned-call list, so a function-pointer assignment
+(`var fn = polyDeriveUniformLeqEta; fn(...)`) or method-set dispatch
+can't bypass the `CallExpr.Fun` check. No current callsite is
+affected; this closes the indirect-dispatch hole Red identified.
