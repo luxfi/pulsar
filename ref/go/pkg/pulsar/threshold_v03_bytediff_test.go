@@ -190,12 +190,13 @@ func manualVerifyOnce(t *testing.T, params *Params, pubBytes, msg, sigBytes []by
 	}
 	var rho32 [32]byte
 	copy(rho32[:], rho)
+	// FIPS 204 §3.5 ExpandA samples A coefficients DIRECTLY into the
+	// NTT representation; no forward NTT is required (or wanted) here.
 	A := make([]polyVec, K)
 	for i := 0; i < K; i++ {
 		A[i] = make(polyVec, L)
 		for j := 0; j < L; j++ {
 			polyDeriveUniform(&A[i][j], &rho32, uint16((i<<8)|j))
-			A[i][j].ntt()
 		}
 	}
 
@@ -601,7 +602,8 @@ func TestAlgebraic_ManualVerify(t *testing.T) {
 		polyUnpackT1(&t1[k], pubV03.Bytes[32+320*k:32+320*(k+1)])
 	}
 
-	// Build matrix A from ρ in NTT form (polyDotHat expects NTT inputs).
+	// FIPS 204 §3.5 ExpandA samples A coefficients DIRECTLY into the
+	// NTT representation; no forward NTT is required (or wanted) here.
 	var rho32 [32]byte
 	copy(rho32[:], rho)
 	A := make([]polyVec, K)
@@ -609,7 +611,6 @@ func TestAlgebraic_ManualVerify(t *testing.T) {
 		A[i] = make(polyVec, L)
 		for j := 0; j < L; j++ {
 			polyDeriveUniform(&A[i][j], &rho32, uint16((i<<8)|j))
-			A[i][j].ntt()
 		}
 	}
 
