@@ -375,6 +375,24 @@ func TestAlgebraic_NoSkAccess(t *testing.T) {
 			if n.Sel.Name == "SignTo" {
 				t.Fatalf("AlgebraicAggregate body calls SignTo (%q) — public-BFT contract broken", selStr)
 			}
+			// Detect *.<banned> via method-set dispatch (interface/embedded).
+			for _, banned := range bannedFuncCalls {
+				if n.Sel.Name == banned {
+					t.Fatalf("AlgebraicAggregate body references banned selector %q via %q — public-BFT contract broken", banned, selStr)
+				}
+			}
+		case *ast.Ident:
+			// Detect bare references to banned identifiers, e.g.
+			//   var fn = polyDeriveUniformLeqEta; fn(...)
+			// which a function-pointer or higher-order construct could
+			// use to bypass the CallExpr.Fun check. Any naked reference
+			// to a banned identifier inside the AlgebraicAggregate body
+			// is forbidden — there is no legitimate use.
+			for _, banned := range bannedFuncCalls {
+				if n.Name == banned {
+					t.Fatalf("AlgebraicAggregate body references banned identifier %q — public-BFT contract broken (function-pointer / indirect-dispatch path)", n.Name)
+				}
+			}
 		}
 	}
 	ast.Inspect(aggFunc.Body, func(node ast.Node) bool {
