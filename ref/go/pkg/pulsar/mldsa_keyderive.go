@@ -202,7 +202,9 @@ func deriveKeyMaterial(mode Mode, seed *[SeedSize]byte) (*mldsaKeyMaterial, erro
 	// signatures to fail mldsa{44,65,87}.Verify even though keygen pub
 	// was byte-equal (because keygen uses A correctly while signing
 	// consumed setup.A = km.a in its double-NTT'd form). See
-	// PULSAR-V03-1 in BLOCKERS.md.
+	// PULSAR-V03-1 in BLOCKERS.md. Guarded by
+	// TestAMatrix_IsAlreadyInNTTDomain (compares km.a vs circl.pk.A at
+	// [0][0] and [K-1][L-1] byte-for-byte).
 
 	return &km, nil
 }

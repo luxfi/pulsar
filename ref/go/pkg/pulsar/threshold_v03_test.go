@@ -341,11 +341,20 @@ func TestAlgebraic_NoSkAccess(t *testing.T) {
 	}
 
 	// Check function body — no reference to master-sk primitives.
+	//
+	// polyDeriveUniformLeqEta and polyDeriveUniformBounded are the
+	// secret-coefficient samplers (s1/s2 in keygen, y in signing). The
+	// aggregator runs on PUBLIC inputs only — if a future refactor pulls
+	// either sampler into AlgebraicAggregate via a sub-quorum-extracted
+	// seed, the public-BFT contract is broken. Defence-in-depth: any
+	// reference fails the build.
 	bannedFuncCalls := []string{
 		"KeyFromSeed",
 		"NewKeyFromSeed",
 		"mldsaSign",
 		"deriveKeyMaterial",
+		"polyDeriveUniformLeqEta",
+		"polyDeriveUniformBounded",
 	}
 	var visit func(node ast.Node)
 	visit = func(node ast.Node) {
