@@ -815,15 +815,6 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 	var c poly
 	polyDeriveUniformBall(&c, cTilde, tau)
 
-	if s.NodeID[0] == 0x01 {
-		// DEBUG
-		debugV03PrintC(c)
-		debugV03PrintCTilde(cTilde)
-		debugV03PrintMu(mu)
-		debugV03PrintW1Packed(w1Packed)
-		debugV03PrintW(w)
-	}
-
 	// c · λ_i in coefficient form (c[j] ∈ {0, ±1}, λ_i ∈ [0, q)).
 	lambdaQ := uint64(s.lambda)
 	var cLambda poly
@@ -842,11 +833,6 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 		tmp.invNTT()
 		tmp.normalize()
 		yi := s.myY[i]
-		if i == 0 && s.NodeID[0] == 0x01 {
-			// DEBUG TODO REMOVE
-			_ = tmp
-			_ = yi
-		}
 		z[i].add(&yi, &tmp)
 		z[i].normalize()
 	}

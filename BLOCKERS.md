@@ -7,17 +7,68 @@ graduation gate (the bottom of each entry) is met; then move to
 
 ## PULSAR-V03-1 — v0.3 algebraic sign: byte-equality with circl Verify
 
-**Status**: OPEN (PARTIAL: API surface complete, byte-equality pending)
+**Status**: CLOSED in v1.0.20
 **Opened**: v1.0.14
-**Updated**: v1.0.17 — narrow scope to NTT/sigEncode byte-equality
+**Updated**: v1.0.20 — root cause + fix in `mldsa_keyderive.go`
 **Closes**: v0.3 ship
 **Owner**: cryptographer
 **Related tests**:
 - `ref/go/pkg/pulsar/threshold_v02_test.go::TestTransitional_DependsOnSkBytes` (PASS — v0.2 dependency on SkBytes pinned)
 - `ref/go/pkg/pulsar/threshold_v03_test.go::TestAlgebraic_NoSkAccess` (PASS — v0.3 API surface has NO sk parameter and NO sk-bearing primitive reachable from `AlgebraicAggregate`)
-- `ref/go/pkg/pulsar/threshold_v03_test.go::TestAlgebraic_FullCycle_n5_t3` (FAIL — v0.3 output sig does not pass stock circl `mldsa65.Verify`)
+- `ref/go/pkg/pulsar/threshold_v03_test.go::TestAlgebraic_FullCycle_n5_t3` (PASS — v0.3 sig now verifies under stock `mldsa65.Verify`)
+- `ref/go/pkg/pulsar/threshold_v03_bytediff_test.go::TestAlgebraic_DebugVsCirclVerify` (PASS — direct circl Verify check)
+- `ref/go/pkg/pulsar/threshold_v03_bytediff_test.go::TestManualVerify_OnV01SigSanity` (PASS — manual verify pipeline matches circl on circl-produced sig)
+- `ref/go/pkg/pulsar/threshold_v03_aprime_test.go::TestAMatrix_IsAlreadyInNTTDomain` (NEW regression guard — pins the FIPS 204 ExpandA convention)
+- `ref/go/pkg/pulsar/threshold_v03_unsafediff_test.go::TestCirclInternalShape_VsPulsar` (NEW regression guard — pins byte-equality of `km.a` vs circl's `pk.A`)
 
-### What v1.0.15-v1.0.16 shipped
+### Root cause (resolved in v1.0.20)
+
+`deriveKeyMaterial` (`mldsa_keyderive.go`) was applying an EXTRA forward
+NTT to the public matrix `A` AFTER sampling it via `polyDeriveUniform`:
+
+```go
+// BEFORE (buggy, v1.0.19 and earlier):
+for i := 0; i < K; i++ {
+    polyDeriveUniform(&km.a[i][j], &km.rho, ...)  // samples directly into NTT domain
+}
+// ... later in the same function:
+for i := 0; i < K; i++ {
+    for j := 0; j < L; j++ {
+        km.a[i][j].ntt()  // *** EXTRA NTT — wrong ***
+    }
+}
+```
+
+Per FIPS 204 §3.5 Algorithm 32 (`ExpandA`), the matrix `A` is sampled
+DIRECTLY into the NTT representation — there is no separate forward NTT
+step. `polyDeriveUniform` is exactly that algorithm (matching circl's
+`PolyDeriveUniform`), so `km.a` is already NTT-domain post-sample.
+
+Re-NTTing produced double-NTT'd values (visible to v0.3 sign as `setup.A`).
+The bug was invisible in v0.1 because v0.1 calls `circl.SignTo` which
+maintains its own `A`. It was invisible in v0.2 because v0.2 emits the
+final FIPS 204 sig via `circl.SignTo(setup.SkBytes, ...)` and only used
+the wrong `A` in transcript-level commits (which are self-consistent
+across all parties, so the protocol invariant held). v0.3 was the first
+mode that propagated the wrong `A` all the way to the output signature.
+
+It was invisible in keygen itself because `deriveKeyMaterial` consumes
+`km.a` BEFORE the spurious NTT step (in the `t = A·s1 + s2` computation),
+so the resulting `t1` matches circl's. Only the post-step contaminated
+the cached `km.a`.
+
+### Fix
+
+Drop the post-step. `polyDeriveUniform` already produces NTT-domain
+coefficients (FIPS 204 ExpandA), so `km.a` is correctly NTT-domain
+right out of the sample loop. The fix is two-line: remove the post-NTT
+loop and add a clarifying comment.
+
+The `manualVerifyOnce` helper in `threshold_v03_bytediff_test.go` had
+the same redundant `.ntt()` on locally-sampled `A` — removed there too,
+plus in `TestPrimDiff_VerifyPipeline_OnCirclSig`.
+
+### What v1.0.15-v1.0.16 shipped (history)
 
 `threshold_v03.go` ships the real `AlgebraicAggregate` function:
 - API contract: NO `*PrivateKey`, NO `SkBytes`, NO `seed` parameter
@@ -172,5 +223,17 @@ When all of the following are true, this issue is CLOSED:
 
 ### Closes this entry
 
-Tag: `pulsar v0.3.x` ship. Update this entry with the closing
-commit SHA, tag, and date when graduated.
+Closed in **v1.0.20**. The single load-bearing change is one block
+removed in `ref/go/pkg/pulsar/mldsa_keyderive.go` (the spurious post-
+sample NTT loop on `km.a`). Two test files (`threshold_v03_aprime_test.go`,
+`threshold_v03_unsafediff_test.go`) landed as regression guards pinning
+the FIPS 204 ExpandA convention byte-for-byte against
+cloudflare/circl@v1.6.3's stored `pk.A`. The graduation-gate
+checks pass:
+
+- `TestAlgebraic_FullCycle_n5_t3` PASS
+- `TestAlgebraic_NoSkAccess` PASS (public-BFT safety contract intact)
+- `TestTransitional_DependsOnSkBytes` PASS (v0.2 still requires SkBytes;
+  the SkBytes-free path is v0.3 `AlgebraicAggregate`)
+- Full pulsar suite: 155 PASS / 0 FAIL / 2 SKIP (-race green)
+- Class N1 byte-equality preserved (`TestN1_ByteEquality_*` PASS)
