@@ -10,13 +10,13 @@
 |---|---|
 | **NIST MPTC submission for Pulsar** | `pulsar-mptc/SUBMISSION.md` + `NIST-SUBMISSION.md` |
 | **Hanzo PQ Threshold Suite overview** | `pulsar-mptc/SUITE.md` |
-| **Pulsar protocol spec** | `pulsar-mptc/SPEC.md` (text) + `pulsar-mptc/spec/pulsar.pdf` (formal) |
+| **Pulsar protocol spec** | `pulsar-mptc/docs/spec-overview.md` (text) + `pulsar-mptc/spec/pulsar.pdf` (formal) |
 | **Pulsar IETF / CFRG draft** | `pulsar-mptc/docs/ietf-draft-skeleton.md` |
-| **What's proved vs not proved** | `pulsar-mptc/PROOF-CLAIMS.md` |
-| **Residual EC axioms** | `pulsar-mptc/AXIOM-INVENTORY.md` |
-| **TCB / what to trust** | `pulsar-mptc/TRUSTED-COMPUTING-BASE.md` |
-| **Op → FIPS 204 § map** | `pulsar-mptc/FIPS-TRACEABILITY.md` |
-| **Patent grant** | `pulsar-mptc/PATENTS.md` |
+| **What's proved vs not proved** | `pulsar-mptc/docs/proof-claims.md` |
+| **Residual EC axioms** | `pulsar-mptc/docs/proof-axiom-inventory.md` |
+| **TCB / what to trust** | `pulsar-mptc/docs/tcb.md` |
+| **Op → FIPS 204 § map** | `pulsar-mptc/docs/fips-204-traceability.md` |
+| **Patent grant** | `pulsar-mptc/docs/patents.md` |
 | **Patent claim drafts (internal)** | `pulsar-mptc/docs/patent-claims.md` |
 | **Per-version proof changelog** | `pulsar-mptc/CHANGELOG.md` |
 | **Performance + correctness evaluation** | `pulsar-mptc/docs/evaluation.md` |
@@ -66,10 +66,10 @@ Secret-sharing wrapper
 ```
 NIST submission reviewer
 ├── Entry: pulsar-mptc/SUBMISSION.md
-├── Specs: pulsar-mptc/SPEC.md, spec/pulsar.pdf
+├── Specs: pulsar-mptc/docs/spec-overview.md, spec/pulsar.pdf
 ├── Trust: PROOF-CLAIMS, AXIOM-INVENTORY, TCB
-├── Validation: vectors/, docs/evaluation.md
-└── IP: PATENTS.md
+├── Validation: vectors/, evaluation.md
+└── IP: patents.md
 
 IETF / CFRG editor
 ├── Entry: pulsar-mptc/docs/ietf-draft-skeleton.md
@@ -88,25 +88,25 @@ Lux validator operator
 └── Operations: lps/LP-141-threshold-vm.md
 
 Attorney / patent reviewer
-├── Public-facing: pulsar-mptc/PATENTS.md
+├── Public-facing: pulsar-mptc/docs/patents.md
 ├── Claim drafts (internal): pulsar-mptc/docs/patent-claims.md
-└── Prior-art map: docs/patent-claims.md §1.4 (per claim group)
+└── Prior-art map: patent-claims.md §1.4 (per claim group)
 
 Auditor (cryptographic review)
 ├── Spec: pulsar-mptc/spec/pulsar.pdf
 ├── Proofs: pulsar-mptc/proofs/easycrypt/ + ~/work/lux/proofs/lean/
 ├── Bridge doc: pulsar-mptc/proofs/lean-easycrypt-bridge.md
-├── Trust: TRUSTED-COMPUTING-BASE.md
+├── Trust: tcb.md
 └── Validation: scripts/check-high-assurance.sh
 
 Application developer (calling Pulsar from Go / Rust)
 ├── Reference impl: pulsar-mptc/ref/go/pkg/pulsar/
-├── Spec subset: SPEC.md §7 (signing) + §8 (verification)
+├── Spec subset: spec-overview.md §7 (signing) + §8 (verification)
 └── Bindings (future): per language target
 
 External cryptographer (peer review)
-├── Honest framing: PROOF-CLAIMS.md
-├── Residual trust: AXIOM-INVENTORY.md
+├── Honest framing: proof-claims.md
+├── Residual trust: proof-axiom-inventory.md
 └── External-facing: spec/pulsar.pdf + Lean side at ~/work/lux/proofs/lean/
 ```
 
@@ -143,7 +143,7 @@ A reader can hop axes:
   `pulsar-mptc/` is the open-source NIST-submission home; downstream
   consumers (hanzo/, lps/, etc.) reference it for production use.
 - **From Axis 2 (NIST reviewer) to Axis 1 (construction)**:
-  SUBMISSION.md points to SPEC.md which describes Pulsar's place in
+  SUBMISSION.md points to spec-overview.md which describes Pulsar's place in
   the Tier-1/2/3 suite.
 - **From Axis 3 (LP-019 reader) to Axis 1 (Pulsar / Magnetar)**:
   LP-019 tags Pulsar precompile at 0x000B; reader follows to
@@ -154,13 +154,13 @@ A reader can hop axes:
 For each new tier construction:
 
 1. Add a row to `SUITE.md` §Tiers.
-2. Add a corresponding tier-N entry to `INFORMATION-ARCHITECTURE.md`
+2. Add a corresponding tier-N entry to `information-architecture.md`
    Axis 1.
 3. If production-grade: spin up a parallel doc package
    (SUBMISSION, SPEC, PROOF-CLAIMS, AXIOM-INVENTORY,
    FIPS-TRACEABILITY, PATENTS, TCB, evaluation).
 4. If research-grade: a single `docs/<tier>.md` placeholder
-   suffices (per `docs/magnetar.md` template).
+   suffices (per `magnetar.md` template).
 5. Cross-reference from the relevant LP-NNN in `lps/`.
 
 ## Consistency rules
@@ -170,7 +170,7 @@ To prevent drift across repos / LPs / docs:
 1. **Canonical algorithm wiring lives in `lps/CRYPTO-CANONICAL.md`**.
    All other docs cross-reference; no other doc owns this.
 2. **Protocol specs live in `lps/LP-NNN`** as the authoritative
-   versioned spec. Submission-package SPEC.md files reference
+   versioned spec. Submission-package spec-overview.md files reference
    the LP-NNN.
 3. **Implementation lives in the relevant repo** (`pulsar-mptc/`,
    `corona/`, etc.). Spec docs reference `ref/` paths.
@@ -180,15 +180,15 @@ To prevent drift across repos / LPs / docs:
 5. **Submission-package docs (this repo)** are NIST-submission-shaped
    and reference the canonical specs + implementations + proofs.
 6. **Patent grants** live with the repo that originated the
-   construction (Pulsar's grant in `pulsar-mptc/PATENTS.md`;
-   Corona's grant will live in `~/work/lux/corona/PATENTS.md`
+   construction (Pulsar's grant in `pulsar-mptc/docs/patents.md`;
+   Corona's grant will live in `~/work/lux/corona/docs/patents.md`
    when packaged).
 
 ---
 
 **Document metadata**
 
-- Name: `INFORMATION-ARCHITECTURE.md`
+- Name: `information-architecture.md`
 - Version: v0.1
 - Date: 2026-05-18
 - Cross-references: `SUITE.md`, `~/work/lux/lps/CRYPTO-CANONICAL.md`

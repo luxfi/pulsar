@@ -17,14 +17,14 @@
 **State today (2026-05-18).** One construction in the Hanzo crypto
 inventory — **Pulsar v0.1** (threshold ML-DSA-65, FIPS 204) — is
 NIST-MPTC submission-ready: full cover sheet (`SUBMISSION.md`),
-formal spec (`spec/pulsar.tex`), IETF draft (`docs/ietf-draft-skeleton.md`),
+formal spec (`spec/pulsar.tex`), IETF draft (`ietf-draft-skeleton.md`),
 reference implementation (`ref/go/`), EasyCrypt mechanization (11
 files compile, 0 admits, 71 enumerated residual axioms — see
-`AXIOM-INVENTORY.md`), 5 Lean-bridged algebraic identities (verified
+`proof-axiom-inventory.md`), 5 Lean-bridged algebraic identities (verified
 by `scripts/check-lean-bridge.sh`), Jasmin threshold sources + jasmin-ct
 3/3 blocking-green, KAT vectors cross-validated against three independent
-ML-DSA implementations, royalty-free patent grant (`PATENTS.md`),
-21-claim attorney-prep document (`docs/patent-claims.md`), and 13/13
+ML-DSA implementations, royalty-free patent grant (`patents.md`),
+21-claim attorney-prep document (`patent-claims.md`), and 13/13
 production go-live blockers closed (`BLOCKERS.md`). Every other
 construction listed in `HANZO-CRYPTO-SUITE.md` — Corona, Magnetar,
 LSS, FROST/CGGMP21 (Lux profile), BLS aggregate (Lux profile), X-Wing-Sig,
@@ -123,7 +123,7 @@ collaborator (Cryspen / Galois / Formosa-Crypto consortium contact)
 | Q3 2027 | ACVP/CAVP lab engagement | Engage atsec / Acumen / Leidos / Atsec for ACVP validation of the Pulsar reference implementation. |
 | Q4 2027 | κ-loop model first draft | Probabilistic Hoare-logic model compiled in EC; first attempt at discharging `*_no_reject_*` axioms. |
 | Q4 2027 | Codec mechanization first draft | First subset of codec round-trip axioms (sk encode/decode) discharged. |
-| Q1 2028 | ACVP/CAVP certificate issuance (target) | Certificate from the lab; cert number recorded in `FIPS-TRACEABILITY.md`. (External outcome — Lux controls submission, not issuance.) |
+| Q1 2028 | ACVP/CAVP certificate issuance (target) | Certificate from the lab; cert number recorded in `fips-204-traceability.md`. (External outcome — Lux controls submission, not issuance.) |
 | Q2 2028 | FIPS 140-3 module submission | One Pulsar consumer (e.g., Lux KMS) packaged as a FIPS 140-3 module; submitted to CMVP via lab. |
 | Q4 2028 | Codec mechanization complete | All ~21 codec round-trip axioms either discharged or replaced with narrower sub-axioms. |
 | Q1 2029 | κ-loop closure | Both `*_no_reject_*` axioms discharged from the axiom inventory. |
@@ -174,7 +174,7 @@ independent.
 | Documentation + axiom-inventory updates | 10 |
 | **Total** | **252** |
 
-**Acceptance gate**: AXIOM-INVENTORY.md residual count drops to ≤
+**Acceptance gate**: proof-axiom-inventory.md residual count drops to ≤
 10 (only Lean-bridged + irreducible TCB items). External audit report
 published. ACVP cert recorded. FIPS 140-3 module submitted (not
 necessarily issued).
@@ -192,14 +192,14 @@ necessarily issued).
   `corona/CONSTANT-TIME-REVIEW.md`).
 - DKG oracle binary built (`corona/dkg_oracle*`, `corona/dkg2_oracle*`).
 - Partial EC proof scaffolding for DKG only; no Lean bridges yet.
-- No SUBMISSION.md, no SPEC.md (standalone), no PATENTS.md, no IETF draft,
+- No SUBMISSION.md, no spec-overview.md (standalone), no patents.md, no IETF draft,
   no AXIOM-INVENTORY, no PROOF-CLAIMS, no TCB, no FIPS-TRACEABILITY.
 
 **Target end state (Q2 2027)**:
 - Corona has the same package shape as Pulsar:
-  `corona/SUBMISSION.md`, `corona/SPEC.md`, `corona/PATENTS.md`,
-  `corona/AXIOM-INVENTORY.md`, `corona/PROOF-CLAIMS.md`,
-  `corona/TRUSTED-COMPUTING-BASE.md`, `corona/FIPS-TRACEABILITY.md`
+  `corona/SUBMISSION.md`, `corona/docs/spec-overview.md`, `corona/docs/patents.md`,
+  `corona/docs/proof-axiom-inventory.md`, `corona/docs/proof-claims.md`,
+  `corona/docs/tcb.md`, `corona/docs/fips-204-traceability.md`
   (since Corona is byte-compatible with FIPS 204 verifier — same
   underlying ML-DSA semantics, R-LWE sibling),
   `corona/HANZO-CRYPTO-SUITE.md` cross-reference,
@@ -214,11 +214,11 @@ necessarily issued).
 
 | Quarter | Milestone | Scope |
 |---|---|---|
-| Q4 2026 | Corona standalone spec | `corona/SPEC.md` (text spec) + `corona/SUBMISSION.md` (cover sheet) cut from existing DESIGN.md. Patent grant copied + R-LWE-specific. |
+| Q4 2026 | Corona standalone spec | `corona/docs/spec-overview.md` (text spec) + `corona/SUBMISSION.md` (cover sheet) cut from existing DESIGN.md. Patent grant copied + R-LWE-specific. |
 | Q1 2027 | Corona EC proof scaffolding | 11-file mirror of Pulsar's EC theories adapted to R-LWE: `Corona_N1.ec`, `Corona_N1_{Sign,Combine}_{Refinement,Layout,Wrapper}.ec`, `Corona_N1_Memory.ec`, etc. Same admit budget 0/0. |
 | Q1 2027 | Corona Lean bridges | Same 5 Lean-bridged algebraic identities; reuse `Crypto.Threshold.Lagrange` Lean theory (ring-agnostic). Bridge guard pinned. |
 | Q2 2027 | Corona Jasmin threshold layer | Port `jasmin/threshold/{round1,round2,combine}.jazz` to R-LWE arithmetic. jasmin-ct 3/3 blocking. |
-| Q2 2027 | Corona IETF draft | `docs/ietf-draft.md` for Corona; submit to CFRG mailing list for review. |
+| Q2 2027 | Corona IETF draft | `ietf-draft.md` for Corona; submit to CFRG mailing list for review. |
 | Q3 2027 | Corona AXIOM-INVENTORY + PROOF-CLAIMS + TCB | Full trust accounting at Pulsar-grade. |
 | Q3 2027 | Corona external review-ready | Submit to NIST MPTC public comment (no separate submission slot needed; Corona is a sibling not a parallel competitor). |
 
@@ -248,7 +248,7 @@ or codec discharge from Pulsar's work.
 | Jasmin threshold layer (R-LWE arithmetic) | 12 |
 | IETF draft | 6 |
 | AXIOM-INVENTORY + PROOF-CLAIMS + TCB | 6 |
-| docs/evaluation.md + benchmarks | 6 |
+| evaluation.md + benchmarks | 6 |
 | **Total** | **62** |
 
 **Acceptance gate**: `corona/check-high-assurance.sh` runs analogous
@@ -264,7 +264,7 @@ by CFRG for working-group consideration (or explicit feedback received).
 group — Andreas Hülsing's group at TU/e, Bernstein–Lange axis, or
 Joppe Bos / NXP)
 **Current state**:
-- `docs/magnetar.md` — research-direction placeholder (~125 lines), no
+- `magnetar.md` — research-direction placeholder (~125 lines), no
   spec, no implementation.
 - No published threshold-SLH-DSA construction is well-reviewed enough
   to lift directly; this is research-grade.
@@ -392,8 +392,8 @@ CFRG mailing-list discussion thread initiated.
 
 **Target end state (Q4 2027)**:
 - `~/work/lux/frost/` standalone submission package: SUBMISSION.md,
-  SPEC.md (Lux profile: domain separation, transcript binding, deterministic-
-  vs-randomized nonce mode, identifiable abort), PATENTS.md (defensive
+  spec-overview.md (Lux profile: domain separation, transcript binding, deterministic-
+  vs-randomized nonce mode, identifiable abort), patents.md (defensive
   grant, since FROST itself is published prior art), IETF draft
   (`draft-lux-frost-profile-00`).
 - EC proofs (refinement chain for Lux-profile sign + DKG).
@@ -407,7 +407,7 @@ CFRG mailing-list discussion thread initiated.
 
 | Quarter | Milestone | Scope |
 |---|---|---|
-| Q1 2027 | Lux profile spec | `~/work/lux/frost/SPEC.md` capturing Lux's domain separators, transcript-binding choices, identifiable-abort evidence format. |
+| Q1 2027 | Lux profile spec | `~/work/lux/frost/docs/spec-overview.md` capturing Lux's domain separators, transcript-binding choices, identifiable-abort evidence format. |
 | Q1 2027 | Reference impl extraction | Split into `~/work/lux/frost/` (Go) from `~/work/lux/mpc/cc/frost/`. |
 | Q2 2027 | EC proof scaffolding | Refinement chain modeled on Pulsar's: FROST_Sign_Layout, FROST_Sign_Refinement, FROST_Sign_Wrapper, FROST_DKG_*, etc. |
 | Q2 2027 | KAT vectors | Aligned with upstream draft-irtf-cfrg-frost KATs + Lux-specific transcript-binding vectors. |
@@ -447,9 +447,9 @@ FROST implementation in the wild (zcash/orchard, FROST.zip).
 
 **Target end state (Q1 2028)**:
 - `~/work/lux/cggmp21/` standalone submission package: SUBMISSION.md,
-  SPEC.md (Lux profile: identifiable-abort variant with stronger
+  spec-overview.md (Lux profile: identifiable-abort variant with stronger
   evidence than upstream, transcript-binding, deterministic-presign mode),
-  PATENTS.md (defensive grant, since CGGMP21 is published academic
+  patents.md (defensive grant, since CGGMP21 is published academic
   prior art with no patent claims known), IETF draft
   (`draft-lux-cggmp21-profile-00`).
 - EC proofs (refinement chain for Lux-profile ECDSA threshold sign
@@ -464,7 +464,7 @@ FROST implementation in the wild (zcash/orchard, FROST.zip).
 
 | Quarter | Milestone | Scope |
 |---|---|---|
-| Q3 2027 | Spec extraction | LP-019 / LP-155 sections + implementation review → `~/work/lux/cggmp21/SPEC.md`. |
+| Q3 2027 | Spec extraction | LP-019 / LP-155 sections + implementation review → `~/work/lux/cggmp21/docs/spec-overview.md`. |
 | Q3 2027 | Reference impl extraction | `~/work/lux/cggmp21/` standalone. |
 | Q4 2027 | EC proof scaffolding | Refinement chain for Lux-profile presign + sign. Identifies which CGGMP21 ZK proofs need Lean mechanization. |
 | Q4 2027 | Lean ZK-proof bridges | Mechanize the Paillier-range-proof, log-proof, mul-proof identities in Lean; bridge to EC. |
@@ -507,9 +507,9 @@ secondary independent implementation.
 - No standalone submission package; no EC proof.
 
 **Target end state (Q2 2028)**:
-- `~/work/lux/bls/` standalone package: SUBMISSION.md, SPEC.md (Lux
+- `~/work/lux/bls/` standalone package: SUBMISSION.md, spec-overview.md (Lux
   profile: aggregation, proof-of-possession to defend against rogue-key,
-  domain separators per IETF `draft-irtf-cfrg-bls-signature`), PATENTS.md.
+  domain separators per IETF `draft-irtf-cfrg-bls-signature`), patents.md.
 - EC proofs (aggregation soundness reduction).
 - KAT vectors cross-validated against `blst` (which Lux already uses
   as test-time oracle per `lps/CRYPTO-CANONICAL.md`).
@@ -518,7 +518,7 @@ secondary independent implementation.
 
 | Quarter | Milestone | Scope |
 |---|---|---|
-| Q4 2027 | Spec extraction | Per-LP material → `~/work/lux/bls/SPEC.md`. |
+| Q4 2027 | Spec extraction | Per-LP material → `~/work/lux/bls/docs/spec-overview.md`. |
 | Q1 2028 | Reference impl extraction | Already factored; just produce SUBMISSION.md + IETF profile draft. |
 | Q1 2028 | EC proof scaffolding | Aggregation + verify-aggregate reduction. |
 | Q2 2028 | IETF draft | `draft-lux-bls-aggregate-profile-00` (alignment with `draft-irtf-cfrg-bls-signature`). |
@@ -538,9 +538,9 @@ review (or explicit feedback received). KAT vectors byte-equal against
 ### §B.8 X-Wing-Sig Hybrid Wrapper Specification
 
 **Stream ID**: `X-WING-SIG`
-**Owner**: Lux crypto-engineering (driver of `docs/x-wing-sig.md`)
+**Owner**: Lux crypto-engineering (driver of `x-wing-sig.md`)
 **Current state**:
-- `docs/x-wing-sig.md` proposed direction (no LP, no impl, no proof).
+- `x-wing-sig.md` proposed direction (no LP, no impl, no proof).
 
 **Target end state (Q2 2028)**:
 - `~/work/lux/lps/LP-NNN-xwing-sig.md` LP draft (Final status).
@@ -557,7 +557,7 @@ review (or explicit feedback received). KAT vectors byte-equal against
 
 | Quarter | Milestone | Scope |
 |---|---|---|
-| Q3 2026 | LP draft | `~/work/lux/lps/LP-NNN-xwing-sig.md` resolving open design questions in `docs/x-wing-sig.md` §"Open design questions". |
+| Q3 2026 | LP draft | `~/work/lux/lps/LP-NNN-xwing-sig.md` resolving open design questions in `x-wing-sig.md` §"Open design questions". |
 | Q4 2026 | IETF draft 00 | `draft-lux-cfrg-xwing-sig-00` to datatracker. |
 | Q4 2026 | Reference impl (Go) | `~/work/lux/crypto/xwing-sig/` with Ed25519+ML-DSA-65 and ECDSA-P256+ML-DSA-65 ciphersuites. |
 | Q1 2027 | KAT vectors | Aligned with Pulsar format; ciphersuite-tagged. |
@@ -829,7 +829,7 @@ threshold-generated bootstrap key.
 **Stream ID**: `EC-AXIOM-CLOSURE`
 **Owner**: Lux + formal-methods specialist (subcontractor)
 **Current state** (2026-05-18): 71 residual axioms enumerated in
-`AXIOM-INVENTORY.md`, distributed roughly as:
+`proof-axiom-inventory.md`, distributed roughly as:
 
 | Category | Count | Discharge plan |
 |---|---:|---|
@@ -847,7 +847,7 @@ threshold-generated bootstrap key.
 | Memory / share / N4 structural axioms | ~17 | Decomposable; many already narrow |
 
 **Target end state (Q1 2029)**:
-- AXIOM-INVENTORY.md drops from 71 to ≤ 15 (Lean-bridged + irreducible
+- proof-axiom-inventory.md drops from 71 to ≤ 15 (Lean-bridged + irreducible
   TCB-level axioms only).
 - κ-loop probabilistic Hoare model published as a paper (CRYPTO /
   CCS / S&P paper) AND mechanized in EC.
@@ -870,8 +870,8 @@ threshold-generated bootstrap key.
 | Q1 2028 | Codec round-2 deliverables | encode_sk / decode_sk + per-type length identities. ~10 axioms discharged. |
 | Q3 2028 | κ-loop model published | Paper + EC mechanization; both `*_no_reject_*` discharged. |
 | Q4 2028 | Codec round-3 deliverables | All ~21 codec axioms either discharged or replaced with narrower sub-axioms ≤ 5. |
-| Q1 2029 | Lean↔EC translation decision | Either build a checked translation artifact and discharge the 5 Lean bridges; OR formalize "Lean bridge as TCB item, not residual axiom" and update PROOF-CLAIMS.md. |
-| Q1 2029 | Final AXIOM-INVENTORY count | ≤ 15 residual; AXIOM-INVENTORY.md v2.0 released. |
+| Q1 2029 | Lean↔EC translation decision | Either build a checked translation artifact and discharge the 5 Lean bridges; OR formalize "Lean bridge as TCB item, not residual axiom" and update proof-claims.md. |
+| Q1 2029 | Final AXIOM-INVENTORY count | ≤ 15 residual; proof-axiom-inventory.md v2.0 released. |
 
 **Dependencies**: §B.1 Pulsar (this stream's deliverables flow into
 Pulsar's submission-package-shaped trust accounting); §B.2 Corona (will
@@ -909,7 +909,7 @@ inherit the codec mechanization).
 | Lean↔EC translation research / port | 40 (if pursued) |
 | **Total** | **170-210** depending on translation choice |
 
-**Acceptance gate**: AXIOM-INVENTORY.md count ≤ 15 (residual); first
+**Acceptance gate**: proof-axiom-inventory.md count ≤ 15 (residual); first
 academic paper on the κ-loop model accepted at a top venue OR
 self-archived on IACR ePrint with positive review.
 
@@ -1024,7 +1024,7 @@ public-comment response published.
 **Stream ID**: `IETF-CFRG-TRACK`
 **Owner**: Lux IETF liaison (engages CFRG mailing list)
 **Current state**:
-- `docs/ietf-draft-skeleton.md` is a complete Internet-Draft (no longer
+- `ietf-draft-skeleton.md` is a complete Internet-Draft (no longer
   skeleton — covers all required sections through §19 + appendices).
 
 **Target end state (Q4 2029)**:
@@ -1108,7 +1108,7 @@ issuance is the CMVP's clock.
 **Current state**:
 - Reference implementation cross-validated against three independent
   ML-DSA implementations (pq-crystals, circl, BoringSSL FIPS) — see
-  `docs/evaluation.md` §4.
+  `evaluation.md` §4.
 - No ACVP/CAVP lab engagement yet.
 
 **Target end state (Q3 2028)**:
@@ -1125,13 +1125,13 @@ issuance is the CMVP's clock.
 | Q3 2027 | ACVP lab engagement (atsec / Acumen / Leidos) |
 | Q4 2027 | ACVP test campaign |
 | Q1 2028 | CAVP certificate (target — outside Lux control) |
-| Q2 2028 | Cert documented in `FIPS-TRACEABILITY.md` |
+| Q2 2028 | Cert documented in `fips-204-traceability.md` |
 | Q3 2028 | ML-KEM + X-Wing campaigns (if in scope) |
 
 **Effort estimate**: 25 person-weeks.
 
 **Acceptance gate**: CAVP certificate number recorded in
-`FIPS-TRACEABILITY.md` §13.
+`fips-204-traceability.md` §13.
 
 ---
 
@@ -1140,8 +1140,8 @@ issuance is the CMVP's clock.
 **Stream ID**: `PATENT-PROSECUTION`
 **Owner**: Lux legal counsel + external patent attorney
 **Current state**:
-- `PATENTS.md` (royalty-free grant) published.
-- `docs/patent-claims.md` (21 numbered claims, 5 claim groups) ready
+- `patents.md` (royalty-free grant) published.
+- `patent-claims.md` (21 numbered claims, 5 claim groups) ready
   for attorney prep.
 - No provisional filed yet.
 
@@ -1157,13 +1157,13 @@ issuance is the CMVP's clock.
 | Quarter | Milestone |
 |---|---|
 | Q3 2026 | Attorney engagement |
-| Q3 2026 | US provisional drafted from `docs/patent-claims.md` |
+| Q3 2026 | US provisional drafted from `patent-claims.md` |
 | **Before 2026-11-16** | **US provisional filed (CRITICAL — preserves priority)** |
 | Q4 2027 | PCT international filed (within 12 months of provisional) |
 | Q3 2029 | National-phase entries (PCT 30-month deadline) |
 | Ongoing | Continuations for v8 Lean-bridged aggregation identity, v6 ExternalMu layout, N4 reshare algorithm |
 
-**Dependencies**: `docs/patent-claims.md` (already drafted).
+**Dependencies**: `patent-claims.md` (already drafted).
 
 **Risks**:
 
@@ -1187,7 +1187,7 @@ entries on track.
 **Owner**: Lux crypto-suite maintainer (`crypto-suite@lux.network`)
 **Current state**:
 - `lps/CRYPTO-CANONICAL.md` is the master crypto wiring doc.
-- `pulsar-mptc/INFORMATION-ARCHITECTURE.md` documents three-axis taxonomy.
+- `pulsar-mptc/docs/information-architecture.md` documents three-axis taxonomy.
 - LPs 168-179 mirror Hanzo HIPs 0077-0104 for E2E PQ.
 - `pulsar-mptc/SUITE.md` + `pulsar-mptc/HANZO-CRYPTO-SUITE.md` are master
   indexes.
@@ -1352,7 +1352,7 @@ These three open-research items each gate substantial downstream work:
 
 1. **κ-loop probabilistic Hoare model**. Blocks: full discharge of
    the two `*_no_reject_on_accepted_honest_layout` axioms. Without
-   closure, AXIOM-INVENTORY.md keeps these two items indefinitely.
+   closure, proof-axiom-inventory.md keeps these two items indefinitely.
    No published reduction at this scale exists in the EasyCrypt
    literature. **Estimate**: 60 person-weeks of dedicated specialist
    work + paper publication.
@@ -1430,7 +1430,7 @@ Per the honest-no-overclaiming discipline:
    promise lab engagement, not cert issuance.
 5. **This roadmap does NOT promise that ML-DSA's lattice hardness
    assumption is settled.** FIPS 204's analysis is taken at face value
-   per `PROOF-CLAIMS.md` §3.1. If a future cryptanalytic break weakens
+   per `proof-claims.md` §3.1. If a future cryptanalytic break weakens
    M-LWE / M-SIS, Pulsar inherits that risk — the EC proof artifact
    is implementation-correctness, not hardness.
 6. **This roadmap does NOT promise that 100% of residual axioms will
@@ -1476,13 +1476,13 @@ next 30 days:
 
 1. **Engage patent counsel within 7 days.** Recommended firm: Cooley LLP
    or Knobbe Martens (PQ patent experience) — alternates: Wilson Sonsini,
-   Fenwick & West. Brief them on `docs/patent-claims.md` and PATENTS.md.
+   Fenwick & West. Brief them on `patent-claims.md` and patents.md.
 2. **File US provisional within 14 days** (so anchor date is well
-   before 2026-11-16 NIST submission). Draft from `docs/patent-claims.md`
+   before 2026-11-16 NIST submission). Draft from `patent-claims.md`
    Claim Groups A, B, C, D, E. Filing fee USD 320 (small entity) +
    attorney draft.
 3. **Inventor identification**. Lux Industries cryptography team
-   inventors per `docs/patent-claims.md` §0. Confirm + sign IP
+   inventors per `patent-claims.md` §0. Confirm + sign IP
    assignment agreements.
 
 ### G.2 NIST MPTC submission preparation
@@ -1493,7 +1493,7 @@ next 30 days:
 5. **Reviewer-mirror checklist**: confirm `spec/pulsar.pdf` builds
    reproducibly, `vectors/` regenerates deterministically from the
    committed seed, the `submission-` tag references are consistent.
-6. **Final pass on AXIOM-INVENTORY.md** — re-grep `grep -rEn "^axiom\s+\w" proofs/easycrypt/`
+6. **Final pass on proof-axiom-inventory.md** — re-grep `grep -rEn "^axiom\s+\w" proofs/easycrypt/`
    and confirm the document's enumerated count matches the raw grep.
    Currently 71 axioms; document text claims "~36 named axioms on the
    corollary cone"; reconcile or explain the discrepancy.
@@ -1517,7 +1517,7 @@ next 30 days:
 ### G.4 IETF / CFRG engagement
 
 9. **Submit `draft-hanzo-pulsar-threshold-mldsa-00` to IETF datatracker**
-   within 30 days. Convert `docs/ietf-draft-skeleton.md` from Markdown
+   within 30 days. Convert `ietf-draft-skeleton.md` from Markdown
    to XML2RFC v3 via `mmark` or `kramdown-rfc`. Author block: Lux
    Industries cryptography team. Expiration date: 6 months from submit.
 10. **Post Pulsar announcement to CFRG mailing list** (`cfrg@irtf.org`)
@@ -1541,10 +1541,10 @@ next 30 days:
     for combine_body_h_spec`) in a feature branch. Land within 30 days.
     No external dependency; mechanical engineering. Trust footprint
     drops by 1 axiom.
-14. **Document discrepancy** between AXIOM-INVENTORY.md "~36 axioms"
+14. **Document discrepancy** between proof-axiom-inventory.md "~36 axioms"
     and `grep` raw count of 71. Likely explanation: 71 includes
     internal axioms not on the corollary cone (MLDSA65_Functional
-    internals, share-structure axioms). Update AXIOM-INVENTORY.md
+    internals, share-structure axioms). Update proof-axiom-inventory.md
     §0 trust-footprint summary table to reconcile.
 
 ### G.7 Critical-path summary
@@ -1587,16 +1587,16 @@ work plan" and `SUITE.md` §"Equivalent-packaging roadmap".
 
 **Document metadata**
 
-- Name: `ROADMAP.md`
+- Name: `roadmap.md`
 - Version: v1.0 (initial)
 - Date: 2026-05-18
 - Maintainer: `crypto-suite@lux.network`
 - Companion documents: `SUITE.md`, `HANZO-CRYPTO-SUITE.md`,
-  `INFORMATION-ARCHITECTURE.md`, `SUBMISSION.md`, `AXIOM-INVENTORY.md`,
-  `PROOF-CLAIMS.md`, `TRUSTED-COMPUTING-BASE.md`, `FIPS-TRACEABILITY.md`,
-  `BLOCKERS.md`, `PATENTS.md`, `docs/patent-claims.md`,
-  `docs/evaluation.md`, `docs/ietf-draft-skeleton.md`,
-  `docs/magnetar.md`, `docs/x-wing-sig.md`, `lps/CRYPTO-CANONICAL.md`,
+  `information-architecture.md`, `SUBMISSION.md`, `proof-axiom-inventory.md`,
+  `proof-claims.md`, `tcb.md`, `fips-204-traceability.md`,
+  `BLOCKERS.md`, `patents.md`, `patent-claims.md`,
+  `evaluation.md`, `ietf-draft-skeleton.md`,
+  `magnetar.md`, `x-wing-sig.md`, `lps/CRYPTO-CANONICAL.md`,
   LPs 019, 020, 062, 063, 066, 070, 072, 073, 075, 077, 078, 110, 115,
   134, 141, 154, 155, 167, 168-180.
 - License: Apache-2.0 (consistent with `LICENSE`).

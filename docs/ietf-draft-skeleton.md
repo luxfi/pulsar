@@ -853,7 +853,7 @@ Vector categories:
 | Reshare preservation | Pre- and post-reshare public keys match |
 
 Each test vector includes the fields listed in §15 of the
-companion `docs/evaluation.md`.
+companion `evaluation.md`.
 
 ## 15. Security Considerations
 

@@ -46,7 +46,7 @@ It does NOT cover, and explicitly DISCLAIMS, the following prior art:
 
 ## §2 What Lux considers patentable (high level)
 
-Subject to attorney review (see `docs/patent-claims.md` for the
+Subject to attorney review (see `patent-claims.md` for the
 detailed numbered claim drafts), Lux considers the following Pulsar
 contributions to be candidates for patent protection:
 
@@ -277,13 +277,13 @@ the defensive-termination clause in §3.2.
 | Security disclosure | See `SECURITY.md` |
 
 For patent-claim drafting (the document an attorney would work
-from), see `docs/patent-claims.md`.
+from), see `patent-claims.md`.
 
 ---
 
 **Document metadata**
 
-- Document name: `PATENTS.md`
+- Document name: `patents.md`
 - Document version: v1.0
 - Document date: 2026-05-18
 - Construction version: Pulsar v0.1 (NIST MPTC submission package)

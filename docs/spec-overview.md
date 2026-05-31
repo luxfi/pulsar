@@ -2,7 +2,7 @@
 
 > **Standalone protocol specification** for PULSAR-THRESHOLD-ML-DSA.
 > Companion to `spec/pulsar.tex` (the formal LaTeX spec that builds
-> to `spec/pulsar.pdf`) and `docs/ietf-draft-skeleton.md` (the
+> to `spec/pulsar.pdf`) and `ietf-draft-skeleton.md` (the
 > Internet-Draft version for CFRG submission).
 >
 > Required sections per NIST IR 8214C / IETF Internet-Draft
@@ -26,7 +26,7 @@ This spec does NOT cover:
 
 ## §2 Terminology
 
-See `docs/ietf-draft-skeleton.md` §2.2 for the full glossary.
+See `ietf-draft-skeleton.md` §2.2 for the full glossary.
 Key terms:
 - **Party**: a computing entity participating in DKG / signing.
 - **Quorum** `Q`: subset of parties of size ≥ `t`.
@@ -48,7 +48,7 @@ threshold `(t, n)` is application-level subject to `1 ≤ t ≤ n < q`.
 
 ## §4 Threat model
 
-Per `docs/ietf-draft-skeleton.md` §4. Summary:
+Per `ietf-draft-skeleton.md` §4. Summary:
 - Static corruption of at most `t − 1` parties.
 - Rushing Byzantine adversary.
 - Synchronous network with known upper bound `Δ` on message delivery.
@@ -72,7 +72,7 @@ Detailed proofs / reductions: `proofs/easycrypt/Pulsar_N1.ec`
 
 ## §6 Public DKG
 
-Per `docs/ietf-draft-skeleton.md` §6. Highlights:
+Per `ietf-draft-skeleton.md` §6. Highlights:
 - Pedersen-VSS commitment + Lagrange-share encryption + complaint round.
 - Qualified set `QSET` determined by complaint resolution.
 - Group public key `pk = (ρ, t_1)` per FIPS 204 §3.5.4 KeyGen.
@@ -102,7 +102,7 @@ sample, at the cost of share-content confidentiality.
 
 ## §7 Threshold signing (2 rounds)
 
-Per `docs/ietf-draft-skeleton.md` §7. Summary:
+Per `ietf-draft-skeleton.md` §7. Summary:
 - Round 1: each party samples `y_i`, broadcasts `w1_i = HighBits(A · y_i)`.
 - Aggregator: `c_tilde = SHAKE256(mu_ext || w1Encode(Σ λ_i^Q w1_i))`.
 - Round 2: each party broadcasts `z_i = y_i + c · s_{1,i}`.
@@ -123,12 +123,12 @@ ML_DSA.Verify(pk, M, ctx, sigma) ∈ {accept, reject}
 
 ## §9 Proactive resharing
 
-Per `docs/ietf-draft-skeleton.md` §9. Preserves `pk` across
+Per `ietf-draft-skeleton.md` §9. Preserves `pk` across
 committee rotation.
 
 ## §10 Identifiable abort and slashing
 
-Per `docs/ietf-draft-skeleton.md` §10. TLV-encoded abort-evidence
+Per `ietf-draft-skeleton.md` §10. TLV-encoded abort-evidence
 records sufficient for third-party verification + on-chain
 slashing.
 
@@ -141,12 +141,12 @@ M-hash + ctx-hash`.
 ## §12 Wire formats
 
 ASN.1 (SEQUENCE-of-…) for wire messages per
-`docs/ietf-draft-skeleton.md` §12. Compact byte layouts for FIPS
+`ietf-draft-skeleton.md` §12. Compact byte layouts for FIPS
 204-format objects (`pk`, `sk_i`, `σ`) per FIPS 204 §3.5.
 
 ## §13 Public-chain profile
 
-Per `docs/ietf-draft-skeleton.md` §13. On-chain transcript
+Per `ietf-draft-skeleton.md` §13. On-chain transcript
 posting; validator-set rotation via reshare; reorg behaviour;
 gas/calldata bounds.
 
@@ -157,37 +157,37 @@ BoringSSL FIPS. See `vectors/README.md`.
 
 ## §15 Security considerations
 
-Per `docs/ietf-draft-skeleton.md` §15.
+Per `ietf-draft-skeleton.md` §15.
 
 ## §16 Implementation considerations
 
-Per `docs/ietf-draft-skeleton.md` §16.
+Per `ietf-draft-skeleton.md` §16.
 
 ## §17 Known limitations
 
-Per `docs/ietf-draft-skeleton.md` §17 + `BLOCKERS.md`.
+Per `ietf-draft-skeleton.md` §17 + `BLOCKERS.md`.
 
 ## §18 Proof and audit status
 
 - **Machine-checked refinement proof**: `proofs/easycrypt/` (EC) +
   Lean bridges. 13/13 EC compile, 5/5 bridges, 0/0 admits.
-  See `PROOF-CLAIMS.md`, `AXIOM-INVENTORY.md`,
-  `TRUSTED-COMPUTING-BASE.md`, `FIPS-TRACEABILITY.md`.
+  See `proof-claims.md`, `proof-axiom-inventory.md`,
+  `tcb.md`, `fips-204-traceability.md`.
 - **Side-channel**: jasmin-ct 3/3 blocking on threshold layer;
   libjade sign advisory under #2.
 - **External audit**: TBD — engagement post-submission.
 
 ## §19 Patent / IP declaration
 
-Royalty-free patent grant per `PATENTS.md`. 21 numbered claims in
-`docs/patent-claims.md`. Defensive termination extends to all
+Royalty-free patent grant per `patents.md`. 21 numbered claims in
+`patent-claims.md`. Defensive termination extends to all
 NIST-standardized PQ signature schemes.
 
 ---
 
 **Document metadata**
 
-- Name: `SPEC.md`
+- Name: `spec-overview.md`
 - Version: v0.1
 - Date: 2026-05-18
-- Companion docs: `spec/pulsar.tex` (PDF), `docs/ietf-draft-skeleton.md` (IETF), `https://github.com/luxfi/quasar/blob/main/PRIMITIVES.md` (suite index).
+- Companion docs: `spec/pulsar.tex` (PDF), `ietf-draft-skeleton.md` (IETF), `https://github.com/luxfi/quasar/blob/main/PRIMITIVES.md` (suite index).

@@ -26,7 +26,7 @@ The v0.3 → public-BFT-production gate is: **`TestAlgebraic_FullCycle_n5_t3` pa
 - Coordinator-service operators running the witness-aggregator
   pattern.
 - Security reviewers validating production posture against the
-  cryptographer sign-off (`CRYPTOGRAPHER-SIGN-OFF.md`).
+  cryptographer sign-off (`cryptographer-sign-off.md`).
 
 ## Trust-model disclosure (load-bearing)
 
@@ -105,7 +105,7 @@ Before bringing up a Pulsar-enabled validator:
       deployed binary's source tag (i.e., the binary you are
       deploying was built from a commit where the high-assurance
       gates were green).
-- [ ] `CRYPTOGRAPHER-SIGN-OFF.md` reviewed; all four gates either
+- [ ] `cryptographer-sign-off.md` reviewed; all four gates either
       satisfied or have a compensating control on file.
 - [ ] Run `go test -race ./ref/go/pkg/pulsar/` against the deployed
       tag; PASS.
@@ -224,7 +224,7 @@ the v0.3 graduation is complete. At that point:
 3. Rewrite the file-header honesty block to drop the SkBytes
    caveat.
 4. Delete or rewrite `TestTransitional_DependsOnSkBytes`.
-5. Update this section of DEPLOYMENT-RUNBOOK.md to reflect that
+5. Update this section of deployment.md to reflect that
    v0.3 is safe for public adversarial deployments.
 6. Close `PULSAR-V03-1` in BLOCKERS.md.
 
@@ -264,14 +264,14 @@ Tracked in `BLOCKERS.md` as **PULSAR-V03-1**.
 
 ## Reference: Cryptographer GATEs
 
-The four gates from `CRYPTOGRAPHER-SIGN-OFF.md`:
+The four gates from `cryptographer-sign-off.md`:
 
 | Gate | Status as of v1.0.8 |
 |---|---|
 | GATE-1 — Aggregator trust runbook disclosure | **CLOSED by this document.** |
 | GATE-2 — SUBMISSION.md cross-link to BLOCKERS "Spec ↔ Go-reference protocol drift" | **CLOSED** in `SUBMISSION.md` "Headline claim" + "What to read first" §12. |
-| GATE-3 — dudect ≥ 10⁹ samples for submission grade | **OPEN** — harness wired (`ct/dudect/run-submission.sh`); awaiting next nightly window. Per-push smoke runs are informational only per `PROOF-CLAIMS.md` §3.2. |
-| GATE-4 — Minor doc nits | **CLOSED**: 89.7%→84.2% coverage corrected in SUBMISSION.md; Ed25519→ML-DSA-65 in spec/pulsar.tex §Identifiable abort; PROOF-CLAIMS.md §3.2 dudect cross-link added; zeroize.go row added. |
+| GATE-3 — dudect ≥ 10⁹ samples for submission grade | **OPEN** — harness wired (`ct/dudect/run-submission.sh`); awaiting next nightly window. Per-push smoke runs are informational only per `proof-claims.md` §3.2. |
+| GATE-4 — Minor doc nits | **CLOSED**: 89.7%→84.2% coverage corrected in SUBMISSION.md; Ed25519→ML-DSA-65 in spec/pulsar.tex §Identifiable abort; proof-claims.md §3.2 dudect cross-link added; zeroize.go row added. |
 
 ## Contact
 
@@ -283,9 +283,9 @@ The four gates from `CRYPTOGRAPHER-SIGN-OFF.md`:
 
 **Document metadata**
 
-- Name: `DEPLOYMENT-RUNBOOK.md`
+- Name: `deployment.md`
 - Version: v0.2 (matches Pulsar v1.0.14)
-- Closes: `CRYPTOGRAPHER-SIGN-OFF.md` GATE-1.
+- Closes: `cryptographer-sign-off.md` GATE-1.
 - v1.0.14: renamed v0.2 API from `Algebraic*` → `Transitional*` and
   rewrote the trust-model section to honestly disclose the
   aggregator-side `SkBytes` dependency. The v0.2 wire protocol is

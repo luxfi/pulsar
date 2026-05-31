@@ -78,7 +78,7 @@ Per NIST IR 8214C §5:
 | Technical Specification | PDF (LaTeX) | `spec/pulsar.pdf` |
 | Reference Implementation | open-source code | `ref/go/` |
 | Report on Experimental Evaluation | PDF + reproducible scripts | `bench/results/REPORT.md` + `bench/run_all.sh` |
-| Notes on Patent Claims | PDF | `docs/patent-notes-draft.md` → finalized |
+| Notes on Patent Claims | PDF | `patent-notes-draft.md` → finalized |
 | Concrete parameter set | section in spec | `spec/parameters.tex` |
 | Security analysis (proofs) | section in spec | `spec/security-games.tex` |
 | Public repository | GitHub or equiv | `https://github.com/luxfi/pulsar` |
@@ -88,8 +88,8 @@ Per NIST IR 8214C §5:
 
 Optional but strongly recommended:
 - Executive summary (1-2 pages) at front of spec.
-- Threat-model document (`docs/threat-model.md`).
-- System-model document (`docs/system-model.md` → `spec/system-model.tex`).
+- Threat-model document (`threat-model.md`).
+- System-model document (`system-model.md` → `spec/system-model.tex`).
 - BLOCKERS.md (red-team and scientist findings, replaces prior known-limitations framing) (so reviewers see the gaps before they find them).
 
 ## Required security strengths

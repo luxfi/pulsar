@@ -5,8 +5,8 @@
 > IETF / CFRG, FIPS 140-3 module, ACVP / CAVP, IETF KEM RFCs).
 >
 > Companion to `SUITE.md` (PQ-threshold tiers), `HANZO-CRYPTO-SUITE.md`
-> (full inventory), `ROADMAP.md` (multi-year plan), and
-> `SYNC-STATUS.md` (cross-repo audit).
+> (full inventory), `roadmap.md` (multi-year plan), and
+> `sync-status.md` (cross-repo audit).
 >
 > Date: 2026-05-18.
 
@@ -33,19 +33,19 @@
 |---|---|---|
 | Cover sheet | `SUBMISSION.md` | ✅ |
 | 1-page exec summary | `NIST-SUBMISSION.md` | ✅ |
-| Standalone spec | `SPEC.md` + `spec/pulsar.tex` | ✅ |
+| Standalone spec | `spec-overview.md` + `spec/pulsar.tex` | ✅ |
 | Suite index | `SUITE.md` | ✅ |
 | Suite-wide inventory | `HANZO-CRYPTO-SUITE.md` | ✅ |
-| Info architecture | `INFORMATION-ARCHITECTURE.md` | ✅ |
-| Patent grant | `PATENTS.md` | ✅ |
-| Patent claim drafts | `docs/patent-claims.md` (21 claims, 5 groups) | ✅ |
-| Trust accounting | `AXIOM-INVENTORY.md` + `PROOF-CLAIMS.md` + `TRUSTED-COMPUTING-BASE.md` | ✅ |
-| FIPS 204 traceability | `FIPS-TRACEABILITY.md` | ✅ |
+| Info architecture | `information-architecture.md` | ✅ |
+| Patent grant | `patents.md` | ✅ |
+| Patent claim drafts | `patent-claims.md` (21 claims, 5 groups) | ✅ |
+| Trust accounting | `proof-axiom-inventory.md` + `proof-claims.md` + `tcb.md` | ✅ |
+| FIPS 204 traceability | `fips-204-traceability.md` | ✅ |
 | Per-version proof log | `CHANGELOG.md` (v4-v13) | ✅ |
-| Multi-year roadmap | `ROADMAP.md` | ✅ |
-| Cross-repo sync | `SYNC-STATUS.md` | ✅ |
-| IETF Internet-Draft | `docs/ietf-draft-skeleton.md` (`draft-hanzo-pulsar-threshold-mldsa-00`) | ✅ |
-| Experimental evaluation | `docs/evaluation.md` (NIST IR 8214C §6) | ✅ |
+| Multi-year roadmap | `roadmap.md` | ✅ |
+| Cross-repo sync | `sync-status.md` | ✅ |
+| IETF Internet-Draft | `ietf-draft-skeleton.md` (`draft-hanzo-pulsar-threshold-mldsa-00`) | ✅ |
+| Experimental evaluation | `evaluation.md` (NIST IR 8214C §6) | ✅ |
 | Reference implementation | `ref/go/pkg/pulsar/` | ✅ 89.7% coverage |
 | KAT vectors | `vectors/` | ✅ deterministic |
 | EasyCrypt theories | `proofs/easycrypt/` | ✅ 13/13 compile, 0 admit |
@@ -79,21 +79,21 @@
 |---|---|
 | DESIGN.md | partial |
 | SUBMISSION.md | missing |
-| SPEC.md | missing |
+| spec-overview.md | missing |
 | IETF draft | missing |
 | Reference implementation | ✅ full Go |
 | EC proofs | partial (DKG only) |
 | Lean bridges | TBD |
 | Jasmin CT | TBD |
 | Test vectors | ✅ |
-| PATENTS.md | missing |
+| patents.md | missing |
 | Trust accounting | missing |
 
 **Left to ship submission-ready package**: 6-8 weeks of focused work.
 
 ### §1.3 Magnetar — **RESEARCH ONLY**
 
-`docs/magnetar.md` placeholder. No construction. No implementation. No
+`magnetar.md` placeholder. No construction. No implementation. No
 proofs. Threshold SLH-DSA is an open research direction (per-signature
 MPC over hash trees is materially harder than threshold ML-DSA).
 
@@ -173,11 +173,11 @@ classical-fast-path).
 ## §3 Hybrid PQ signature wrappers — X-Wing-Sig
 
 **NOT SPECIFIED. NOT IMPLEMENTED.** Design direction documented in
-`docs/x-wing-sig.md`. No LP yet.
+`x-wing-sig.md`. No LP yet.
 
 | Artifact | Status |
 |---|---|
-| Design direction | ✅ `docs/x-wing-sig.md` |
+| Design direction | ✅ `x-wing-sig.md` |
 | LP draft | missing |
 | Reference implementation | missing |
 | Composition proof | missing |
@@ -355,10 +355,10 @@ implementation per chain, then coordinated rollout.
 
 **Document metadata**
 
-- Name: `STATUS-SUBMISSION-READINESS.md`
+- Name: `status.md`
 - Version: v0.1
 - Date: 2026-05-18
-- Companion to: `SUITE.md`, `HANZO-CRYPTO-SUITE.md`, `ROADMAP.md`,
-  `SYNC-STATUS.md`
+- Companion to: `SUITE.md`, `HANZO-CRYPTO-SUITE.md`, `roadmap.md`,
+  `sync-status.md`
 - Re-run cadence: monthly through 2026-11-16; quarterly thereafter
 - Owner: `submissions@lux.network`

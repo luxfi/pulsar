@@ -1,9 +1,9 @@
 # PROOF-CLAIMS — Pulsar Class N1 byte-equality
 
 > **What this proof actually establishes — and what it does NOT.**
-> Companion document to `AXIOM-INVENTORY.md` (trust footprint),
-> `FIPS-TRACEABILITY.md` (op→FIPS § map), and
-> `TRUSTED-COMPUTING-BASE.md` (TCB).
+> Companion document to `proof-axiom-inventory.md` (trust footprint),
+> `fips-204-traceability.md` (op→FIPS § map), and
+> `tcb.md` (TCB).
 >
 > Read this before reading the EasyCrypt code. The framing matters
 > as much as the proofs.
@@ -13,8 +13,8 @@
 The strongest precise statement supported by the v10 proof artifact:
 
 > **Class N1 byte-equality (extracted corollary).** Under the
-> trusted-computing base in `TRUSTED-COMPUTING-BASE.md` and the
-> residual axioms enumerated in `AXIOM-INVENTORY.md`, every
+> trusted-computing base in `tcb.md` and the
+> residual axioms enumerated in `proof-axiom-inventory.md`, every
 > signature byte string produced by the Pulsar Combine procedure
 > on inputs `(group_pk, m, ctx, quorum, shares, rho_rnd)`
 > satisfying the protocol's well-formedness invariants (uniq
@@ -58,7 +58,7 @@ File: `proofs/easycrypt/Pulsar_N1_Extracted.ec`.
 | Class N4 (reshare pk-preservation) | ✅ Separate theorem in `Pulsar_N4.ec` |
 | Constant-time on threshold layer | ✅ jasmin-ct 3/3 blocking |
 | Lean-bridged algebraic identities | ✅ 5 axioms with mechanized Lean proofs (Mathlib polynomial-Lagrange) |
-| Bit-level FIPS 204 codec | ⚠ Abstracted via per-type roundtrip axioms (see `AXIOM-INVENTORY.md` §7) |
+| Bit-level FIPS 204 codec | ⚠ Abstracted via per-type roundtrip axioms (see `proof-axiom-inventory.md` §7) |
 | κ-rejection loop acceptance probability | ⚠ Operational bound `mldsa_accept_lower_bound`, not probabilistic Hoare-logic |
 | ML-DSA hardness (M-LWE / M-SIS) | ❌ NOT proved — assumed from NIST FIPS 204 analysis |
 | Constant-time on libjade sign | ⚠ Advisory under jasmin-ct issue #2 |
@@ -78,7 +78,7 @@ incorporates the analysis), not ours.
 > Pulsar implements a NIST-standardized post-quantum signature
 > algorithm (FIPS 204 ML-DSA-65) and refines that algorithm's
 > functional specification with the trust base enumerated in
-> AXIOM-INVENTORY.md.
+> proof-axiom-inventory.md.
 
 **NOT defensible**:
 > Pulsar is proved post-quantum secure.
@@ -92,7 +92,7 @@ randomness, or power side-channels. Those are addressed separately:
 |---|---|
 | Timing leakage (threshold layer) | jasmin-ct 3/3 blocking — `round1.jazz`, `round2.jazz`, `combine.jazz` CT-clean |
 | Timing leakage (libjade sign) | Advisory (jasmin-ct issue #2 — documented in `ct/jasmin-ct-libjade.md`) |
-| Statistical timing (dudect 10⁹ samples) | Nightly gate `scripts/nightly.sh`; harness arm64 + x86_64 clean via `ct/dudect/Makefile`. Submission-grade 10⁹-sample run is the gate that promotes the harness from "wired" to "passed" — see `CRYPTOGRAPHER-SIGN-OFF.md` §Gates GATE-3 for the dudect-pending disclosure. Per-push smoke runs are informational only. |
+| Statistical timing (dudect 10⁹ samples) | Nightly gate `scripts/nightly.sh`; harness arm64 + x86_64 clean via `ct/dudect/Makefile`. Submission-grade 10⁹-sample run is the gate that promotes the harness from "wired" to "passed" — see `cryptographer-sign-off.md` §Gates GATE-3 for the dudect-pending disclosure. Per-push smoke runs are informational only. |
 | Randomness misuse | Reference impl uses `crypto/rand`; production impl review TBD |
 | Zeroization | `ref/go/pkg/pulsar/zeroize.go` (CR-8 closure since v1.0.6): `zeroizeBytes` / `zeroizeSeed` / `zeroizeU16` / `zeroizePrivateKey` best-effort wipes on every Combine/Sign/DKG exit path |
 | Fault attacks | Not addressed |
@@ -120,7 +120,7 @@ encode/decode roundtrip axioms (`encode_decode_signature`,
 `encode_decode_sk`, `encode_decode_msg`, etc.). Closing these as
 lemmas requires a Barbosa-Barthe-Dupressoir-scale Dilithium
 mechanization (CRYPTO 2023, ~6 person-months). Inventoried in
-`AXIOM-INVENTORY.md` §7.
+`proof-axiom-inventory.md` §7.
 
 ### §3.5 NOT proved: external Lean theorems
 
@@ -163,17 +163,17 @@ EasyCrypt centralised functional model (above)
 ```
 
 The byte-walk obligations are the remaining primitive axioms in
-`AXIOM-INVENTORY.md` §1–§4.
+`proof-axiom-inventory.md` §1–§4.
 
 ## §5 What an auditor verifying this proof should do
 
 1. **Read** the SUBMISSION.md cover sheet for context.
-2. **Read** `AXIOM-INVENTORY.md` for the residual trust base.
-3. **Read** this document (`PROOF-CLAIMS.md`) for what's proved vs not.
-4. **Read** `TRUSTED-COMPUTING-BASE.md` for the EC/Jasmin/OCaml TCB.
+2. **Read** `proof-axiom-inventory.md` for the residual trust base.
+3. **Read** this document (`proof-claims.md`) for what's proved vs not.
+4. **Read** `tcb.md` for the EC/Jasmin/OCaml TCB.
 5. **Run** `scripts/check-high-assurance.sh` — expect 0/0 admits +
    5/5 Lean bridges + 13/13 EC compile.
-6. **Cross-check** the residual axioms in `AXIOM-INVENTORY.md`
+6. **Cross-check** the residual axioms in `proof-axiom-inventory.md`
    against the raw grep:
    ```bash
    grep -rE "^axiom\s+\w" proofs/easycrypt/ | wc -l
@@ -189,7 +189,7 @@ The byte-walk obligations are the remaining primitive axioms in
 > Jasmin-extracted threshold combine procedure produces a byte
 > string bit-identical to a single-party FIPS 204 ML-DSA-65
 > signature on the Lagrange-reconstructed group secret, modulo
-> the trust footprint enumerated in AXIOM-INVENTORY.md (residual
+> the trust footprint enumerated in proof-axiom-inventory.md (residual
 > byte-walk obligations on extracted Jasmin code, Lean-bridged
 > Lagrange algebraic identities, FIPS 204 per-type codec roundtrip
 > axioms, and the EasyCrypt/Jasmin/OCaml trusted-computing base).
@@ -201,6 +201,6 @@ The byte-walk obligations are the remaining primitive axioms in
 
 **Document metadata**
 
-- Name: `PROOF-CLAIMS.md`
+- Name: `proof-claims.md`
 - Version: v1.0 (post v10)
 - Date: 2026-05-18
