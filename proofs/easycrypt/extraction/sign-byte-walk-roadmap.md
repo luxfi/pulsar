@@ -25,7 +25,7 @@ side (post-v12, all in `Pulsar_N1_Sign_Refinement.ec`):
 | `sign_body_y_spec` | 649 | z-stage sub-axiom (extracted y = `central_y_at_accepted_kappa`) | half of v10 `sign_body_z_spec` |
 | `sign_body_cs1_spec` | 662 | z-stage sub-axiom (extracted cs1 = `apply_c_to_s1`) | half of v10 `sign_body_z_spec` |
 | `sign_body_w_low_spec` | 704 | h-stage sub-axiom (extracted w_low = `central_w_low`) | v9 `sign_body_h_spec` (after MakeHint structural split, v10) |
-| `sign_no_reject_on_accepted_honest_layout` | 826 | accepted-path companion: layout + accept event ⇒ status = 0 | new in followup B; pairs with `sign_body_compute_sig_spec` |
+| `sign_no_reject_on_accepted_honest_layout` | 826 | accepted-path companion: layout + accept event ⇒ status = 0 | landed in the v10 no-reject decomposition; pairs with `sign_body_compute_sig_spec` |
 
 The sign side does NOT consume `threshold_partial_response_identity` —
 that bridge is only required on the combine side (Lagrange

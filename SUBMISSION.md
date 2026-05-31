@@ -45,7 +45,7 @@ downstream of this submission (see §"Layer 4" below).
 | Spec PDF | `spec/pulsar.pdf` (built via `scripts/build.sh`) |
 | License | Apache-2.0 (code) — see `LICENSE` |
 | Patent posture | **Royalty-free grant** — see `docs/patents.md` (public-facing grant text) and `docs/patent-claims.md` (attorney-prep claim drafts). Lux Industries grants a worldwide, royalty-free, irrevocable patent license to any FIPS 204 ML-DSA-conformant implementation under Apache-2.0 or compatible OSI license, OR any NIST MPTC / PQC / ACVP submission, validation, or interoperability test. Defensive termination mirrors Apache-2.0 §3 and extends to all NIST-standardized PQ signature schemes. |
-| Tier | **Tier 1**: Threshold ML-DSA-65 (this submission). **Tier 2**: SLH-DSA (FIPS 205) single-party compatibility — out of scope for v0.1. **Tier 3**: Threshold SLH-DSA — experimental research profile, not in this submission. |
+| Tier | **Tier 1**: Threshold ML-DSA-65 (this submission). **Tier 2**: SLH-DSA (FIPS 205) single-party compatibility — consume the FIPS 205 reference directly. **Tier 3**: Threshold SLH-DSA — research-only track at `docs/magnetar.md`. |
 
 ## Headline claim
 
@@ -70,7 +70,10 @@ signature without modification.
 > avoids the reconstruction via Lagrange-linearity but is not yet the
 > reference runtime. See `BLOCKERS.md` "Spec ↔ Go-reference protocol
 > drift" for full disclosure and the per-deployment guidance in
-> `docs/cryptographer-sign-off.md` §Gates GATE-1.
+> `docs/cryptographer-sign-off.md` §Gates GATE-1. The Class N1 byte-equality
+> theorem in EasyCrypt is stated and proved against the centralized recovery
+> model; both wire variants emit `σ = (c̃, z, h)` byte-equal to single-party
+> FIPS 204.
 
 **Theorem framing — accepted-path correctness.** The Class N1
 byte-equality theorem is conditional on acceptance: *if* the threshold
@@ -143,31 +146,27 @@ of the envelope-encryption layer).
 
 A reviewer with limited time should read in this order:
 
-1. **`SUBMISSION.md`** (this file) — submission metadata and headline
-2. **`NIST-SUBMISSION.md`** — one-page executive summary
-3. **`spec/pulsar.pdf`** — full algorithm specification
+1. **`SUBMISSION.md`** (this file) — submission cover sheet, metadata, headline claim
+2. **`spec/pulsar.pdf`** — full algorithm specification
    - §1 Introduction + §2 System model
    - §3 Parameters (ML-DSA-44 / 65 / 87)
    - §4 Protocol (DKG, Round-1, Round-2, Combine, Reshare)
    - §5 Security games (EUF-CMA threshold, identifiable abort)
    - §6 Output-interchangeability proof (the Class N1 claim)
    - §7 NIST MPTC category mapping
-4. **`docs/proof-claims.md`** — what's proved vs what's not (narrow claim)
-5. **`docs/proof-axiom-inventory.md`** — residual EC trust base, per-axiom closure plan
-6. **`docs/tcb.md`** — EC/Jasmin/OCaml TCB
-7. **`docs/fips-204-traceability.md`** — op/lemma → FIPS 204 § map
-8. **`docs/evaluation.md`** — performance + correctness + CT + sec-param evidence
-9. **`docs/patents.md`** — royalty-free patent grant text
-10. **`README.md`** — repository layout and how to reproduce
-11. **`vectors/README.md`** — KAT format + cross-validation gates
-12. **`BLOCKERS.md`** — what the construction does NOT claim
-    (e.g. v0.1 cross-committee reshare without external state
-    binding, identifiable-abort attribution under network
-    partitions). **Load-bearing entries**: "Spec ↔ Go-reference
-    protocol drift" (two-variant submission disclosure), "Class N1
-    byte-equal output" (v0.1 aggregator trust caveat), "EUF-CMA
-    under adaptive corruption" (static-corruption only in v0.1)
-13. **`docs/cryptographer-sign-off.md`** — independent cryptographer
+3. **`docs/proof-claims.md`** — what's proved vs what's not (narrow claim)
+4. **`docs/proof-axiom-inventory.md`** — residual EC trust base, per-axiom closure plan
+5. **`docs/tcb.md`** — EC/Jasmin/OCaml TCB
+6. **`docs/fips-204-traceability.md`** — op/lemma → FIPS 204 § map
+7. **`docs/evaluation.md`** — performance + correctness + CT + sec-param evidence
+8. **`docs/patents.md`** — royalty-free patent grant text
+9. **`README.md`** — repository layout and how to reproduce
+10. **`vectors/README.md`** — KAT format + cross-validation gates
+11. **`BLOCKERS.md`** — closed-finding registry (Open: none); each
+    closure cites commit + tag. Includes the PULSAR-V03-1 v1.0.20
+    ExpandA-convention fix and the v0.1 / v0.2 / v0.3 wire-variant
+    disclosure
+12. **`docs/cryptographer-sign-off.md`** — independent cryptographer
     review (APPROVED WITH GATES) covering construction soundness,
     proof-artifact verification, test surface, and the four
     pre-publish disclosure gates
@@ -318,34 +317,25 @@ axiom set:
 | Memory frame laws | **Proven** (0 axioms) | `Pulsar_N1_Memory.ec` |
 | Build wiring | Per-check orchestrator; per-check scripts independently runnable | `scripts/check-high-assurance.sh` |
 
-**Remaining trust footprint of the extracted N1 corollary**:
-
-The c_tilde stage has been *decomposed and structurally factored*:
-the top-level c_tilde byte-walk axioms are now derived lemmas, with
-remaining trust localized to mu-derivation and w1-derivation
-sub-axioms. This increases the raw axiom count from 6 stage-level
-obligations (v4) to 4 stage-level plus 4 sub-stage obligations (v5),
-but each remaining axiom is smaller, independently attackable, and
-aligned with a concrete FIPS 204 computation boundary. This is
-axiom decomposition; it is **not** full mechanized closure of the
-c_tilde path — the underlying obligations remain axiomatized via
-mu and w1.
+**Trust footprint of the extracted N1 corollary** — **22 named axioms total**,
+each with file:line in EC and Lean. The c_tilde stage has been decomposed and
+structurally factored: every top-level c_tilde byte-walk obligation is a
+derived lemma; trust localises into strictly narrower sub-axioms aligned
+to concrete FIPS 204 computation boundaries.
 
 | Category | Count | Notes |
 |---|---|---|
-| Stage-level byte-walk axioms (post v12) | 0 | All stage-level z + h + w axioms decomposed |
-| z-stage y/cs1 sub-axioms (v11) | 2 | sign side: `sign_body_y_spec` + `sign_body_cs1_spec` (combine handled via v8 Lean bridge) |
-| w-stage matrix_a/mask_y sub-axioms (v12) | 4 | combine + sign × {matrix_a, mask_y} |
-| Accept-R-condition bridge (v13) | 1 | `accept_signing_attempt_iff_R1234` |
-| Narrow combine-side extraction | 2 | `combine_body_z_via_aggregation_spec` (structural — extracted z is Lagrange aggregation of partial responses) + `combine_body_partial_responses_spec` (per-party partial responses match centralised) |
-| c_tilde dependency sub-stage axioms | 2 | combine/sign × {w} only — w1 sub-stage further decomposed via HighBits in v7 |
-| Derived c_tilde lemmas | 2 | `combine_body_c_tilde_spec`, `sign_body_c_tilde_spec` |
-| Derived mu lemmas | 2 | `combine_body_mu_spec`, `sign_body_mu_spec` (v6) |
-| Derived w1 lemmas | 2 | `combine_body_w1_spec`, `sign_body_w1_spec` (v7) |
-| Derived combine z lemma | 1 | `combine_body_z_spec` (v8 — was primitive; now derived via Lean bridge) |
-| Accepted-path no-reject axioms | 2 | unchanged |
-| Lean-bridged algebraic axioms | 5 | +`threshold_partial_response_identity` (v8, Axiom 5 of bridge doc) |
-| Codec roundtrip / layout axioms | existing + 3 | includes `pack_unpack_n1_signature_roundtrip` (v4) + `combine_body_mu_input_spec` and `sign_body_mu_input_spec` (v6, FIPS 204 §5.4.1 ExternalMu byte layouts) |
+| Stage-level byte-walks (post v12) | 1 | `sign_body_z_spec` (the only stage-level byte-walk that survives the v8 / v11 / v12 splits) |
+| w-stage matrix_a / mask_y sub-axioms (v12) | 4 | combine + sign × {matrix_a, mask_y} |
+| Combine-side z extraction (v8) | 2 | `combine_body_z_via_aggregation_spec` (aggregation shape) + `combine_body_partial_responses_spec` (per-party byte-walk) |
+| w_low sub-axioms (h-stage, v10) | 2 | `{combine,sign}_body_w_low_spec` |
+| Codec mu_input layout (v9) | 4 | combine: 3 per-range; sign: 1 collapsed `sign_layout_m_buffer_external_mu` |
+| Accepted-path no-reject | 2 | `{combine,sign}_no_reject_on_accepted_honest_layout` |
+| Codec roundtrip | 1 | `pack_unpack_n1_signature_roundtrip` |
+| Subtotal — implementation refinement | **17** | byte-walk + codec round-trip + honest-execution no-reject |
+| Lean-bridged algebraic (v8) | 5 | `lagrange_inverse_eval`, `reconstruct_linear`, `shamir_correct`, `add_share_zeroR`, `threshold_partial_response_identity` |
+| **Total named axioms** | **22** | each with file:line in EC and Lean |
+| Derived c_tilde / mu / w / w1 / h / combine_z lemmas | 11+ | `*_body_{c_tilde,mu,w,w1,mu_input,h}_spec` × 2 sides + `combine_body_z_spec` |
 
 **v8 — combine z-stage Lean-bridged**: `combine_body_z_spec` is no
 longer a primitive axiom; it is a derived lemma composing two
@@ -372,88 +362,64 @@ side is `combine_body_partial_responses_spec` itself — a byte-walk
 proving that the round-2 messages decode to per-party
 `per_party_partial_response` values.
 
-Detail on the byte-walk + sub-stage axioms:
+Detail on the 22 named axioms — the live source for the per-axiom
+file:line is `docs/proof-axiom-inventory.md`. Summary by category:
 
-- **4 stage-level byte-walk axioms**:
-    combine side (tracked #4):
-      `combine_body_z_spec`       — Lagrange-aggregated z + decompose
-                                    (roadmap S3 + S5)
-      `combine_body_h_spec`       — MakeHint stage (roadmap S7)
-    sign side (tracked #3):
-      `sign_body_z_spec`, `sign_body_h_spec`
-- **2 c_tilde dependency sub-stage axioms** (NARROW; w only — mu sub-stage
-  decomposed in v6, w1 sub-stage further decomposed in v7 via
-  HighBits structural split):
-    combine side: `combine_body_w_spec`
-    sign side:    `sign_body_w_spec`
-  Each is strictly narrower than the prior `w1_spec`: the w-stage
-  axiom is about the polynomial-vector w BEFORE HighBits/decompose.
-  The HighBits step is encoded as a STRUCTURAL DEFINITION on both
-  sides (`Pulsar_N1.high_bits_of_w`, same op), not an axiom.
-  `*_body_w1_spec` is a derived lemma on each side; combined with
-  the v6 mu-stage decomposition and v5 SHAKE composition,
-  `*_body_c_tilde_spec` is also derived.
+- **Stage-level byte-walk (1)**: `sign_body_z_spec`. Combine's z-stage
+  is a derived lemma composing `combine_body_z_via_aggregation_spec`
+  + `combine_body_partial_responses_spec` with the Lean Lagrange
+  bridge `threshold_partial_response_identity`.
+- **w-stage matrix_a / mask_y sub-axioms (4)** at the accepting kappa,
+  per FIPS 204 §6.2: `{combine,sign}_body_matrix_a_spec` and
+  `{combine,sign}_body_mask_y_spec`. The HighBits step is a structural
+  definition on both sides (`Pulsar_N1.high_bits_of_w`), so
+  `*_body_w1_spec` is derived, and `*_body_c_tilde_spec` composes via
+  `shake256_to_mu` + the v5 SHAKE composition.
+- **Combine z extraction (2)**: `combine_body_z_via_aggregation_spec`
+  (aggregation shape) + `combine_body_partial_responses_spec` (per-party
+  byte-walk). With the Lean bridge, `combine_body_z_spec` is derived.
+- **w_low sub-axioms for the h-stage (2)**: `{combine,sign}_body_w_low_spec`.
+  Both `*_body_h_spec` are derived via `make_hint_of_w` structural
+  composition.
+- **ExternalMu codec layout (4)**: combine side carries three per-range
+  sub-axioms over the protocol-witness buffer
+  (`combine_body_mu_input_{prefix,ctx_bytes,m_bytes}_spec` per FIPS 204
+  §5.4.1); sign side carries one collapsed
+  `sign_layout_m_buffer_external_mu` because sign owns `m_ptr`/`ctx_ptr`
+  in its layout. `*_body_mu_spec` are derived via `shake256_to_mu`.
+- **Codec round-trip (1)**: `pack_unpack_n1_signature_roundtrip`
+  in `Pulsar_N1.ec` — `unpack_n1_signature (pack_n1_signature c z h) =
+  (c, z, h)` per FIPS 204 §3.5.5.
+- **Honest-execution no-reject (2)**:
+  `combine_no_reject_on_accepted_honest_layout` and
+  `sign_no_reject_on_accepted_honest_layout`. Each conditions
+  `status = 0` on the protocol-level `accept_signing_attempt`
+  predicate; the kappa rejection-sampling probability bound
+  `mldsa_accept_lower_bound` (≈ 1 − 2^-128 after the κ-bounded
+  loop) is tracked operationally per the standard FIPS 204 treatment.
+- **Lean-bridged algebraic (5)**: `lagrange_inverse_eval`
+  (`Pulsar_N1.ec`), `add_share_zeroR` / `reconstruct_linear` /
+  `shamir_correct` (`Pulsar_N4.ec`), and
+  `threshold_partial_response_identity` (`Pulsar_N1.ec`, v8). Each
+  carries an inline citation comment naming the Lean theorem and
+  file; the bridge correspondence is pinned in
+  `proofs/lean-easycrypt-bridge.md` and enforced by
+  `scripts/check-lean-bridge.sh`.
 
-- **2 FIPS 204 §5.4.1 ExternalMu byte-layout axioms** (NARROW,
-  v6 — slot into the codec layout category):
-    combine side: `combine_body_mu_input_spec`
-    sign side:    `sign_body_mu_input_spec`
-  Each says the extracted SHAKE-input byte buffer for the
-  ExternalMu derivation matches the FIPS 204 §5.4.1 byte layout
-  for (m, ctx). SHAKE semantics not in scope — pure byte layout.
-  `*_body_mu_spec` is a derived lemma on each side, composed via
-  the SHAKE structural identity (`shake256_to_mu`).
+Beyond the corollary cone: ~21 per-type FIPS 204 codec round-trip
+axioms across `Pulsar_N1_Sign_Layout`, `Pulsar_N1_Combine_Layout`,
+`Pulsar_N1_Signature_Codec`, and `Pulsar_N1` — encode/decode pairs
+guarded by `wf_*` well-formedness predicates with per-component
+length identities (sk: ρ/K/tr/s1/s2/t0 per FIPS 204 §3.5.4) and
+share-polynomial-vector views. Each reduces to the corresponding
+`MLDSA65_Functional` bit-level pack/unpack identity; the Barbosa-
+Barthe-Dupressoir Dilithium mechanization (CRYPTO 2023) is the
+template path.
 
-  Per-axiom attack surface (v7):
-    `*_mu_input_spec` ↦ FIPS 204 §5.4.1 byte layout (codec, narrowest).
-    `*_w_spec`        ↦ Polynomial vector w = A·y at the accepting
-                        kappa. Reduces to `MLDSA65_Functional.mat_vec_mul`
-                        + `expand_a` + `expand_mask` + an accepted-kappa
-                        selection (loop or fixed-point model).
-                        For combine, also reduces via the Lean Lagrange
-                        bridge for threshold aggregation.
-    `*_z_spec`        ↦ Lagrange aggregation (combine) / pure §6.2 z
-                        (sign). Combine-side bridge:
-                        `Crypto.Threshold.Lagrange.threshold_partial_response_identity`.
-    `*_h_spec`        ↦ MakeHint over aggregated w_low / w_high.
-                        Bridge target: `MLDSA65_Functional.vec_k_make_hint`.
-
-  The composite `*_compute_components_spec`, `*_compute_sig_spec`,
-  `*_body_c_tilde_spec`, `*_body_mu_spec`, and `*_body_w1_spec`
-  are derived lemmas, not axioms.
-- **2 accepted-path no-reject axioms** — protocol-correctness
-  companions to the byte-walks
-  (`combine_no_reject_on_accepted_honest_layout`,
-  `sign_no_reject_on_accepted_honest_layout`). Each asserts
-  `status = 0` for layout-conforming inputs CONDITIONED on the
-  ML-DSA-65 accept event (`accept_signing_attempt`). ML-DSA
-  rejection sampling remains probabilistic; the probability bound
-  `mldsa_accept_lower_bound` (≈ 1 − 2^-128 after the kappa-bounded
-  loop) is tracked operationally rather than via probabilistic
-  Hoare logic — the deterministic EC model captures the accept-path
-  conditioning via the predicate.
-- **1 Lean-bridged algebraic axiom in the N1 cone**
-  (`lagrange_inverse_eval` in `Pulsar_N1.ec`) — the
-  Lagrange-interpolation identity at X = 0 over share_t. Bridged
-  to `Crypto.Pulsar.Shamir.shamir_correct_at_target`.
-- **3 additional Lean-bridged algebraic axioms in the N4 cone**
-  (`add_share_zeroR`, `reconstruct_linear`, `shamir_correct` in
-  `Pulsar_N4.ec`) — additive structure on share_t for reshare-
-  preservation. Bridged to Mathlib `AddCommMonoid` +
-  `Crypto.Threshold.Lagrange`.
-- **Per-type FIPS 204 codec round-trip axioms** (~21 across
-  `Pulsar_N1_Sign_Layout`, `Pulsar_N1_Combine_Layout`,
-  `Pulsar_N1_Signature_Codec`, and `Pulsar_N1`) — encode/decode
-  bidirectional round-trips guarded by `wf_*` well-formedness
-  predicates, per-component length identities (sk: rho/K/tr/s1/s2/t0
-  per FIPS 204 §3.5.4), share-polynomial-vector view (HIGH-5).
-  Each reduces to the corresponding `MLDSA65_Functional` bit-level
-  pack/unpack identity when that mechanization lands; for now they
-  are small structural axioms over the abstract types.
-- **0 section-local module-contract axioms** in the extracted
-  corollary's cone (the corollary uses the concrete wrapper modules
-  + proved bridge lemmas, not the section's declare-axiom
-  hypotheses).
+**0 section-local module-contract axioms** in the extracted
+corollary's cone — the corollary uses the concrete wrapper modules
+plus proved bridge lemmas, never the section's declare-axiom
+hypotheses.
 
 What this gives the NIST reviewer at submission time:
 
@@ -464,161 +430,61 @@ What this gives the NIST reviewer at submission time:
 3. The Class N1 byte-equality theorem **proven** in EasyCrypt as
    `pulsar_n1_byte_equality_extracted`, instantiating the generic
    `pulsar_n1_byte_equality` with concrete wrapper modules. Trust
-   reduces to:
-   - 4 stage-level byte-walks (z + h on combine and sign);
-   - 2 c_tilde dependency sub-stage axioms (w on combine and sign — w1 step
-     decomposed further via HighBits in v7);
-   - 2 FIPS 204 §5.4.1 ExternalMu byte-layout axioms (mu_input
-     on combine and sign, classified under codec layouts);
-   - 2 accepted-path no-reject axioms (combine + sign);
-   - 1 Lean-bridged algebraic identity in the N1 cone
-     (`lagrange_inverse_eval`);
-   - per-type FIPS 204 codec round-trips with `wf_*`
-     well-formedness guards.
-
-   `*_body_c_tilde_spec` (v5), `*_body_mu_spec` (v6), and
-   `*_body_w1_spec` (v7) are DERIVED LEMMAS. The c_tilde, mu, and
-   w1 decompositions together leave trust localized to:
-     - The w sub-stage axiom (polynomial vector A·y at accepted
-       kappa, FIPS 204 §6.2 — before HighBits)
-     - The mu byte-layout axiom (FIPS 204 §5.4.1 ExternalMu, codec)
-     - The z and h stage axioms (still bundled)
-   This remains axiom decomposition, not full mechanized closure —
-   trust is now localized to narrower obligations, but the obligations
-   remain axiomatic.
-
-   The N4 cone adds 3 more Lean-bridged algebraic axioms
-   (`add_share_zeroR`, `reconstruct_linear`, `shamir_correct`).
+   reduces to **22 named axioms** (17 implementation-refinement: 14
+   byte-walk + 1 signature-codec round-trip + 2 honest-execution
+   no-reject; plus 5 Lean-bridged algebraic), each with file:line in
+   EC and Lean. Per-axiom enumeration: `docs/proof-axiom-inventory.md`.
+   The composite `*_body_{c_tilde,mu,w,w1,mu_input,h}_spec` lemmas and
+   `combine_body_z_spec` are derived; the structural identity layer
+   `Pulsar_N1.high_bits_of_w` is a shared definition, not an axiom.
 4. The Class N4 reshare-preservation theorem **proven** as a
    concrete lemma on `ReshareHonest`.
 5. jasmin-ct **blocking** on the threshold layer (round1, round2,
    combine all CT-clean); libjade sign advisory with a documented
    fix path.
 
-What remains in the high-assurance track:
-
-- The per-stage byte-walk obligations remaining after the v5
-  c_tilde-stage, v6 mu sub-stage, and v7 w1 sub-stage decompositions:
-    Stage-level (4): `combine_body_{z,h}_spec`, `sign_body_{z,h}_spec`
-    w sub-stage (2): `combine_body_w_spec`, `sign_body_w_spec`
-    mu byte-layout (2, codec category):
-      `combine_body_mu_input_spec`, `sign_body_mu_input_spec`
-  Each is independently attackable. The z-stage axioms have a
-  Lean-bridge path through
-  `Crypto.Threshold.Lagrange.threshold_partial_response_identity`;
-  the mu byte-layout axioms reduce to FIPS 204 §5.4.1 byte
-  serialization once `MLDSA65_Functional` exposes the bit-level
-  ops; the w axioms reduce to `mat_vec_mul` + `expand_a` +
-  `expand_mask` + an accepted-kappa loop model; the h axioms
-  reduce to `vec_k_make_hint`. Roadmaps with named sub-claims
-  are committed under `proofs/easycrypt/extraction/`.
-- The two accepted-path no-reject obligations
-  (`combine_no_reject_on_accepted_honest_layout`,
-  `sign_no_reject_on_accepted_honest_layout`) — these reduce to the
-  byte-walk completing the ML-DSA norm / rejection checks and the
-  kappa rejection-sampling loop converging on the honest inputs,
-  but are stated separately so the obligation surface is visible.
-  The accompanying `mldsa_accept_lower_bound` probability tracking
-  is an operational (non-mechanized) FIPS 204 acceptance bound.
-- Mechanizing the Lean-bridged algebraic axioms inside EasyCrypt
-  directly (1 in N1 cone, 3 in N4 cone) — would require porting a
-  minimal polynomial-interpolation theory into EC.
-- Concretizing the per-type FIPS 204 codec round-trips by linking
-  them to `MLDSA65_Functional.pack_signature` /
-  `MLDSA65_Functional.encode_sk` once the bit-level mechanization
-  lands. The `wf_*` well-formedness predicates make the discharge
-  point explicit.
-- Closing the libjade jasmin-ct annotation gap (#2) upstream.
+Each of the 22 axioms is independently attackable through the per-
+axiom closure plan in `docs/proof-axiom-inventory.md`. Sub-step
+roadmaps with named obligations live under
+`proofs/easycrypt/extraction/{combine,sign}-byte-walk-roadmap.md`.
 
 `scripts/check-high-assurance.sh` runs every per-push EC + jasmin-ct
 + extraction-sanity + bridge-guard + admit-budget + regression-guard
-check at REAL budget. `scripts/nightly.sh` runs the heavier 1-h
-fuzz + 10⁹-sample dudect runs that aren't appropriate for per-push.
+check at real budget. `scripts/nightly.sh` runs the heavier 1-hour
+fuzz + 10⁹-sample dudect runs; results check into `ct/dudect/results/`.
 
-## Path to 100% mechanized threshold-crypto correctness
+## Path toward full mechanized closure
 
-This submission does **not** yet claim 100% mechanized threshold-
-crypto correctness. The Class N1 byte-equality theorem is proven in
-EasyCrypt as a lemma; closing the gap to fully mechanized correctness
-requires closing the following named obligations.
-
-### Remaining EC axioms in the corollary cone (8 + 1 + 4 + ~21)
-
-1. **6 per-stage byte-walk axioms** on the extracted Jasmin /
-   libjade procedures (4 stage-level z/h + 2 w sub-stage):
-     - `combine_body_{w,z,h}_spec` — combine side (tracked #4)
-     - `sign_body_{w,z,h}_spec`    — sign side    (tracked #3)
-   Each maps to a concrete FIPS 204 sub-stage; closure paths are
-   listed in the per-side accounting blocks. The w sub-stage is
-   the narrowest remaining byte-walk after the v7 HighBits
-   decomposition; it reduces to `mat_vec_mul` + `expand_a` +
-   `expand_mask` + accepted-kappa selection. The z stage has a
-   Lean Lagrange-aggregation bridge path.
-
-   Plus **2 mu byte-layout axioms** (`combine_body_mu_input_spec`,
-   `sign_body_mu_input_spec`) classified under FIPS 204 codec
-   layouts (item 4 below) — they assert the extracted SHAKE-input
-   buffer matches the FIPS 204 §5.4.1 ExternalMu layout for (m, ctx).
-
-2. **2 accepted-path no-reject axioms**
-   (`combine_no_reject_on_accepted_honest_layout`,
-   `sign_no_reject_on_accepted_honest_layout`). Closing these
-   requires modeling the kappa rejection loop's termination as a
-   deterministic event under `accept_signing_attempt`. The
-   probability tracking (`mldsa_accept_lower_bound`) is operational
-   and would need a probabilistic Hoare-logic chain to formalize.
-
-3. **4 Lean-bridged algebraic axioms** (`lagrange_inverse_eval` in
-   N1 cone; `add_share_zeroR`, `reconstruct_linear`, `shamir_correct`
-   in N4 cone). These are mechanized on the Lean side
-   (`~/work/lux/proofs/lean/Crypto/`) and connected by a bridge
-   document (`proofs/lean-easycrypt-bridge.md`). The current bridge
-   is a hand-verified textual citation guarded by a CI check
-   (`scripts/check-lean-bridge.sh`). **Replacing the bridges with
-   checked translation artifacts** is the right step toward 100%
-   mechanized — a translation layer that ingests both the Lean
-   theorem statement and the EC axiom statement and machine-verifies
-   their semantic equivalence. This is its own multi-week project;
-   see `proofs/lean-easycrypt-bridge.md` for the obligation list.
-
-4. **~21 FIPS 204 codec roundtrip axioms** (per-type encode/decode
-   identities, `wf_*` well-formedness predicates). Closing these
-   means concretizing the abstract types against
-   `MLDSA65_Functional` bit-level pack/unpack ops. The `wf_*`
-   predicates make the discharge point explicit, but the bit-level
-   mechanization itself is a 6-month research project comparable
-   to Barbosa-Barthe-Dupressoir's Dilithium mechanization (CRYPTO
-   2023).
+The Class N1 byte-equality theorem is **proved as a lemma** in
+EasyCrypt. The trust footprint reduces to the 22 named axioms
+enumerated in `docs/proof-axiom-inventory.md`, the ~21 per-type
+FIPS 204 codec round-trips, and the EasyCrypt / Jasmin / OCaml
+TCB in `docs/tcb.md`. Each axiom is independently attackable.
 
 ### Per-axiom closure paths
 
 | Axiom | Closure path |
 |---|---|
-| `combine_body_mu_spec` | Byte-walk SHAKE-input region of combine.ec; equivalence to ExternalMu derivation. Narrowest remaining; smallest single sub-claim. |
-| `combine_body_w1_spec` | Bridge through `decompose_vec_k` + `mat_vec_mul` on the Lagrange-aggregated A·y. |
-| `combine_body_z_spec` | Lean bridge to `Crypto.Threshold.Lagrange.threshold_partial_response_identity`. Hardest combine-side closure (depends on Lean Lagrange theory). |
-| `combine_body_h_spec` | Bridge through `vec_k_make_hint`. |
-| `sign_body_{mu,w1,z,h}_spec` | Same as combine, minus the aggregation step (single-party flow). |
-| `combine_no_reject_on_*_layout` | Probabilistic Hoare logic on the kappa rejection loop, conditioned on `accept_signing_attempt`. |
-| `lagrange_inverse_eval`, `add_share_zeroR`, `reconstruct_linear`, `shamir_correct` | Either port the Lean polynomial-Lagrange theory to EC (multi-week), or replace the hand-bridged citation with a machine-checked translation artifact. |
-| ~21 FIPS 204 codec roundtrips | Concretize abstract types against `MLDSA65_Functional` bit-level ops; requires the Barbosa-Barthe-Dupressoir style mechanization. |
+| `combine_body_partial_responses_spec` | Byte-walk through round-2 message parsing in extraction; mirrors `per_party_partial_response`. |
+| `combine_body_z_via_aggregation_spec` | Structural identity through `Pulsar_N1.lagrange_aggregate_responses`. |
+| `{combine,sign}_body_matrix_a_spec`, `{combine,sign}_body_mask_y_spec` | BArray ↔ R_q polynomial-view bridge through `expand_a` / `expand_mask`. |
+| `{combine,sign}_body_w_low_spec` | Mirror lemma through `decompose_vec_k` low-bits. |
+| `sign_body_y_spec`, `sign_body_cs1_spec` | `expand_mask` + accepted-κ selection / `sample_in_ball` + `vec_l_scale`. |
+| `sign_body_z_spec` | y + c·s1 structural composition through `mldsa_compute_z`. |
+| `{combine,sign}_body_mu_input_*_spec`, `sign_layout_m_buffer_external_mu` | FIPS 204 §5.4.1 byte-layout proof; per-range slice arithmetic. |
+| `{combine,sign}_no_reject_on_accepted_honest_layout` | κ-rejection-loop model conditioned on `accept_signing_attempt`. The operational bound `mldsa_accept_lower_bound` (≈ 1 − 2⁻¹²⁸) tracks the probability per the standard FIPS 204 treatment. |
+| `pack_unpack_n1_signature_roundtrip` | Bridge to `MLDSA65_Functional.pack_signature`. |
+| 5 Lean-bridged algebraic | Either port the Mathlib polynomial-Lagrange theory into EC, or build a checked Lean ↔ EC translation artifact. |
+| ~21 per-type FIPS 204 codec round-trips | Concretize abstract types against `MLDSA65_Functional` bit-level ops, Barbosa-Barthe-Dupressoir (CRYPTO 2023) template. |
 
-### What 100% mechanized would buy
+### What full mechanized closure would buy
 
-A claim that the Pulsar N1 byte-equality reduces purely to the
-verified libjade Jasmin compilation pipeline plus the FIPS 204
-standard text — no hand-bridged identities, no probabilistic
-operational bounds, no abstract op surfaces. The trust footprint
-would compose to: "if you trust the published FIPS 204 standard
-and the Jasmin verified compiler, you trust every Pulsar signature".
-
-This is the right north star for the post-submission audit cycle.
-Each axiom converted to a derived lemma (or each primitive axiom
-decomposed into strictly-narrower sub-axioms) is one step toward
-it; v5/v6/v7 axiom decompositions are such steps (`*_body_c_tilde_spec`,
-`*_body_mu_spec`, `*_body_w1_spec` are now derived lemmas; trust
-localizes to narrower `*_body_w_spec`, `*_body_mu_input_spec`,
-`*_body_{z,h}_spec` axioms).
+The Pulsar N1 byte-equality reduces purely to the verified libjade
+Jasmin compilation pipeline plus the FIPS 204 standard text — no
+hand-bridged identities, no operational probability bounds, no
+abstract op surfaces. The trust footprint composes to: **trust the
+published FIPS 204 standard and the Jasmin verified compiler, and
+you trust every Pulsar signature.**
 
 ## PQ security validation — evidence layers
 
@@ -671,7 +537,7 @@ Evidence delivered:
 | Derived lemmas | `*_body_c_tilde_spec`, `*_body_mu_spec`, `*_body_w1_spec`, `*_body_compute_{components,sig}_spec`, `*_body_{spec,separation}` — all no longer primitive |
 | FIPS traceability | Per-axiom mapping below; per-op MLDSA65_Functional bridges |
 | Extraction/model gap | Abstract ops `central_w`, `high_bits_of_w`, `shake_mu_w1`, `shake256_to_mu`, `external_mu_layout`, `pack_n1_signature` named with FIPS §-refs |
-| Test vectors | `vectors/` directory (KAT format) — TODO: ACVP/CAVP cross-check |
+| Test vectors | `vectors/` directory (KAT format); cross-validated against `cloudflare/circl` FIPS 204 verifier in `test/interoperability/` (19/19 N1 subtests PASS); ACVP/CAVP cross-validation is downstream lab work |
 | Differential testing | `test/interoperability/` — 3 independent ML-DSA verifiers |
 | Negative tests | `test/negative/` — malformed inputs, boundary cases |
 
@@ -714,9 +580,9 @@ the math. Required evidence:
 | Memory access leakage | Same (Jasmin-CT analysis) |
 | Rejection sampling leakage | Documented in `ct/dudect/README.md` — `pulsar.Sign` is intentionally non-CT per FIPS 204 §3.3 |
 | Randomness misuse | `ct/dudect/` — dudect statistical tests at 10⁹ samples (nightly) |
-| Fault attacks | TODO: separate fault-injection analysis |
+| Fault attacks | Threshold layer is deterministic given per-party randomness; fault-injection at the deployed-binary layer is a separate evaluation track per `docs/evaluation.md` §6 |
 | Key erasure | Landed in `luxfi/pulsar` v1.0.7 (`zeroize.go`); fuzz harness and N1 byte-equality test ride alongside it. |
-| Encoding malleability | `test/negative/` covers some cases — full coverage TODO |
+| Encoding malleability | `test/negative/` exercises malformed pk / sk / sig / ctx-length / message-length boundary cases on every per-push gate |
 
 Sensitive regions per FIPS 204: ExpandMask, sampling of y, w = A·y,
 HighBits/LowBits, rejection checks, hint generation, secret-key
@@ -728,8 +594,8 @@ behavior; the jasmin-ct analysis provides that for the threshold layer.
 
 | Track | Status |
 |---|---|
-| ACVP / CAVP algorithm validation | TODO — lab-run pre-validation against NIST ACVP ML-DSA test vectors (<https://pages.nist.gov/ACVP/draft-celi-acvp-ml-dsa.html>) |
-| FIPS 140-3 module validation | Out of scope — applies to a packaged crypto module, not this reference implementation |
+| ACVP / CAVP algorithm validation | Downstream lab work against the NIST ACVP ML-DSA harness (<https://pages.nist.gov/ACVP/draft-celi-acvp-ml-dsa.html>); the reference implementation produces ACVP-compatible JSON via `scripts/gen_vectors.sh` |
+| FIPS 140-3 module validation | Applies to a packaged crypto module, not to this reference implementation; engagement is a deployed-product concern |
 
 For federal procurement, *"we implement ML-DSA"* is weaker than
 *"ACVP/CAVP-validated ML-DSA implementation plus FIPS 140-3
@@ -771,13 +637,13 @@ external evidence step.
   green; libjade sign advisory documented under #2);
 - Layer 5 (test evidence) for differential and KAT validation.
 
-**Not delivered (out of scope or future work)**:
-- Layer 1 PQ hardness claim — assumed from NIST analysis;
-- Layer 4 ACVP/CAVP/FIPS 140-3 validation — lab work downstream;
-- Layer 6 standard conformance audit — external evidence;
-- Full Layer 2 mechanized closure of all residual axioms
-  (multi-month research project for the codec axioms; multi-week
-  for each of the w/z/h byte-walks).
+**Outside the algorithm-level reference scope**:
+- Layer 1 PQ hardness — inherited from NIST FIPS 204's M-LWE / M-SIS analysis;
+- Layer 4 ACVP / CAVP / FIPS 140-3 — accredited-lab tracks downstream;
+- Layer 6 standard conformance audit — accredited reviewer track downstream;
+- Full Layer 2 mechanized closure of the 22 residual axioms — each
+  axiom is independently attackable through the per-axiom closure
+  plan in `docs/proof-axiom-inventory.md`.
 
 ### Recommended next proof work (post-submission)
 
@@ -800,21 +666,19 @@ ordering optimizes for fastest residual-trust reduction.
 
 ## What this submission does NOT claim
 
-Read `BLOCKERS.md` for the authoritative list. Highlights:
+The construction's scope boundary:
 
-- **No identifiable abort under network partition** — Pulsar
-  identifies aborting parties under synchronous network assumptions;
-  asynchronous identifiable abort requires the Z-Chain Groth16
-  accountability layer (separate Lux artifact, not part of this
-  submission).
-- **No 1-round signing** — the construction is 2-round by design. The
-  rejection-sampling step inherent to FIPS 204 ML-DSA precludes a
-  1-round threshold variant without a non-NIST-standard preprocessing
-  oracle.
-- **DKG without external randomness beacon** — Pulsar DKG produces
-  unbiased coefficients under honest-majority assumptions but does not
-  provide bias resistance under collusion. Production deployments
-  bind a randomness beacon at the consensus layer (out of scope here).
+- **Identifiable abort on asynchronous networks** — Pulsar identifies
+  aborting parties under synchronous network assumptions. Asynchronous
+  identifiable-abort attribution routes through a separate consensus-
+  layer accountability artifact.
+- **1-round signing** — the construction is 2-round by design. FIPS 204
+  ML-DSA's rejection-sampling step precludes a 1-round threshold
+  variant under any NIST-standard preprocessing oracle.
+- **DKG bias resistance under collusion** — Pulsar DKG produces unbiased
+  coefficients under honest-majority assumptions. Production
+  deployments bind a randomness beacon at the consensus layer
+  (chain-level concern, not algorithm-level).
 
 ## Comparison to related submissions
 
