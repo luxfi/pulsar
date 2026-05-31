@@ -66,12 +66,12 @@ func TestRoundCommitteeRoot_OrderIndependent(t *testing.T) {
 
 // TestRound_E2E_BetaRounds_Pulsar_M is the headline metastable
 // signing test. It simulates:
-//   1. Validator pool of 100 (beyond GF(257) cap not needed; tests math).
-//   2. β = 4 consecutive Lux rounds.
-//   3. Each Lux round: prism.Cut.Sample(K=3) → Pulsar (3,2) sign.
-//   4. After β rounds: 4 separate FIPS 204 ML-DSA signatures, each
-//      valid under the per-round group pubkey produced by per-round
-//      DKG.
+//  1. Validator pool of 100 (beyond GF(257) cap not needed; tests math).
+//  2. β = 4 consecutive Lux rounds.
+//  3. Each Lux round: prism.Cut.Sample(K=3) → Pulsar (3,2) sign.
+//  4. After β rounds: 4 separate FIPS 204 ML-DSA signatures, each
+//     valid under the per-round group pubkey produced by per-round
+//     DKG.
 //
 // This validates the per-Lux-round Pulsar math without requiring
 // the Wave / Focus / Cut wiring (those live in consensus). The
@@ -206,9 +206,9 @@ func TestRound_E2E_BetaRounds_Pulsar_M(t *testing.T) {
 // TestApproxRoundSecurity_BoundsMatchExpectedShape exercises the
 // binomial-tail closed form for the (K, alpha) -> per-round security
 // mapping. We check three properties:
-//   1. rho=0 gives 0 (adversary controls 0 fraction -> can't agree).
-//   2. rho=1 gives 1 (adversary controls everything).
-//   3. monotonically increasing in rho.
+//  1. rho=0 gives 0 (adversary controls 0 fraction -> can't agree).
+//  2. rho=1 gives 1 (adversary controls everything).
+//  3. monotonically increasing in rho.
 func TestApproxRoundSecurity_BoundsMatchExpectedShape(t *testing.T) {
 	policy := DefaultRoundQuorumPolicy // K=21, alpha=15, beta=12.
 	if got := ApproxRoundSecurity(0.0, policy); got != 0 {

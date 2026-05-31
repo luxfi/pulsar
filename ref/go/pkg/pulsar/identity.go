@@ -49,14 +49,14 @@ import (
 
 // Errors returned by identity / session-key operations.
 var (
-	ErrIdentityKeyMissing  = errors.New("pulsar: identity key missing")
-	ErrSessionKeyMissing   = errors.New("pulsar: session key missing for peer")
-	ErrIdentityCorrupted   = errors.New("pulsar: identity key bytes invalid")
-	ErrSessionEncryption   = errors.New("pulsar: session-key derivation failed")
-	ErrEnvelopeCiphertext  = errors.New("pulsar: KEM ciphertext is wrong size or invalid")
-	ErrEnvelopeAuthBad     = errors.New("pulsar: envelope authentication tag invalid")
-	ErrSessionPeerSelf     = errors.New("pulsar: cannot establish session with self")
-	ErrSessionIdentityPK   = errors.New("pulsar: peer identity public key invalid")
+	ErrIdentityKeyMissing = errors.New("pulsar: identity key missing")
+	ErrSessionKeyMissing  = errors.New("pulsar: session key missing for peer")
+	ErrIdentityCorrupted  = errors.New("pulsar: identity key bytes invalid")
+	ErrSessionEncryption  = errors.New("pulsar: session-key derivation failed")
+	ErrEnvelopeCiphertext = errors.New("pulsar: KEM ciphertext is wrong size or invalid")
+	ErrEnvelopeAuthBad    = errors.New("pulsar: envelope authentication tag invalid")
+	ErrSessionPeerSelf    = errors.New("pulsar: cannot establish session with self")
+	ErrSessionIdentityPK  = errors.New("pulsar: peer identity public key invalid")
 )
 
 // IdentityPublicKey is a party's long-term public identity material:
@@ -139,15 +139,15 @@ func GenerateIdentity(rng io.Reader) (*IdentityKey, error) {
 // between this party and the peer at peerID.
 //
 // Protocol:
-//   1. Caller (this party, A) encapsulates a fresh shared secret ss_A
-//      to peer's long-term KEM public key. The encapsulation is
-//      DETERMINISTIC, seeded from
-//          HKDF-SHA3-256("PULSAR-SESSION-V1" || sid || A || B || transcript)
-//      so two parties agreeing on sid + transcript derive the same
-//      encapsulation seed for KAT reproducibility.
-//   2. Peer (B) does the symmetric thing with roles swapped.
-//   3. Both sides derive the final session key via DeriveSessionKey
-//      mixing ss_A + ss_B canonically by NodeID order.
+//  1. Caller (this party, A) encapsulates a fresh shared secret ss_A
+//     to peer's long-term KEM public key. The encapsulation is
+//     DETERMINISTIC, seeded from
+//     HKDF-SHA3-256("PULSAR-SESSION-V1" || sid || A || B || transcript)
+//     so two parties agreeing on sid + transcript derive the same
+//     encapsulation seed for KAT reproducibility.
+//  2. Peer (B) does the symmetric thing with roles swapped.
+//  3. Both sides derive the final session key via DeriveSessionKey
+//     mixing ss_A + ss_B canonically by NodeID order.
 //
 // Authentication: the caller MUST sign the encapsulation ciphertext
 // with their long-term ML-DSA-65 secret key and broadcast (ciphertext,
@@ -160,11 +160,11 @@ func GenerateIdentity(rng io.Reader) (*IdentityKey, error) {
 //
 // Returns:
 //   - mySS:       this party's contributory shared secret (caller
-//                 keeps it locally; combined with peer's mySS via
-//                 DeriveSessionKey once the peer's ct+sig arrive)
+//     keeps it locally; combined with peer's mySS via
+//     DeriveSessionKey once the peer's ct+sig arrive)
 //   - kemCT:      the ML-KEM ciphertext to send to the peer
 //   - sigOverCT:  the caller's ML-DSA-65 signature over kemCT (peer
-//                 verifies before decapsulating)
+//     verifies before decapsulating)
 //
 // Returns ErrSessionPeerSelf if peerID equals myID and
 // ErrSessionIdentityPK if the peer's identity key is malformed.
@@ -364,7 +364,8 @@ func SymmetricSession(
 
 // envelopeAuthTagSize is the fixed 32-byte KMAC256 tag suffix in the
 // sealed payload. Sealed-payload total length is
-//   len(shareWire) + SeedSize + envelopeAuthTagSize.
+//
+//	len(shareWire) + SeedSize + envelopeAuthTagSize.
 const envelopeAuthTagSize = 32
 
 // sealEnvelope wraps the per-recipient Shamir share AND the full
@@ -385,15 +386,15 @@ const envelopeAuthTagSize = 32
 // primitive per path).
 //
 // Protocol:
-//   1. Encapsulate a fresh shared secret ss to recipient's KEM pub.
-//      Encapsulation seed is derived deterministically by the caller
-//      (DKGSession / ReshareSession / Large variants) so KAT
-//      regeneration is byte-stable.
-//   2. Derive an envelope key K_env = HKDF-SHA3-256(ss, salt=dealerID,
-//      info="PULSAR-DKG-ENVKEY-V1" || recipientID || committee_root).
-//   3. Seal (share || contribution || tag) under K_env via XOR with
-//      a cSHAKE256 stream keyed by K_env. The auth tag is
-//      KMAC256(K_env, dealerID || recipientID || share || contribution).
+//  1. Encapsulate a fresh shared secret ss to recipient's KEM pub.
+//     Encapsulation seed is derived deterministically by the caller
+//     (DKGSession / ReshareSession / Large variants) so KAT
+//     regeneration is byte-stable.
+//  2. Derive an envelope key K_env = HKDF-SHA3-256(ss, salt=dealerID,
+//     info="PULSAR-DKG-ENVKEY-V1" || recipientID || committee_root).
+//  3. Seal (share || contribution || tag) under K_env via XOR with
+//     a cSHAKE256 stream keyed by K_env. The auth tag is
+//     KMAC256(K_env, dealerID || recipientID || share || contribution).
 //
 // Returns ErrSessionIdentityPK if recipientKEMPub is malformed.
 func sealEnvelope(
@@ -573,4 +574,3 @@ func hashForEncapSeed(committeeRoot [32]byte, dealer, recipient NodeID, blind []
 	_, _ = io.ReadFull(r, out[:])
 	return out
 }
-

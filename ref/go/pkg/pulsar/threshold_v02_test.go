@@ -547,19 +547,19 @@ func TestTransitional_RealRNG_Smokes(t *testing.T) {
 //
 // v0.3 GRADUATION CRITERION (PULSAR-V03-1 in BLOCKERS.md):
 //
-//   When v0.3 ships a pure-algebraic aggregator that emits (z, h)
-//   directly from the per-party (Z, CS2, CT0) contributions and
-//   drops SkBytes from TransitionalSetup, THIS TEST WILL START
-//   FAILING (because nil-SkBytes will no longer error). That
-//   failure is the LOAD-BEARING RED FLAG that v0.3 has landed:
+//	When v0.3 ships a pure-algebraic aggregator that emits (z, h)
+//	directly from the per-party (Z, CS2, CT0) contributions and
+//	drops SkBytes from TransitionalSetup, THIS TEST WILL START
+//	FAILING (because nil-SkBytes will no longer error). That
+//	failure is the LOAD-BEARING RED FLAG that v0.3 has landed:
 //
-//     1. Delete the SkBytes field from TransitionalSetup.
-//     2. Delete or rewrite this test.
-//     3. Rename TransitionalAggregate → AlgebraicAggregate
-//        (forward-only, no compat alias).
-//     4. Rewrite the file-header honesty block to match.
-//     5. Update docs/deployment.md v0.3 milestone section.
-//     6. Close PULSAR-V03-1.
+//	  1. Delete the SkBytes field from TransitionalSetup.
+//	  2. Delete or rewrite this test.
+//	  3. Rename TransitionalAggregate → AlgebraicAggregate
+//	     (forward-only, no compat alias).
+//	  4. Rewrite the file-header honesty block to match.
+//	  5. Update docs/deployment.md v0.3 milestone section.
+//	  6. Close PULSAR-V03-1.
 //
 // Until then, the test passing is the load-bearing proof that the
 // docstrings are not lying: TransitionalAggregate IS

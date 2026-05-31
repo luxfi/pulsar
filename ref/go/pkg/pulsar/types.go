@@ -190,9 +190,9 @@ type Signature struct {
 // party's long-term ML-DSA identity.
 type Round1Message struct {
 	NodeID    NodeID
-	SessionID [16]byte // sid uniqueness; see pulsar.tex §6.2
-	Attempt   uint32   // rejection-restart counter κ
-	Commit    [32]byte // D_i = cSHAKE(w̄_i || τ_1) per pulsar.tex §4.2
+	SessionID [16]byte            // sid uniqueness; see pulsar.tex §6.2
+	Attempt   uint32              // rejection-restart counter κ
+	Commit    [32]byte            // D_i = cSHAKE(w̄_i || τ_1) per pulsar.tex §4.2
 	MACs      map[NodeID][32]byte // KMAC256(K_{i,j}, D_i || τ_1) — K_{i,j} is the ephemeral session key
 }
 

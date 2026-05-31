@@ -45,15 +45,15 @@ import (
 
 // Errors returned by DKG.
 var (
-	ErrCommitteeEmpty       = errors.New("pulsar: DKG committee is empty")
-	ErrCommitteeDuplicate   = errors.New("pulsar: DKG committee contains duplicate node IDs")
-	ErrNotInCommittee       = errors.New("pulsar: node is not in DKG committee")
-	ErrEnvelopeMissing      = errors.New("pulsar: round-1 envelope missing for committee member")
-	ErrCommitMismatch       = errors.New("pulsar: round-1 commit does not match opening at round 3")
-	ErrEquivocation         = errors.New("pulsar: round-1.5 envelope digest mismatch (equivocation)")
-	ErrTooFewRound1         = errors.New("pulsar: too few round-1 messages — DKG requires all committee members")
-	ErrTooFewRound2         = errors.New("pulsar: too few round-2 messages — DKG requires all committee members")
-	ErrDirectoryIncomplete  = errors.New("pulsar: identity directory missing entry for committee member")
+	ErrCommitteeEmpty      = errors.New("pulsar: DKG committee is empty")
+	ErrCommitteeDuplicate  = errors.New("pulsar: DKG committee contains duplicate node IDs")
+	ErrNotInCommittee      = errors.New("pulsar: node is not in DKG committee")
+	ErrEnvelopeMissing     = errors.New("pulsar: round-1 envelope missing for committee member")
+	ErrCommitMismatch      = errors.New("pulsar: round-1 commit does not match opening at round 3")
+	ErrEquivocation        = errors.New("pulsar: round-1.5 envelope digest mismatch (equivocation)")
+	ErrTooFewRound1        = errors.New("pulsar: too few round-1 messages — DKG requires all committee members")
+	ErrTooFewRound2        = errors.New("pulsar: too few round-2 messages — DKG requires all committee members")
+	ErrDirectoryIncomplete = errors.New("pulsar: identity directory missing entry for committee member")
 )
 
 // DKGSession holds the per-party state for one DKG ceremony.

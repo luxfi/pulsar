@@ -220,13 +220,13 @@ func min(a, b int) int {
 // TestN1_ByteEquality_ThresholdMatchesCentralized.
 //
 // Each fuzz iteration:
-//   1. Derives (n, t, msg, ctx, party_rng_seeds) from the fuzz input
-//      with sensible bounds (n in [2, 10], t in [2, n]).
-//   2. Runs the full DKG + threshold-sign pipeline.
-//   3. Reconstructs the master seed from shares and derives the
-//      centralized FIPS 204 SK.
-//   4. Signs centrally with deterministic FIPS 204 mode.
-//   5. Asserts thresholdSig.Bytes == centralSig.Bytes.
+//  1. Derives (n, t, msg, ctx, party_rng_seeds) from the fuzz input
+//     with sensible bounds (n in [2, 10], t in [2, n]).
+//  2. Runs the full DKG + threshold-sign pipeline.
+//  3. Reconstructs the master seed from shares and derives the
+//     centralized FIPS 204 SK.
+//  4. Signs centrally with deterministic FIPS 204 mode.
+//  5. Asserts thresholdSig.Bytes == centralSig.Bytes.
 //
 // The property under fuzz is: for ANY honest threshold-sign session,
 // the produced bytes match the centralized FIPS 204 deterministic
@@ -238,8 +238,9 @@ func min(a, b int) int {
 // nightly job (-fuzztime=1h) does ~20k iterations.
 //
 // Smoke run:
-//   GOWORK=off go test -run=^$ -fuzz=FuzzN1_ByteEquality_Differential \
-//     -fuzztime=30s ./ref/go/pkg/pulsar/
+//
+//	GOWORK=off go test -run=^$ -fuzz=FuzzN1_ByteEquality_Differential \
+//	  -fuzztime=30s ./ref/go/pkg/pulsar/
 func FuzzN1_ByteEquality_Differential(f *testing.F) {
 	// Seed with the same three configurations the deterministic test
 	// uses, plus a few extras so the fuzz engine has a base coverage

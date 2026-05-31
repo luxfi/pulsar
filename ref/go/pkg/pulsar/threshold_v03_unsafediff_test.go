@@ -24,8 +24,8 @@ type circlPubKeyShape struct {
 	rho [32]byte
 	t1  [6][256]uint32 // VecK = [K]Poly = [6][N]uint32
 	t1p [320 * 6]byte
-	A   unsafe.Pointer  // *Mat
-	tr  unsafe.Pointer  // *[64]byte
+	A   unsafe.Pointer // *Mat
+	tr  unsafe.Pointer // *[64]byte
 }
 
 // circlMatShape mirrors circl's Mat = [K]VecL = [6][5][256]uint32.
