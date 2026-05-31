@@ -1,15 +1,19 @@
-# BLOCKERS — luxfi/pulsar
+# Closed-finding registry — luxfi/pulsar
 
-Closed-finding registry. New findings go under `## Open`; on fix they
-move to `## Closed` with commit + tag. IDs are cited from source-code
-comments and from `docs/cryptographer-sign-off.md`, `docs/deployment.md`,
-`NIST-SUBMISSION.md`, `spec/blockers.tex`.
+**Status: submission-ready. No open items.**
 
-Earlier IDs `CR-6`/`CR-7`/`CR-8` (KEM-wrap of DKG envelopes, ephemeral
-per-pair session keys, identity-bound MAC layer) survive only as
-source-code references. They closed in the luxfi/pulsar-mptc →
-luxfi/pulsar consolidation (commit `7be057b`, v1.0.7 sign-off);
-canonical narrative lives in `CHANGELOG.md` + v1.0.7 sign-off.
+This file is the closed-finding registry. New findings open under
+`## Open`; on fix they move to `## Closed` with commit + tag. IDs
+are cited from source-code comments and from
+`docs/cryptographer-sign-off.md`, `docs/deployment.md`,
+`SUBMISSION.md`, `spec/blockers.tex`.
+
+Earlier IDs `CR-6` / `CR-7` / `CR-8` (KEM-wrap of DKG envelopes,
+ephemeral per-pair session keys, identity-bound MAC layer) survive
+only as source-code references. They closed in the
+luxfi/pulsar-mptc → luxfi/pulsar consolidation (commit `7be057b`,
+v1.0.7 sign-off); the canonical narrative lives in `CHANGELOG.md`
+and the v1.0.7 sign-off.
 
 ## Open
 
