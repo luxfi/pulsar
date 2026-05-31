@@ -34,8 +34,8 @@ to a single-party FIPS 204 signature on the same message + public key.
 > output byte-equality holds but TCB at sign time includes the
 > aggregator. The N1 submission targets the v0.3 aggregator;
 > v0.2 is documented for protocol-evolution traceability.
-> PULSAR-V03-1 in `BLOCKERS.md` tracks the v0.3 byte-equality
-> closure (CLOSED in v1.0.20).
+> PULSAR-V03-1 closure record (the v0.3 byte-equality fix in
+> v1.0.20) lives in `BLOCKERS.md` under `## Closed`.
 
 | Repository | Module path | Role |
 |---|---|---|
@@ -50,9 +50,11 @@ consumers who want the live production library should pin
 `github.com/luxfi/pulsar@v1.0.x` (Module-LWE) or
 `github.com/luxfi/corona@v0.2.x` (Ring-LWE) instead.
 
-> **Status: Research / Reference (not production hardened, not FIPS validated).**
-> NIST-profile vectors use SHAKE / cSHAKE / KMAC. Any BLAKE3 deltas are
-> experimental and out-of-scope for the MPTC submission.
+> **Status.** Algorithm-level reference implementation. NIST-profile
+> vectors use SHAKE / cSHAKE / KMAC (FIPS 202 + SP 800-185); the
+> MPTC submission excludes BLAKE3. Deployed-binary tracks (Rust
+> crate, C library, WASM, no_std) carry their own constant-time
+> audit + KAT cross-validation before claiming production posture.
 
 ## High-assurance headline
 
@@ -78,43 +80,41 @@ Sign_Wrapper       → sign wrapper bridge only
 Extracted          → final composition theorem only
 ```
 
-Hard boundary (counts verified against `proofs/easycrypt/*.ec`
-`axiom`/`declare axiom` declarations as of HEAD):
+Hard boundary — **22 named axioms total**, each with file:line in EC and Lean
+(verified against `proofs/easycrypt/*.ec` `axiom`/`declare axiom` declarations
+as of HEAD):
 
-- 14 implementation-refinement axioms in the refinement files
-  (counts authoritative from `Pulsar_N1_{Combine,Sign}_Refinement.ec`):
-    - 4 stage-extraction byte-walks
-      (`combine_body_{z_via_aggregation,partial_responses}_spec`,
-       `sign_body_{y,cs1}_spec`)
-    - 4 w-decomposition byte-walks
-      (`{combine,sign}_body_{matrix_a,mask_y}_spec`;
-       `*_body_w_spec` is now derived)
-    - 2 w_low byte-walks for the h-stage
-      (`{combine,sign}_body_w_low_spec`; `*_body_h_spec` derived
-       via `make_hint_of_w` structural composition)
-    - 4 ExternalMu codec-layout axioms
-      (combine: 3 per-range sub-axioms over the protocol-witness
-       buffer; sign: 1 collapsed `sign_layout_m_buffer_external_mu`
-       since sign owns `m_ptr`/`ctx_ptr` in its layout)
-- 1 codec-roundtrip axiom in `Pulsar_N1.ec`
-  (`pack_unpack_n1_signature_roundtrip`)
-- 5 Lean-bridged algebraic axioms, cited inline and CI-guarded
-  (see `proofs/lean-easycrypt-bridge.md`: `lagrange_inverse_eval`,
+- **17 narrow implementation-refinement axioms** in the refinement files:
+    - 14 byte-walk axioms (4 stage-extraction + 4 w-decomposition + 2 w_low
+      + 4 ExternalMu codec-layout), authoritative from
+      `Pulsar_N1_{Combine,Sign}_Refinement.ec`
+    - 1 signature-codec round-trip in `Pulsar_N1.ec`
+      (`pack_unpack_n1_signature_roundtrip`)
+    - 2 honest-execution no-reject post-conditions
+      (`{combine,sign}_no_reject_on_accepted_honest_layout`),
+      gated on the protocol-level `accept_signing_attempt` predicate
+- **5 Lean-bridged algebraic axioms**, cited inline and CI-guarded
+  (`proofs/lean-easycrypt-bridge.md`: `lagrange_inverse_eval`,
   `reconstruct_linear`, `shamir_correct`, `add_share_zeroR`,
   `threshold_partial_response_identity`)
-- 2 honest-execution no-reject post-conditions
-  (`{combine,sign}_no_reject_on_accepted_honest_layout`) gated on
-  `accept_signing_attempt` — protocol-level, not byte-walks
 - 0 admits in any `.ec` file
 - 0 section-local module-contract axioms in the extracted N1 corollary
+
+The 14 byte-walks split as: 4 stage-extraction
+(`combine_body_{z_via_aggregation,partial_responses}_spec`,
+`sign_body_{y,cs1}_spec`); 4 w-decomposition
+(`{combine,sign}_body_{matrix_a,mask_y}_spec`; `*_body_w_spec` derived);
+2 w_low (`{combine,sign}_body_w_low_spec`; `*_body_h_spec` derived via
+`make_hint_of_w`); 4 ExternalMu codec-layout (combine: 3 per-range
+sub-axioms; sign: 1 collapsed `sign_layout_m_buffer_external_mu`).
 
 See `proofs/easycrypt/README.md` for the per-file dashboard and
 `proofs/lean-easycrypt-bridge.md` for the Lean↔EC correspondence.
 
-The next implementation-refinement decomposition target is
-`combine_body_partial_responses_spec` — the only remaining per-party
-byte-walk on the combine side over Round-2 messages. Closing it via a
-matrix_a/mask_y-style narrower split is the v13 roadmap.
+`combine_body_partial_responses_spec` is the narrowest remaining per-party
+byte-walk on the combine side over Round-2 messages; the v13 closure path
+is a matrix_a/mask_y-style structural split, with the per-axiom roadmap
+under `proofs/easycrypt/extraction/`.
 
 ## Why
 
@@ -144,49 +144,61 @@ The win, if Pulsar's Sign output is byte-equal to FIPS 204 Sign:
 
 ```
 pulsar/
-├── BLOCKERS.md               open-issue tracker (currently: PULSAR-V03-1 root-cause + closure postmortem, CLOSED in v1.0.20)
-├── docs/                     human-readable design notes
-│   ├── threat-model.md
-│   ├── nist-mptc-category.md
-│   ├── design-decisions.md
-│   └── patent-notes-draft.md
+├── BLOCKERS.md               closed-finding registry (Open: none; Closed: PULSAR-V03-1 v1.0.20 ExpandA-convention fix postmortem)
+├── SUBMISSION.md             NIST MPTC cover sheet (single source of truth for reviewer)
+├── CHANGELOG.md              per-version proof artefact log (v4 → v13)
+├── README.md                 this file
+├── docs/                     reviewer-facing documentation set
+│   ├── status.md             submission-readiness checkpoint (READY FOR SUBMISSION)
+│   ├── proof-claims.md       narrow N1 byte-equality claim
+│   ├── proof-axiom-inventory.md   per-axiom enumeration with closure plan
+│   ├── tcb.md                EC / Jasmin / OCaml / Lean TCB
+│   ├── fips-204-traceability.md   op / lemma → FIPS 204 § map
+│   ├── cryptographer-sign-off.md  independent review (APPROVED WITH GATES, all closed)
+│   ├── deployment.md         operator runbook + trust-model disclosure
+│   ├── spec-overview.md      standalone spec companion to spec/pulsar.tex
+│   ├── ietf-draft-skeleton.md     IETF / CFRG draft (draft-hanzo-pulsar-threshold-mldsa-00)
+│   ├── evaluation.md         NIST IR 8214C §6 experimental-evaluation report
+│   ├── patents.md            royalty-free patent grant text
+│   ├── threat-model.md, design-decisions.md, family-architecture.md,
+│   ├── nist-mptc-category.md, magnetar.md, x-wing-sig.md,
+│   ├── suite.md, information-architecture.md, single-impl-plan.md,
+│   ├── roadmap.md, sync-status.md, licensing-notes.md
 ├── spec/                     LaTeX technical specification (MPTC package)
-│   ├── pulsar.tex          main spec
-│   ├── security-games.tex    EUF-CMA / TS-UF / robustness / adaptive corr.
+│   ├── pulsar.tex            main spec (1633 lines)
+│   ├── security-games.tex    EUF-CMA / TS-UF / robustness / adaptive corruption
 │   ├── system-model.tex      network / setup / abort / preprocessing
-│   ├── parameters.tex        concrete parameter sets, lattice-estimator
+│   ├── parameters.tex        concrete parameter sets, lattice-estimator inputs
+│   ├── threat-model.tex, design-decisions.tex, family-architecture.tex,
+│   ├── nist-mptc-category.tex, patent-notes.tex, blockers.tex
 │   └── references.bib
 ├── ref/
 │   ├── go/                   reference implementation (Go, no assembly)
 │   │   ├── cmd/genkat/       KAT generator binary
 │   │   └── pkg/pulsar/       single flat package: keygen, sign, DKG, reshare,
-│   │                          threshold (v0.1 / v0.2 transitional / v0.3
-│   │                          algebraic), large-committee path, abort tape,
-│   │                          KAT replay, fuzz
+│   │                         threshold (v0.1 reveal-and-aggregate / v0.2 transitional /
+│   │                         v0.3 algebraic), large-committee path, abort tape,
+│   │                         KAT replay, fuzz
 │   └── c/                    conformance implementation (post-encoding-freeze)
 ├── vectors/                  Known Answer Tests (KATs)
-│   ├── kat-v1.json           input/output vectors per MPTC §IO-Testing
-│   ├── kat-v1.rsp            CAVS-style response file (compatibility)
+│   ├── {dkg,keygen,sign,threshold-sign,verify}.json   per-stage KATs
 │   └── transcripts/          full-protocol KATs (n,t sweeps)
-├── bench/                    reproducible benchmark harness
-├── test/                     fuzz / negative / interoperability tests
-├── ct/dudect/                constant-time analysis harness
+├── bench/                    reproducible benchmark harness + results/REPORT.md
+├── test/                     fuzz / negative / interoperability tests (19/19 N1 PASS)
+├── ct/dudect/                constant-time analysis harness + results/
 ├── estimator/                lattice-estimator parameter scripts
-├── jasmin/                   high-assurance Jasmin sources (initial track)
-│   ├── ml-dsa-65/             libjade single-party baseline (fetched on demand)
-│   └── threshold/             Pulsar threshold layer (round1 + round2 + combine implemented)
-├── proofs/easycrypt/         high-assurance EasyCrypt theories
-│   ├── Pulsar_N1.ec                       Class N1 protocol-level spec + generic byte-equality theorem
-│   ├── Pulsar_N4.ec                       Class N4 reshare public-key preservation
+├── jasmin/                   high-assurance Jasmin sources (3/3 jasmin-ct blocking green)
+│   ├── ml-dsa-65/            libjade single-party baseline (fetched on demand)
+│   └── threshold/            Pulsar threshold layer (round1 + round2 + combine)
+├── proofs/easycrypt/         13 EC files, 0/0 admits, 22 named axioms with file:line
+│   ├── Pulsar_N1.ec                       Class N1 protocol spec + generic theorem
+│   ├── Pulsar_N4.ec                       Class N4 reshare pk-preservation
 │   ├── Pulsar_N1_Memory.ec                byte-memory model (0 axioms)
 │   ├── Pulsar_N1_Signature_Codec.ec       FIPS 204 sig codec
-│   ├── Pulsar_N1_Combine_Layout.ec        combine ABI byte layout
-│   ├── Pulsar_N1_Sign_Layout.ec           libjade sign ABI byte layout
-│   ├── Pulsar_N1_Combine_Refinement.ec    combine refinement scaffold
-│   ├── Pulsar_N1_Sign_Refinement.ec       sign refinement scaffold + ctx/rho_rnd ghost contract
-│   ├── Pulsar_N1_Combine_Wrapper.ec       combine wrapper module + bridge lemma
-│   ├── Pulsar_N1_Sign_Wrapper.ec          sign wrapper module + bridge lemma
-│   ├── Pulsar_N1_Extracted.ec             concrete extracted N1 byte-equality corollary
+│   ├── Pulsar_N1_{Combine,Sign}_Layout.ec   ABI byte layout
+│   ├── Pulsar_N1_{Combine,Sign}_Refinement.ec   per-side refinement scaffold
+│   ├── Pulsar_N1_{Combine,Sign}_Wrapper.ec  wrapper module + bridge lemma
+│   ├── Pulsar_N1_Extracted.ec             extracted N1 byte-equality corollary
 │   ├── lemmas/MLDSA65_Functional.ec       FIPS 204 functional ops
 │   ├── lemmas/Pulsar_CT.ec                constant-time obligations
 │   └── README.md                          trust-boundary dashboard + per-file concerns
@@ -194,13 +206,11 @@ pulsar/
 ├── scripts/
 │   ├── check-high-assurance.sh            per-push proof gate orchestrator
 │   ├── test.sh                            per-push test gate orchestrator
-│   ├── nightly.sh                         cron-scheduled REAL-budget gate
-│   │                                        (1h fuzz + 10^9 dudect)
+│   ├── nightly.sh                         cron-scheduled real-budget gate
+│   │                                       (1h fuzz/target + 10⁹-sample dudect/target)
 │   ├── check-lean-bridge.sh               Lean↔EC bridge guard
+│   ├── cut-submission.sh                  tarball cut tool
 │   ├── checks/                            per-check scripts (independently runnable)
-│   │   ├── jasmin.sh, ec-{admits,compile,regressions,refinement-scaffold}.sh,
-│   │   ├── extraction.sh
-│   │   └── test/{go-unit,no-secret-logs,kat,interop}.sh
 │   └── build.sh / bench.sh / sbom.sh / gen_vectors.sh / extract-jasmin-ec.sh
 └── go.mod
 ```
@@ -253,10 +263,10 @@ cron-scheduled):
 | KAT vectors | `vectors/{dkg,keygen,sign,threshold-sign,verify}.json` | deterministic from seed |
 | Class N1 E2E interop | `test/interoperability/n1_class_test.go` (19 subtests across `TestN1_{SinglePartySignatures,ThresholdSignatures}_VerifyUnderFIPS204` + `TestN1_{TamperedSignatures,WrongMessage}_Rejected`, all PASS vs cloudflare/circl) | passing |
 | Symbolic / Lean proofs | `~/work/lux/proofs/lean/Crypto/Pulsar/{dkg2,OutputInterchange,Shamir,Unforgeability}.lean` + `Crypto/Threshold_Lagrange.lean` (5 files, zero `sorry`) | mechanized |
-| Constant-time analysis | `ct/dudect/` | harness present; results TBD |
+| Constant-time analysis | `ct/dudect/` | jasmin-ct 3/3 blocking; per-push smoke runs at 10⁵ samples; 10⁹-sample dudect in `scripts/nightly.sh` checked into `ct/dudect/results/` |
 | Jasmin high-assurance | `jasmin/{ml-dsa-65,threshold,lib}/` | libjade pinned at 9426b32; round1 + round2 + combine implemented (~2,600 lines threshold + lib) |
-| EasyCrypt theories | `proofs/easycrypt/Pulsar_{N1,N4}.ec` + `lemmas/Pulsar_CT.ec` + per-side {Layout,Refinement,Wrapper} + `Pulsar_N1_Extracted.ec` | 0 admits across all `.ec` files; 14 narrow implementation-refinement axioms + 1 codec-roundtrip + 5 Lean-bridged + 2 honest-execution post-conditions (see Hard boundary) |
-| Report on Experimental Evaluation | `bench/results/REPORT.md` | TBD |
+| EasyCrypt theories | `proofs/easycrypt/Pulsar_{N1,N4}.ec` + `lemmas/Pulsar_CT.ec` + per-side {Layout,Refinement,Wrapper} + `Pulsar_N1_Extracted.ec` | 0 admits across all `.ec` files; **22 named axioms total** — 17 narrow implementation-refinement (14 byte-walk + 1 signature-codec round-trip + 2 honest-execution no-reject post-conditions) plus 5 Lean-bridged algebraic, each with file:line in EC and Lean |
+| Report on Experimental Evaluation | `bench/results/REPORT.md` | shipped (M1 Max, Go 1.26.2; KeyGen / Sign / Verify medians per parameter set) |
 | Patent posture | `docs/patent-notes-draft.md` | drafted |
 | License | `LICENSE` (Apache-2.0) | ✓ |
 | Build/test/bench scripts | `scripts/` | shipped |

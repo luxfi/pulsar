@@ -327,8 +327,8 @@ auditors:
       MIN-3 (PROOF-CLAIMS cross-link to dudect status): closed
       in `proof-claims.md` §3.2 row 3 with operational caveat
       pointing at GATE-3 and `cryptographer-sign-off.md`. Row
-      "Zeroization" updated from "review TBD" to the CR-8
-      closure in `zeroize.go` (since v1.0.6).
+      "Zeroization" pinned to the CR-8 closure in `zeroize.go`
+      (since v1.0.6).
       MIN-4 (spec Ed25519 → ML-DSA-65): closed in
       `spec/pulsar.tex` at both occurrences (lines 720, 1003
       of v1.0.8 pre-patch). Identity signer now cites FIPS 204
@@ -339,11 +339,11 @@ auditors:
       in the v0.2 migration cleanup pass.
       MIN-2 (date stamp): verified.
 
-## Out-of-scope for this sign-off
+## Boundary of this sign-off
 
-The following are explicitly NOT covered by this review and
-must be tracked in their own work streams; their absence
-from this sign-off is not a finding:
+The following are explicitly outside this review's scope and
+route through their own work streams; their absence here is not
+a finding:
 
 - Full machine-checked EasyCrypt compile (the gate guards
   the admit budget, not the type-check; closing this requires

@@ -30,17 +30,27 @@ through versions v4 (per-stage) → v12 (matrix_a + mask_y).
 
 ## Status — current trust boundary
 
+**22 named axioms total** in the extracted N1 byte-equality
+theorem's dependency cone, each with file:line in EC and Lean:
+
+- **17 narrow implementation-refinement axioms** (combine + sign +
+  Pulsar_N1 codec): 14 byte-walk + 1 signature-codec round-trip
+  + 2 honest-execution no-reject post-conditions.
+- **5 Lean-bridged algebraic axioms** (Lagrange / Shamir / linearity
+  / threshold partial response), mechanised in Lean 4 + Mathlib.
+
 | Item | Count |
 |---|---|
 | Section-local module-contract axioms in extracted N1 corollary | **0** |
 | Implementation-refinement axioms in dependency cone (combine + sign + Pulsar_N1 codec) | **17** |
-| Lean-bridged algebraic axioms (Lagrange / Shamir / linearity / threshold partial response) | **5** |
+| Lean-bridged algebraic axioms | **5** |
+| **Total named axioms** | **22** |
 | EasyCrypt `admit` budget | **0 / 0** |
 | EC files in the per-push gate | **13** |
 | `declare axiom` in refinement scaffolds | **0** |
 
 Authoritative source: the accounting block at
-`Pulsar_N1_Extracted.ec:34-92` and the per-file accounting
+`Pulsar_N1_Extracted.ec` and the per-file accounting
 blocks at the end of each `*_Refinement.ec`.
 
 ### Implementation-refinement axioms — combine side
