@@ -1,8 +1,8 @@
 # AXIOM-INVENTORY — Pulsar EasyCrypt residual trust base
 
 > **Standalone trust accounting** for the EasyCrypt N1 byte-equality
-> theorem. Pairs with `PROOF-CLAIMS.md` (proof scope), `FIPS-TRACEABILITY.md`
-> (op→FIPS § map), and `TRUSTED-COMPUTING-BASE.md` (EC/Jasmin/OCaml TCB).
+> theorem. Pairs with `proof-claims.md` (proof scope), `fips-204-traceability.md`
+> (op→FIPS § map), and `tcb.md` (EC/Jasmin/OCaml TCB).
 >
 > Auditors should read this document first. Every axiom in the
 > dependency cone of `Pulsar_N1_Extracted.pulsar_n1_byte_equality_extracted`
@@ -275,7 +275,7 @@ include:
   reports these as warnings (informational) — they're not on the
   audit path.
 - The EC / Jasmin / OCaml compiler trusted-computing base. See
-  `TRUSTED-COMPUTING-BASE.md`.
+  `tcb.md`.
 
 ## §10 Verification commands
 
@@ -326,12 +326,12 @@ runs all five.
 
 **Document metadata**
 
-- Name: `AXIOM-INVENTORY.md`
+- Name: `proof-axiom-inventory.md`
 - Version: v1.0 (post v8)
 - Date: 2026-05-18
 - Companion documents:
-  - `PROOF-CLAIMS.md` (proof scope)
-  - `FIPS-TRACEABILITY.md` (op → FIPS §)
-  - `TRUSTED-COMPUTING-BASE.md` (TCB)
+  - `proof-claims.md` (proof scope)
+  - `fips-204-traceability.md` (op → FIPS §)
+  - `tcb.md` (TCB)
   - `proofs/lean-easycrypt-bridge.md` (bridge correspondence)
   - `SUBMISSION.md` (cover sheet with same accounting)

@@ -43,7 +43,7 @@ v1.0.14 fixes the honesty defect without changing the algorithm:
 - `TransitionalSetup` docstring declares SkBytes as the v0.2 TCB
   defect and the v0.3 graduation gate.
 - `types.go` Signature docstring rewritten.
-- `DEPLOYMENT-RUNBOOK.md` v0.2 section rewritten with explicit
+- `docs/deployment.md` v0.2 section rewritten with explicit
   "suitable / not suitable" deployment guidance and a v0.3
   milestone section.
 
@@ -129,7 +129,7 @@ a record wrapper):
 
 ### Trust-footprint structure (post v10)
 
-Per `AXIOM-INVENTORY.md`. This is NOT a count-reduction — it is a
+Per `docs/proof-axiom-inventory.md`. This is NOT a count-reduction — it is a
 re-classification of formerly broad obligations into narrower,
 independently-attackable sub-obligations:
 
@@ -156,11 +156,11 @@ independently-attackable sub-obligations:
 
 - `SUBMISSION.md` — NIST MPTC cover sheet (updated with Tier-1/2/3 labels + patent posture cross-ref)
 - `NIST-SUBMISSION.md` — one-page executive summary
-- `PATENTS.md` — royalty-free patent grant + defensive termination + claim summary
-- `AXIOM-INVENTORY.md` — per-axiom residual trust accounting with closure plans
-- `PROOF-CLAIMS.md` — narrow EC/Lean refinement claim with explicit non-claims
-- `FIPS-TRACEABILITY.md` — op/lemma → FIPS 204 § map (ACVP/CAVP-ready)
-- `TRUSTED-COMPUTING-BASE.md` — EC/Jasmin/OCaml/Lean TCB with per-layer risk
+- `docs/patents.md` — royalty-free patent grant + defensive termination + claim summary
+- `docs/proof-axiom-inventory.md` — per-axiom residual trust accounting with closure plans
+- `docs/proof-claims.md` — narrow EC/Lean refinement claim with explicit non-claims
+- `docs/fips-204-traceability.md` — op/lemma → FIPS 204 § map (ACVP/CAVP-ready)
+- `docs/tcb.md` — EC/Jasmin/OCaml/Lean TCB with per-layer risk
 - `docs/patent-claims.md` — 21 numbered claim drafts (5 claim groups) for attorney review
 - `docs/evaluation.md` — experimental evaluation report per NIST IR 8214C §6
 
@@ -177,8 +177,8 @@ independently-attackable sub-obligations:
 
 ### What this submission DOES claim (precise)
 
-> Under the trusted-computing base in `TRUSTED-COMPUTING-BASE.md`
-> and the residual axioms enumerated in `AXIOM-INVENTORY.md`, every
+> Under the trusted-computing base in `docs/tcb.md`
+> and the residual axioms enumerated in `docs/proof-axiom-inventory.md`, every
 > signature byte string produced by the Pulsar Combine procedure on
 > inputs satisfying the protocol's threshold-interpolation
 > well-formedness invariants is bit-identical to a signature
@@ -187,7 +187,7 @@ independently-attackable sub-obligations:
 
 This is an implementation-correctness result. It does NOT prove
 post-quantum hardness of ML-DSA itself; ML-DSA hardness is inherited
-from NIST FIPS 204's analysis. See `PROOF-CLAIMS.md` for the
+from NIST FIPS 204's analysis. See `docs/proof-claims.md` for the
 explicit framing.
 
 ### Known limitations (per `BLOCKERS.md`)
