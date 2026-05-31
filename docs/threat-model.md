@@ -47,8 +47,8 @@ explicitly.
 - Compromise of the cryptographic hash function (SHAKE-256 / cSHAKE-256 /
   KMAC-256). NIST FIPS 202 + SP 800-185 are taken as building blocks.
 - Side-channel attacks on the *physical* hardware running a party
-  (power analysis, EM, fault injection). Mitigation discussed in
-  `BLOCKERS.md` as future work.
+  (power analysis, EM, fault injection). Handled at the deployed-
+  binary layer; the algorithm-correctness chain is independent.
 - Compromise of the BIP-32/BIP-39 mnemonic from which device-specific
   keys are derived. The HD-derivation security argument lives in
   HIP-0077 §"Identity"; the Pulsar layer assumes parties' input keys

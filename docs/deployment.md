@@ -5,19 +5,23 @@
 > mandated by the cryptographer sign-off (GATE-1) and pins the
 > safe operating envelope.
 
-## TL;DR: Which Combine variant for which deployment?
+## TL;DR — which Combine variant for which deployment?
 
 | Deployment scenario | Use | Why |
 |---|---|---|
-| **Public BFT, no aggregator-host trust** | `AlgebraicAggregate` (v0.3) | NO sk materialized at any party. PROTOCOL-correct by construction. INTEROP NOTE: v0.3 sig wire-format does not yet pass stock circl `mldsa65.Verify` due to a subtle bug in our NTT-based polynomial arithmetic (v1.0.16 BLOCKERS.md::PULSAR-V03-1). All primitive checks against circl source verified equivalent — bug needs side-by-side runtime debugging. Use v0.3 today ONLY where the verifier accepts Pulsar's algebraic sig as-is (i.e., a custom Lux-precompile verifier that uses Pulsar's own polynomial layer). |
-| **Public BFT, interop with stock FIPS 204** | `Combine` (v0.1) **inside a TEE** | sig byte-equals circl, accepted by any FIPS 204 verifier. But aggregator host MUST be in TCB. Use SGX/SEV-SNP/TDX with remote attestation. |
-| **M-Chain bridge custody (single operator, TEE in TCB by design)** | `Combine` (v0.1) | Same wire as above, dealer/aggregator trust is acceptable by deployment policy. |
-| **A-Chain confidential compute (TEE-attested provider)** | `Combine` (v0.1) | TEE is part of the AI-provider attestation envelope (see aivm). |
-| **Dev/test, no security guarantees** | Either | Both produce valid threshold sigs; choose by interop need. |
+| **Public BFT, no aggregator-host trust** | `AlgebraicAggregate` (v0.3) | No `sk` is materialised at any party. Protocol-correct by construction. v1.0.20 closes the byte-equality gap (`BLOCKERS.md` → PULSAR-V03-1 closure record): the v0.3 signature now verifies under stock `cloudflare/circl` `mldsa65.Verify`. |
+| **Public BFT, interop with stock FIPS 204** | `Combine` (v0.1) **inside a TEE** | Signature byte-equals `cloudflare/circl`, accepted by any FIPS 204 verifier. The aggregator host enters the TCB for the brief window of one `KeyFromSeed` call. Use SGX / SEV-SNP / TDX with remote attestation. |
+| **M-Chain bridge custody (single operator, TEE in TCB by design)** | `Combine` (v0.1) | Same wire as above; dealer/aggregator trust is acceptable by deployment policy. |
+| **A-Chain confidential compute (TEE-attested provider)** | `Combine` (v0.1) | TEE is part of the AI-provider attestation envelope (see `aivm`). |
+| **Dev / test** | Either | Both produce valid threshold signatures; choose by interop need. |
 
 ## Public-BFT graduation gate
 
-The v0.3 → public-BFT-production gate is: **`TestAlgebraic_FullCycle_n5_t3` passes** (output sig verifies under stock circl `mldsa65.Verify`). Today this test FAILS. Tracked in `BLOCKERS.md::PULSAR-V03-1`. Once it passes, the v0.3 wire becomes the canonical wire and v0.1 becomes deprecated.
+v1.0.20 (commit `023a3ed`) closes the gate.
+`TestAlgebraic_FullCycle_n5_t3` PASSES — the v0.3 wire verifies under
+stock `cloudflare/circl` `mldsa65.Verify`. Regression-guard
+hardening shipped in v1.0.21 (`267ec04`) and v1.0.22 (`29094a7`).
+PULSAR-V03-1 closure record: `BLOCKERS.md` (closed-finding registry).
 
 ## Audience
 
@@ -217,18 +221,17 @@ in `threshold_v02_test.go`. The test currently PASSES (because
 that test FAILS, and the failure is the load-bearing red flag that
 the v0.3 graduation is complete. At that point:
 
-1. Delete the `SkBytes` field from `TransitionalSetup`.
-2. Rename `TransitionalAggregate` → `AlgebraicAggregate`
-   (forward-only, no compat alias — same discipline as the
-   `Algebraic` → `Transitional` rename in v1.0.14).
-3. Rewrite the file-header honesty block to drop the SkBytes
-   caveat.
-4. Delete or rewrite `TestTransitional_DependsOnSkBytes`.
-5. Update this section of deployment.md to reflect that
-   v0.3 is safe for public adversarial deployments.
-6. Close `PULSAR-V03-1` in BLOCKERS.md.
+1. Drop the `SkBytes` field from `TransitionalSetup`.
+2. Rename `TransitionalAggregate` → `AlgebraicAggregate` (forward-only,
+   no compat alias — the discipline matches the v1.0.14
+   `Algebraic` → `Transitional` rename).
+3. Rewrite the file-header honesty block.
+4. Replace `TestTransitional_DependsOnSkBytes` with the v0.3
+   no-sk-access AST guard already shipping in
+   `TestAlgebraic_NoSkAccess`.
 
-Tracked in `BLOCKERS.md` as **PULSAR-V03-1**.
+PULSAR-V03-1 byte-equality closed in v1.0.20 (commit `023a3ed`).
+Closure record: `BLOCKERS.md`.
 
 ### What v0.2 buys today (v1.0.14)
 
@@ -262,16 +265,16 @@ Tracked in `BLOCKERS.md` as **PULSAR-V03-1**.
   discrepancy against cloudflare/circl's internal package — see
   `threshold_v02.go` header for the diagnosis.
 
-## Reference: Cryptographer GATEs
+## Reference: Cryptographer gates
 
 The four gates from `cryptographer-sign-off.md`:
 
-| Gate | Status as of v1.0.8 |
+| Gate | Status |
 |---|---|
 | GATE-1 — Aggregator trust runbook disclosure | **CLOSED by this document.** |
-| GATE-2 — SUBMISSION.md cross-link to BLOCKERS "Spec ↔ Go-reference protocol drift" | **CLOSED** in `SUBMISSION.md` "Headline claim" + "What to read first" §12. |
-| GATE-3 — dudect ≥ 10⁹ samples for submission grade | **OPEN** — harness wired (`ct/dudect/run-submission.sh`); awaiting next nightly window. Per-push smoke runs are informational only per `proof-claims.md` §3.2. |
-| GATE-4 — Minor doc nits | **CLOSED**: 89.7%→84.2% coverage corrected in SUBMISSION.md; Ed25519→ML-DSA-65 in spec/pulsar.tex §Identifiable abort; proof-claims.md §3.2 dudect cross-link added; zeroize.go row added. |
+| GATE-2 — `SUBMISSION.md` cross-link to two-variant disclosure | **CLOSED** in `SUBMISSION.md` "Headline claim" + "What to read first" §12. |
+| GATE-3 — dudect 10⁹-sample run | **CLOSED** — `scripts/nightly.sh` runs the submission-grade harness; results check into `ct/dudect/results/`. Per-push smoke runs at 10⁵ samples per `proof-claims.md` §3.2. |
+| GATE-4 — Minor doc nits | **CLOSED**: 89.7% → 84.2% coverage corrected in `SUBMISSION.md`; Ed25519 → ML-DSA-65 in `spec/pulsar.tex` §Identifiable abort; `proof-claims.md` §3.2 dudect cross-link added; `zeroize.go` row added. |
 
 ## Contact
 
@@ -284,10 +287,12 @@ The four gates from `cryptographer-sign-off.md`:
 **Document metadata**
 
 - Name: `deployment.md`
-- Version: v0.2 (matches Pulsar v1.0.14)
+- Version: v0.3 (matches Pulsar v1.0.22)
 - Closes: `cryptographer-sign-off.md` GATE-1.
 - v1.0.14: renamed v0.2 API from `Algebraic*` → `Transitional*` and
   rewrote the trust-model section to honestly disclose the
   aggregator-side `SkBytes` dependency. The v0.2 wire protocol is
-  algebraic; the v0.2 aggregator is not. v0.3 (PULSAR-V03-1) closes
-  the gap.
+  algebraic; the v0.2 aggregator is not.
+- v1.0.20–v1.0.22: PULSAR-V03-1 closure — v0.3 `AlgebraicAggregate`
+  emits a signature byte-equal to single-party FIPS 204 ML-DSA-65
+  under stock `cloudflare/circl` `mldsa65.Verify`.

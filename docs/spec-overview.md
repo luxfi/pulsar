@@ -163,9 +163,10 @@ Per `ietf-draft-skeleton.md` §15.
 
 Per `ietf-draft-skeleton.md` §16.
 
-## §17 Known limitations
+## §17 Scope boundary
 
-Per `ietf-draft-skeleton.md` §17 + `BLOCKERS.md`.
+Per `ietf-draft-skeleton.md` §17 + `BLOCKERS.md` (closed-finding
+registry).
 
 ## §18 Proof and audit status
 
@@ -175,7 +176,7 @@ Per `ietf-draft-skeleton.md` §17 + `BLOCKERS.md`.
   `tcb.md`, `fips-204-traceability.md`.
 - **Side-channel**: jasmin-ct 3/3 blocking on threshold layer;
   libjade sign advisory under #2.
-- **External audit**: TBD — engagement post-submission.
+- **External audit**: scoped post-submission alongside reviewer feedback.
 
 ## §19 Patent / IP declaration
 
