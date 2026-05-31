@@ -1,10 +1,50 @@
-# `combine_body_compute_sig_spec` byte-walk roadmap
+# Combine-side byte-walk roadmap
 
-## Status
+## Status — current
 
-`combine_body_compute_sig_spec` is the **last remaining
-implementation-refinement axiom** on the combine side (the
-separation axiom became a lemma in `c4148a0`). It states:
+`combine_body_compute_sig_spec` is **no longer an axiom**. It is
+proved as a lemma at
+`proofs/easycrypt/Pulsar_N1_Combine_Refinement.ec:893`,
+composing the per-stage component-level lemmas
+(`combine_body_compute_components_spec`) with the structural pack
+identity (`Pulsar_N1.pack_n1_signature` shared on both extracted
+and centralised sides). The 10-step sub-claim decomposition that
+the original version of this roadmap sketched (S1..S10) has been
+landed implicitly via the v3 → v12 refactor — the per-stage
+axioms named below sit at strictly narrower granularity than the
+original `combine_body_compute_sig_spec`.
+
+The active byte-walk + codec-layout axiom family on the combine
+side (post-v12, all in `Pulsar_N1_Combine_Refinement.ec`):
+
+| Axiom | Line | Category | Replaces |
+|---|---|---|---|
+| `combine_body_mu_input_prefix_spec` | 504 | codec layout (first 2 bytes of FIPS 204 §5.4.1 ExternalMu) | half of v8 `combine_body_mu_input_spec` |
+| `combine_body_mu_input_ctx_bytes_spec` | 517 | codec layout (ctx-bytes slice) | half of v8 `combine_body_mu_input_spec` |
+| `combine_body_mu_input_m_bytes_spec` | 531 | codec layout (M-bytes suffix) | half of v8 `combine_body_mu_input_spec` |
+| `combine_body_matrix_a_spec` | 616 | w-stage sub-axiom (extracted matrix A = `central_matrix_a`) | half of v11 `combine_body_w_spec` |
+| `combine_body_mask_y_spec` | 629 | w-stage sub-axiom (extracted mask y at accepting kappa) | half of v11 `combine_body_w_spec` |
+| `combine_body_z_via_aggregation_spec` | 725 | z-stage structural (extracted z = Lagrange aggregation of partial responses) | structural half of v7 `combine_body_z_spec` |
+| `combine_body_partial_responses_spec` | 745 | z-stage byte-walk (per-party partial responses = `per_party_partial_response`) | byte-walk half of v7 `combine_body_z_spec` |
+| `combine_body_w_low_spec` | 810 | h-stage sub-axiom (extracted w_low = `central_w_low`) | v9 `combine_body_h_spec` (after MakeHint structural split, v10) |
+| `combine_no_reject_on_accepted_honest_layout` | 950 | accepted-path companion: layout + accept event ⇒ status = 0 | new in followup B; pairs with `combine_body_compute_sig_spec` |
+
+Plus the Lean-bridged identity
+`Pulsar_N1.threshold_partial_response_identity` (`Pulsar_N1.ec:789`)
+discharged by
+`Crypto/Threshold_Lagrange.lean::threshold_partial_response_identity` —
+required for the v8 z-stage lemma (composes the two narrow
+z-stage axioms above).
+
+This document is retained for **historical context**: the
+S1..S10 stage map below corresponds to FIPS 204 §6.2 inner-loop
+stages and matches the granularity originally targeted for the
+single bundled axiom. The S-map is still a useful reading guide
+to `combine.ec:3245-3617`.
+
+## Historical: original axiom statement
+
+The pre-v3 shape of the obligation:
 
 ```ec
 axiom combine_body_compute_sig_spec :
@@ -24,22 +64,13 @@ Pulsar_N1.mldsa_sign_op
 ```
 
 i.e., the centralised FIPS 204 ML-DSA-65 signature on the
-Lagrange-reconstructed group secret. Tracked under #4.
+Lagrange-reconstructed group secret. The current shape (now a
+lemma) adds three preconditions — `protocol_consistency`,
+`threshold_protocol_invariants`, `combine_body_compute_status
+mem_pre ptrs = 0` — which thread through the wrapper bridge into
+`pulsar_n1_byte_equality_extracted`.
 
-This document maps each FIPS 204 §6.2 algorithmic stage to:
-1. the corresponding extracted-procedure line(s) in
-   `proofs/easycrypt/extraction/build/combine.ec`,
-2. the EC functional op in `lemmas/MLDSA65_Functional.ec` it must
-   match, and
-3. an intermediate sub-claim that lets a future proof attempt
-   start at any single stage.
-
-The intent: close the axiom **bottom-up**, one sub-claim at a
-time. The first sub-claim (signature packing) is mechanical and
-likely closable in a few days of work; the polynomial-aggregation
-sub-claims are progressively harder.
-
-## Extracted procedure shape
+## Historical: extracted procedure shape
 
 `M.pulsar_combine` lives in `combine.ec:3245-3617`. Its signature:
 
@@ -53,113 +84,110 @@ Returns a status word (`0` for success, non-zero `fail_bits` for
 rejection-condition failures). On success, writes 3293 bytes of
 packed signature at `sig_out_ptr`.
 
-## Stage map
+## Historical: stage map (FIPS 204 §6.2)
 
-| Stage | Extracted lines | Functional op | Sub-claim |
+| Stage | Extracted lines | Functional op | Sub-claim (now landed as a lemma) |
 |---|---|---|---|
-| 1. Read c_tilde from input pointer | `combine.ec:3413-3416` | (identity — c_tilde is wire input) | **(S1)** read_c_tilde(mem, c_tilde_ptr) = full.full_wire.c_tilde_abs |
-| 2. Read t0 from t0 pointer | `combine.ec:3417-3426` | (identity — t0 is wire input from group pk) | **(S2)** read_t0_vec(mem, t0_ptr) = full.full_wire.t0_abs |
-| 3. Read & aggregate Round-2 messages | `combine.ec:3430-3505` | `vec_l_add`, `vec_k_add` | **(S3)** aggregated z, ct0, cs2, w_low equal Lagrange-sum over Round-2 messages = Lagrange-sum over per-party (y_i + c·s1_i), (c·t0_i), (c·s2_i), (w_low_i) |
-| 4. SampleInBall on c_tilde | `combine.ec:3506` (call to `sampleInBall`) | `sample_in_ball` | **(S4)** pc_rsp (NTT-domain c poly) = NTT(sample_in_ball(c_tilde)) |
-| 5. Compute w_prime = w_agg + ct0_agg | `combine.ec:3530-3545` | `vec_k_add` + decompose math | **(S5)** w_prime (mod q) equals the FIPS 204 §6.2 w' = A·z - c·t1·2^d |
-| 6. Decompose w_prime | `combine.ec:3560` (call to `decompose_vec`) | `decompose_vec_k` | **(S6)** (w_low, w_high) = decompose_vec_k(GAMMA2, w_prime) |
-| 7. MakeHint(v0, v1) | `combine.ec:3550` (call to `polyveck_make_hint`) | `vec_k_make_hint` | **(S7)** (hint_weight, hint_0) = vec_k_make_hint(GAMMA2, v0_rsp, v1_rsp) |
-| 8. Rejection checks R1-R4 | `combine.ec:3562-3594` | norm bounds in MLDSA65_Functional | **(S8)** norm_z, norm_w_low, norm_ct0, hint_count all match FIPS 204 §6.2 conditions; r{1..4}_fail = 0 ↔ all conditions met |
-| 9. Pack signature | `combine.ec:3604` (call to `pack_signature`) | `pack_signature` | **(S9)** sig_packed = pack_signature(c_tilde, z_agg, hint_0) on success |
-| 10. Write sig_packed at sig_out_ptr | `combine.ec:3606-3611` | `write_signature_at` (already a definition in layout) | **(S10)** Combine_Layout.read_signature_at (memory after the write loop) sig_out_ptr = decode_signature(sig_packed). |
+| 1. Read c_tilde from input pointer | `combine.ec:3413-3416` | (identity — c_tilde is wire input) | folded into `layout_combine_args` |
+| 2. Read t0 from t0 pointer | `combine.ec:3417-3426` | (identity — t0 is wire input from group pk) | folded into `layout_combine_args` |
+| 3. Read & aggregate Round-2 messages | `combine.ec:3430-3505` | `vec_l_add`, `vec_k_add` | `combine_body_z_via_aggregation_spec` + `combine_body_partial_responses_spec` + `threshold_partial_response_identity` ⇒ `combine_body_z_spec` (lemma) |
+| 4. SampleInBall on c_tilde | `combine.ec:3506` | `sample_in_ball` | folded into the structural `central_c_from_c_tilde` op shared by both sides |
+| 5. Compute w_prime = w_agg + ct0_agg | `combine.ec:3530-3545` | `vec_k_add` + decompose math | `combine_body_matrix_a_spec` + `combine_body_mask_y_spec` ⇒ `combine_body_w_spec` (lemma) |
+| 6. Decompose w_prime | `combine.ec:3560` | `decompose_vec_k` | factored through structural `high_bits_of_w` ⇒ `combine_body_w1_spec` (lemma) |
+| 7. MakeHint(v0, v1) | `combine.ec:3550` | `vec_k_make_hint` | `combine_body_w_spec` + `combine_body_w_low_spec` ⇒ `combine_body_h_spec` (lemma) via structural `make_hint_of_w` |
+| 8. Rejection checks R1-R4 | `combine.ec:3562-3594` | norm bounds | `combine_no_reject_on_accepted_honest_layout` (axiom) — conditioned on the protocol-level accept event |
+| 9. Pack signature | `combine.ec:3604` | `pack_signature` | folded into structural `pack_n1_signature` shared by both sides + `pack_unpack_n1_signature_roundtrip` (axiom in `Pulsar_N1.ec:817`) |
+| 10. Write sig_packed at sig_out_ptr | `combine.ec:3606-3611` | `write_signature_at` | proved in `Pulsar_N1_Combine_Layout.ec` |
 
-## How the sub-claims compose
+## Composition
+
+The lemma chain that closes `combine_body_compute_sig_spec`:
 
 ```
-S1 ∧ S2 ∧ S3 ∧ S4 ∧ S5 ∧ S6 ∧ S7 ∧ S8 ∧ S9 ∧ S10
-       ⇒ combine_body_compute_sig_spec
+combine_body_mu_input_{prefix,ctx_bytes,m_bytes}_spec
+  ⇒ combine_body_mu_input_spec
+  ⇒ combine_body_mu_spec                                (via shake256_to_mu)
+combine_body_{matrix_a,mask_y}_spec
+  ⇒ combine_body_w_spec                                 (via central_w)
+  ⇒ combine_body_w1_spec                                (via high_bits_of_w)
+combine_body_mu_spec ∧ combine_body_w1_spec
+  ⇒ combine_body_c_tilde_spec                           (via shake_mu_w1)
+combine_body_z_via_aggregation_spec
+  ∧ combine_body_partial_responses_spec
+  ∧ threshold_partial_response_identity                 (Lean bridge)
+  ⇒ combine_body_z_spec
+combine_body_w_spec ∧ combine_body_w_low_spec
+  ⇒ combine_body_h_spec                                 (via make_hint_of_w)
+combine_body_c_tilde_spec ∧ combine_body_z_spec ∧ combine_body_h_spec
+  ⇒ combine_body_compute_components_spec
+combine_body_compute_components_spec
+  ⇒ combine_body_compute_sig_spec                       (via pack_n1_signature congruence)
 ```
 
-Specifically:
-* S1, S2 give the byte-level inputs match the abstract wire args.
-* S3 gives the aggregated polynomial values match the Lagrange-
-  reconstructed FIPS 204 z, w, etc.
-* S4-S7 give each FIPS 204 sub-computation matches its functional
-  spec.
-* S8 gives the rejection branch matches FIPS 204 §6.2 R1-R4.
-* S9 gives the signature byte-pack matches FIPS 204 §3.5.5.
-* S10 gives the memory write places those bytes at sig_out_ptr.
+The composition is fully landed in `Pulsar_N1_Combine_Refinement.ec`
+through versions v3 → v12. See the per-version delta in the
+ACCOUNTING block at the end of that file.
 
-The "reconstruct under Lagrange equals FIPS 204 single-party
-sign" identity (the load-bearing algebraic step inside S3) is
-already proved on the Lean side as
-`Crypto.Threshold.Lagrange.threshold_partial_response_identity`
-(`lean/Crypto/Threshold_Lagrange.lean:121`) and bridged into EC
-via `Pulsar_N4.reconstruct_linear` + `Pulsar_N4.shamir_correct`
-(see `lean-easycrypt-bridge.md`).
+## Concrete attack surface (post-v12)
 
-## Suggested attack order
+What remains to mechanically close on the combine side, in
+suggested attack order:
 
-1. **S10 first** (signature memory write). This is the easiest:
-   the extracted code is a single-byte storeW8 loop bounded by
-   the signature length constant. The proof is induction on the
-   loop counter showing every byte of `sig_packed` ends up at
-   `sig_out_ptr + i`. The supporting layout lemmas
-   (`write_signature_at`, `store_bytes_load_bytes`) already
-   exist in `Pulsar_N1_Combine_Layout.ec`. Estimated: 1-2 days.
-
-2. **S9 second** (pack_signature). The extracted `pack_signature`
-   procedure (`combine.ec:2243`) lays out c_tilde, z, h
-   contiguously. The functional spec
-   `MLDSA65_Functional.pack_signature` is the matching abstract
-   op. The proof is structural induction on the three pack stages.
-   Estimated: 3-5 days.
-
-3. **S1, S2** (input echoes). Mechanical — direct corollary of
-   the `Pulsar_N1_Combine_Layout` layout lemmas. Estimated:
-   1 day combined.
-
-4. **S4, S6, S7** (SampleInBall, Decompose, MakeHint). Each is a
-   small extracted procedure with a clean functional spec. The
-   hard part is connecting BArray byte-vector views to R_q
-   polynomial views — needs a "BArray ↔ R_q decode" relational
-   lemma per type. Estimated: 1-2 weeks combined.
-
-5. **S8** (rejection checks). Each check is a polyvec norm
-   comparison; the functional spec is a `≤` on `inf_norm_vec_*`.
-   Translating the byte-level comparison to the functional
-   inequality requires the BArray ↔ R_q decode bridge from step
-   4. Estimated: 3-5 days.
-
-6. **S5** (w_prime computation). This is the hardest stage. The
-   extracted code is a sequence of `vec_k_add` / `vec_k_sub` /
-   matrix-vector products via NTT; the proof needs the NTT-domain
-   ↔ standard-domain equivalence, which Mathlib does not have
-   off-the-shelf. Estimated: 2-3 weeks.
-
-7. **S3** (Lagrange aggregation across Round-2 messages). The
-   trickiest part — it's the protocol-level identity that
-   threshold Round-2 messages, when Lagrange-combined, equal the
-   centralized FIPS 204 z. The bridge to Lean's
-   `threshold_partial_response_identity` is the right path; the
-   EC-side proof composes S3 with `reconstruct_linear` +
-   `shamir_correct`. Estimated: 1 week (assuming the bridge
-   theorem is already pinned).
-
-**Total honest estimate**: 6-9 weeks of focused EC work.
+1. **`combine_body_mu_input_{prefix,ctx_bytes,m_bytes}_spec`**
+   (codec). Strictly narrower than v8 `combine_body_mu_input_spec`;
+   each per-range claim is about a fixed-length byte slice of the
+   protocol-witness ExternalMu buffer. The combine side cannot
+   collapse to `load_bytes` because `combine_ptrs_t` has no
+   `m_ptr` / `ctx_ptr` (combine reads c_tilde, not mu). Per-range
+   shape lets the proof attempt start at the prefix (2 bytes, the
+   easiest) and proceed slice by slice.
+2. **`combine_body_partial_responses_spec`** (z-stage byte-walk).
+   Per-party partial-response extraction from Round-2 messages.
+   Mechanical: the extracted body's read of `round2_msgs_ptr +
+   i·response_bytes` lays out one party's partial response per
+   wire-encoded message. The functional op
+   `Pulsar_N1.per_party_partial_response` defines the same shape.
+3. **`combine_body_z_via_aggregation_spec`** (z-stage structural).
+   That the extracted body computes z as a Lagrange aggregation
+   of the per-party partial responses over the quorum. The
+   `combine.ec` body's loop reduces to `vec_l_add` over the
+   per-party z components — structural identity through
+   `Pulsar_N1.lagrange_aggregate_responses`.
+4. **`combine_body_w_low_spec`** (h-stage sub-axiom). Low-bits
+   side of the decompose at the accepting kappa. The matching
+   axiom on the sign side (`sign_body_w_low_spec`) is a direct
+   mirror. Shared proof effort.
+5. **`combine_body_{matrix_a,mask_y}_spec`** (w-stage). Each is
+   one extracted procedure (`combine_body_compute_matrix_a` /
+   `combine_body_compute_mask_y`) reducing through the libjade
+   `expand_a` / `expand_mask` functional ops. The hard part is
+   bridging the BArray byte-vector view to the R_q polynomial
+   view — needs a relational lemma per type.
+6. **`combine_no_reject_on_accepted_honest_layout`** (companion).
+   Conditional status-bit claim: layout-conforming inputs +
+   `accept_signing_attempt` ⇒ `combine_body_compute_status = 0`.
+   Deterministic given the accept-path precondition; the
+   probability bound `Pulsar_N1.mldsa_accept_lower_bound` is
+   tracked operationally rather than via probabilistic Hoare
+   logic.
 
 ## What this roadmap does NOT do
 
-It does not produce any actual closure — `combine_body_compute_sig_spec`
-remains an axiom in this commit. The value is:
-
-* Every sub-step is named, located, and individually attackable.
-* A future closure attempt starts at the smallest tractable
-  piece (S10) and works upward.
-* The integration story between the byte-walk and the Lean-
-  bridged algebraic identities is explicit.
+It does not produce mechanical closure of any of the axioms
+above. The historical S-map (S1..S10) is now landed implicitly
+via the per-stage axiom family; the residual obligations sit at
+the narrower granularity in the table above. Each axiom is
+independently attackable; the suggested order moves from the
+most mechanical (codec slices) to the most algebraic
+(`matrix_a` / `mask_y`).
 
 ## Cross-references
 
-* The wider trust accounting: `proofs/easycrypt/Pulsar_N1_Extracted.ec`
-  (composition theorem) and the per-file `ACCOUNTING` blocks at the
-  end of each refinement / wrapper / layout file. See
-  `proofs/easycrypt/README.md` for the per-file dashboard.
-* Algebraic bridge: `proofs/lean-easycrypt-bridge.md`.
-* Sign-side counterpart: `proofs/easycrypt/extraction/sign-byte-walk-roadmap.md`.
-* Linear-issue tracker: #4.
+- `Pulsar_N1_Combine_Refinement.ec:1100-1412` — the per-file
+  ACCOUNTING block (per-version axiom delta v1 → v12)
+- `Pulsar_N1_Extracted.ec:34-92` — authoritative trust-boundary
+  accounting
+- `../README.md` — current axiom enumeration with file:line refs
+- `../../lean-easycrypt-bridge.md` — Lean↔EC bridge correspondence
+- `sign-byte-walk-roadmap.md` — sign-side counterpart
+- Linear issue tracker: #4

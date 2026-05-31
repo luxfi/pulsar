@@ -10,51 +10,98 @@ theories are imported from `../../jasmin/ml-dsa-65/libjade/`
 
 ## Headline
 
-The high-assurance stack is now structurally ready for final
+The high-assurance stack is structurally ready for final
 mechanized closure. All local EasyCrypt theorem bodies are
 admit-free, per-push gates are green, threshold Jasmin CT is
 blocking, fuzz / KAT / interop / dudect gates are wired at
 documented budgets, and the extracted N1 theorem has no
-section-local module-contract axioms. The only remaining
-implementation-refinement assumptions are **two localized
-byte-walk axioms** over pure signature output, each with a
-committed proof roadmap. The Lean↔EC algebraic bridge is named,
-cited, and CI-guarded.
+section-local module-contract axioms in scope. The remaining
+trust is split into narrow per-stage byte-walks, per-range
+codec-layout axioms, two no-reject companions, one codec
+round-trip, and the Lean↔EC algebraic bridge.
 
-The next proof-count milestone is `combine_body_compute_sig_spec`:
-closing it reduces the implementation-refinement cone from 2 to 1.
+The composition theorem `combine_body_compute_sig_spec` (combine)
+and `sign_body_compute_sig_spec` (sign) are themselves
+**proved lemmas** (`Pulsar_N1_Combine_Refinement.ec:893`,
+`Pulsar_N1_Sign_Refinement.ec:776`); the earlier per-side
+headline "one byte-walk axiom per side" no longer holds. Both
+have been decomposed into the narrower stage-level family below
+through versions v4 (per-stage) → v12 (matrix_a + mask_y).
 
 ## Status — current trust boundary
 
 | Item | Count |
 |---|---|
 | Section-local module-contract axioms in extracted N1 corollary | **0** |
-| Localized implementation-refinement axioms in dependency cone | **2** |
-| Lean-bridged algebraic axioms (Lagrange/Shamir) | **4** |
+| Implementation-refinement axioms in dependency cone (combine + sign + Pulsar_N1 codec) | **17** |
+| Lean-bridged algebraic axioms (Lagrange / Shamir / linearity / threshold partial response) | **5** |
 | EasyCrypt `admit` budget | **0 / 0** |
 | EC files in the per-push gate | **13** |
 | `declare axiom` in refinement scaffolds | **0** |
 
-The 2 remaining implementation-refinement axioms are byte-walks
-over the pure signature output of the extracted Jasmin
-procedures:
+Authoritative source: the accounting block at
+`Pulsar_N1_Extracted.ec:34-92` and the per-file accounting
+blocks at the end of each `*_Refinement.ec`.
 
-- `Pulsar_N1_Combine_Refinement.combine_body_compute_sig_spec`
-  (tracked #4; roadmap in
-  `extraction/combine-byte-walk-roadmap.md`)
-- `Pulsar_N1_Sign_Refinement.sign_body_compute_sig_spec`
-  (tracked #3; roadmap in `extraction/sign-byte-walk-roadmap.md`;
-  ghost contract for ctx/rho_rnd documented in the named block
-  inside `Pulsar_N1_Sign_Refinement.ec`)
+### Implementation-refinement axioms — combine side
 
-The 4 Lean-bridged axioms are the Shamir / Lagrange algebraic
-identities that EasyCrypt's first-order theory does not natively
-cover. Each corresponds 1:1 to a proved Lean theorem in
-`~/work/lux/proofs/lean/Crypto/`; the correspondence is named
-inline (see comments preceding the axioms in `Pulsar_N1.ec` and
-`Pulsar_N4.ec`) and operationally guarded by
-`../../scripts/check-lean-bridge.sh`. See
-`../lean-easycrypt-bridge.md` for the full correspondence table.
+`Pulsar_N1_Combine_Refinement.ec`:
+
+| Axiom | Line | Category |
+|---|---|---|
+| `combine_body_mu_input_prefix_spec` | 504 | codec layout (FIPS 204 §5.4.1 prefix bytes) |
+| `combine_body_mu_input_ctx_bytes_spec` | 517 | codec layout (ctx-bytes slice) |
+| `combine_body_mu_input_m_bytes_spec` | 531 | codec layout (M-bytes suffix) |
+| `combine_body_matrix_a_spec` | 616 | w-stage sub-axiom (matrix A) |
+| `combine_body_mask_y_spec` | 629 | w-stage sub-axiom (mask y at accepting kappa) |
+| `combine_body_z_via_aggregation_spec` | 725 | z-stage structural (Lagrange aggregation shape) |
+| `combine_body_partial_responses_spec` | 745 | z-stage byte-walk (per-party PR extraction) |
+| `combine_body_w_low_spec` | 810 | h-stage sub-axiom (w_low decompose output) |
+| `combine_no_reject_on_accepted_honest_layout` | 950 | accepted-path status = 0 companion |
+
+### Implementation-refinement axioms — sign side
+
+`Pulsar_N1_Sign_Refinement.ec`:
+
+| Axiom | Line | Category |
+|---|---|---|
+| `sign_layout_m_buffer_external_mu` | 510 | wrapper byte-layout (load_bytes ↔ external_mu) |
+| `sign_body_matrix_a_spec` | 560 | w-stage sub-axiom (matrix A) |
+| `sign_body_mask_y_spec` | 570 | w-stage sub-axiom (mask y at accepting kappa) |
+| `sign_body_y_spec` | 649 | z-stage sub-axiom (central y at accepting kappa) |
+| `sign_body_cs1_spec` | 662 | z-stage sub-axiom (c · s1 mixed product) |
+| `sign_body_w_low_spec` | 704 | h-stage sub-axiom (w_low decompose output) |
+| `sign_no_reject_on_accepted_honest_layout` | 826 | accepted-path status = 0 companion |
+
+### Implementation-refinement axiom — Pulsar_N1 codec round-trip
+
+`Pulsar_N1.ec`:
+
+| Axiom | Line | Category |
+|---|---|---|
+| `pack_unpack_n1_signature_roundtrip` | 817 | FIPS 204 §3.5.5 packed-signature codec round-trip |
+
+### Lean-bridged algebraic axioms
+
+Each axiom below is stated in EasyCrypt and discharged by a
+proved Lean theorem in `~/work/lux/proofs/lean/Crypto/`. The
+correspondence is pinned in `../lean-easycrypt-bridge.md` and
+operationally guarded by `../../scripts/check-lean-bridge.sh`.
+
+| EC axiom | EC file:line | Lean theorem |
+|---|---|---|
+| `lagrange_inverse_eval` | `Pulsar_N1.ec:339` | `Crypto/Pulsar/Shamir.lean::shamir_correct_at_target` |
+| `add_share_zeroR` | `Pulsar_N4.ec:155` | structural (Mathlib `AddCommMonoid`) |
+| `reconstruct_linear` | `Pulsar_N4.ec:162` | `Crypto/Threshold_Lagrange.lean::combine_distributes_over_sum` |
+| `shamir_correct` | `Pulsar_N4.ec:176` | `Crypto/Pulsar/Shamir.lean::shamir_correct_at_target` (different specialization) |
+| `threshold_partial_response_identity` | `Pulsar_N1.ec:789` | `Crypto/Threshold_Lagrange.lean::threshold_partial_response_identity` |
+
+The composite-stage axioms `*_body_{c_tilde,mu_input,mu,w,w1,z,h}_spec`,
+`combine_body_compute_components_spec`, `combine_body_compute_sig_spec`,
+`combine_body_spec`, `combine_body_separation` (and the sign-side
+mirrors) are **derived lemmas** in the current source — see each
+file's accounting block for the version where the decomposition
+landed (v3 → v12).
 
 Strict closure is not reached. Every other obligation —
 module contracts, wrapper bridges, memory-frame separations,
@@ -74,8 +121,8 @@ graph is acyclic and explicit):
 | `Pulsar_N1_Signature_Codec.ec` | FIPS 204 §3.5.5 signature codec: `signature_t`, encode/decode/length, memory read/write + proved frame lemmas |
 | `Pulsar_N1_Combine_Layout.ec` | Combine ABI: c_tilde / t0 / r2_msg wire types + encoders, `combine_ptrs_t`, `layout_combine_args`, proved `encode_combine_args_layout` |
 | `Pulsar_N1_Sign_Layout.ec` | libjade Sign ABI: sk + message wire types + encoders, `sign_ptrs_t`, `layout_sign_args`, proved `encode_sign_args_layout` |
-| `Pulsar_N1_Combine_Refinement.ec` | Combine refinement scaffold: `combine_full_args_t` ghost args, `combine_abs_op` definition, the one remaining byte-walk axiom (combine_body_compute_sig_spec), derived lemmas |
-| `Pulsar_N1_Sign_Refinement.ec` | Sign refinement scaffold: `sign_full_args_t` (ghost ctx/rho_rnd contract block), `sign_abs_op` definition, the one remaining byte-walk axiom, derived lemmas |
+| `Pulsar_N1_Combine_Refinement.ec` | Combine refinement scaffold: `combine_full_args_t` ghost args, `combine_abs_op` definition, the narrow byte-walk + codec-layout axiom family enumerated above, derived `combine_body_{c_tilde,mu_input,mu,w,w1,z,h,compute_components,compute_sig,spec,separation}` lemmas |
+| `Pulsar_N1_Sign_Refinement.ec` | Sign refinement scaffold: `sign_full_args_t` (ghost ctx/rho_rnd contract block), `sign_abs_op` definition, the narrow byte-walk + codec-layout axiom family enumerated above, derived `sign_body_{c_tilde,mu_input,mu,w,w1,z,h,compute_components,compute_sig,spec,separation}` lemmas |
 | `Pulsar_N1_Combine_Wrapper.ec` | Combine wrapper module + bridge lemma + procedure-level equiv against `CombineAbs` |
 | `Pulsar_N1_Sign_Wrapper.ec` | Sign wrapper module + bridge lemma + procedure-level equiv against `FIPS204Sign` |
 | `Pulsar_N1_Extracted.ec` | Composition: the concrete extracted N1 byte-equality corollary (applies `Pulsar_N1.pulsar_n1_byte_equality` with the two wrapper-bridge equivs) |
@@ -160,9 +207,13 @@ bash ../../scripts/check-lean-bridge.sh
 
 - `../lean-easycrypt-bridge.md` — Lean↔EC axiom correspondence
   table
-- `extraction/combine-byte-walk-roadmap.md` — combine byte-walk
-  sub-step decomposition (10 sub-claims)
-- `extraction/sign-byte-walk-roadmap.md` — sign byte-walk
-  sub-step decomposition (7 sub-claims)
+- `extraction/combine-byte-walk-roadmap.md` — historical
+  combine-side sub-step decomposition (the original
+  `combine_body_compute_sig_spec` axiom; closed at
+  `Pulsar_N1_Combine_Refinement.ec:893`)
+- `extraction/sign-byte-walk-roadmap.md` — historical sign-side
+  sub-step decomposition (the original
+  `sign_body_compute_sig_spec` axiom; closed at
+  `Pulsar_N1_Sign_Refinement.ec:776`)
 - `../../ct/jasmin-ct-libjade.md` — libjade jasmin-ct issue
   write-up (tracked #2)
