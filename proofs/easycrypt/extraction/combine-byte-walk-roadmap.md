@@ -27,7 +27,7 @@ side (post-v12, all in `Pulsar_N1_Combine_Refinement.ec`):
 | `combine_body_z_via_aggregation_spec` | 725 | z-stage structural (extracted z = Lagrange aggregation of partial responses) | structural half of v7 `combine_body_z_spec` |
 | `combine_body_partial_responses_spec` | 745 | z-stage byte-walk (per-party partial responses = `per_party_partial_response`) | byte-walk half of v7 `combine_body_z_spec` |
 | `combine_body_w_low_spec` | 810 | h-stage sub-axiom (extracted w_low = `central_w_low`) | v9 `combine_body_h_spec` (after MakeHint structural split, v10) |
-| `combine_no_reject_on_accepted_honest_layout` | 950 | accepted-path companion: layout + accept event ⇒ status = 0 | new in followup B; pairs with `combine_body_compute_sig_spec` |
+| `combine_no_reject_on_accepted_honest_layout` | 950 | accepted-path companion: layout + accept event ⇒ status = 0 | landed in the v10 no-reject decomposition; pairs with `combine_body_compute_sig_spec` |
 
 Plus the Lean-bridged identity
 `Pulsar_N1.threshold_partial_response_identity` (`Pulsar_N1.ec:789`)

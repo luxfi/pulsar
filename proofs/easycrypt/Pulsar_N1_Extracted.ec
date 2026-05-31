@@ -31,64 +31,62 @@ require import Pulsar_N1.
 (* ===================================================================
    The concrete extracted N1 byte-equality corollary.
 
-   Trust boundary of this corollary (v7):
-     - 3 stage-level byte-walk axioms in the refinement files
-       (combine z-stage moved to Lean bridge in v8):
-         combine_body_h_spec  (MakeHint stage      — roadmap S7)
-         sign_body_z_spec, sign_body_h_spec
-     - 2 narrow combine z-stage axioms (v8):
+   Trust boundary of this corollary — 22 named axioms total
+   (17 narrow implementation-refinement + 5 Lean-bridged algebraic),
+   each with file:line. Authoritative enumeration:
+   docs/proof-axiom-inventory.md.
+
+   Implementation-refinement axioms (17):
+     - 1 stage-level byte-walk
+         sign_body_z_spec
+       The h-stage on both sides and the combine z-stage are
+       derived lemmas through `make_hint_of_w` and the Lean
+       Lagrange bridge respectively.
+     - 2 combine z-stage extraction sub-axioms (v8)
          combine_body_z_via_aggregation_spec  (structural shape)
          combine_body_partial_responses_spec  (per-party byte-walk)
-     - 2 c_tilde-stage sub-axioms (NARROW, w only — w1 sub-stage
-       decomposed in v7 via HighBits structural split):
-         combine_body_w_spec, sign_body_w_spec
-       The w-stage axioms constrain the polynomial vector w BEFORE
-       HighBits/decompose. Compose with the structural
-       `high_bits_of_w` op (shared on both sides) to derive
-       `*_body_w1_spec` lemmas, then with the derived `*_body_mu_spec`
-       lemmas (v6) under the structural `shake_mu_w1` composition
-       (v5) to derive `*_body_c_tilde_spec` lemmas.
-     - 2 FIPS 204 §5.4.1 ExternalMu byte-layout axioms (v6, NARROW;
-       classified under codec layouts, not byte-walks):
-         combine_body_mu_input_spec, sign_body_mu_input_spec
-       Each asserts the extracted SHAKE-input buffer matches the
-       FIPS 204 byte layout for (m, ctx) — pure byte-layout claim,
-       no SHAKE semantics. Compose via the structural
-       `shake256_to_mu` op to give the derived `*_body_mu_spec`
-       lemmas.
+     - 4 w-stage matrix_a / mask_y sub-axioms (v12)
+         {combine,sign}_body_matrix_a_spec
+         {combine,sign}_body_mask_y_spec
+       `*_body_w_spec` are derived lemmas through `central_w`.
+     - 2 w_low sub-axioms (h-stage; v10)
+         {combine,sign}_body_w_low_spec
+       `*_body_h_spec` are derived lemmas through `make_hint_of_w`.
+     - 4 FIPS 204 §5.4.1 ExternalMu codec-layout axioms (v9)
+         combine: 3 per-range sub-axioms over the protocol-witness
+           buffer (`combine_body_mu_input_{prefix,ctx_bytes,m_bytes}_spec`)
+         sign:    1 collapsed `sign_layout_m_buffer_external_mu`
+                  (sign owns m_ptr / ctx_ptr in its layout)
+       `*_body_mu_spec` are derived through `shake256_to_mu`.
      - 1 codec roundtrip axiom in Pulsar_N1
          pack_unpack_n1_signature_roundtrip
-       Slots into the FIPS 204 codec round-trip category.
        Pack-injectivity is a derived lemma
-       (pack_n1_signature_injective), not an axiom.
+       (pack_n1_signature_injective).
+     - 2 honest-execution no-reject post-conditions
+         {combine,sign}_no_reject_on_accepted_honest_layout
+       Each conditions `status = 0` on the protocol-level
+       `accept_signing_attempt` predicate; the kappa-loop
+       probability bound `mldsa_accept_lower_bound` tracks the
+       acceptance probability operationally per FIPS 204.
+
+   Lean-bridged algebraic axioms (5):
+     lagrange_inverse_eval, reconstruct_linear, shamir_correct,
+     add_share_zeroR, threshold_partial_response_identity.
+     See proofs/lean-easycrypt-bridge.md; CI guard
+     scripts/check-lean-bridge.sh.
+
+   Trust footprint structurally outside the corollary cone:
      - 0 ABI bridge identity axioms in either wrapper file
        (both wrapper bridges are lemmas).
-     - 0 module-contract axioms in scope here
-       (combine_body_axiom / S_functional_spec are
-        section-local inside Pulsar_N1; this corollary
-        does NOT depend on them, instead using the
-        wrapper-bridge equivs which are real lemmas).
-     - 5 Lean-bridged algebraic axioms (Lagrange/Shamir +
-       threshold_partial_response_identity (v8);
-       see proofs/lean-easycrypt-bridge.md).
-
-   Headline trust footprint:
-     Was (v4): 6 stage-level byte-walks
-     Was (v5): 4 stage-level + 4 c_tilde dep sub-stage (mu + w1)
-     Was (v6): 4 stage-level + 2 c_tilde dep sub-stage (w1)
-             + 2 codec layout (mu_input)
-     Was (v7): 4 stage-level + 2 c_tilde dep sub-stage (w)
-             + 2 codec layout
-     Now (v8): 3 stage-level (sign z + combine/sign h)
-             + 2 combine z extraction (v8 — aggregation shape + PR)
-             + 2 c_tilde dep sub-stage (w only)
-             + 2 codec layout (mu_input)
-             + 5 Lean-bridged algebraic (+1 in v8)
-     Continued axiom decomposition. `combine_body_z_spec` (v8),
-     `*_body_w1_spec` (v7), `*_body_mu_spec` (v6), and
-     `*_body_c_tilde_spec` (v5) are all derived lemmas now. The
-     remaining axioms are narrower than what they replaced but
-     remain axiomatic (NOT full mechanized closure).
+     - 0 module-contract axioms (combine_body_axiom /
+       S_functional_spec are section-local inside Pulsar_N1;
+       this corollary instantiates the generic theorem with the
+       concrete wrapper modules + bridge lemmas, NOT via the
+       section's declare-axiom hypotheses).
+     - ~21 per-type FIPS 204 codec round-trips across
+       Pulsar_N1_Sign_Layout / Pulsar_N1_Combine_Layout /
+       Pulsar_N1_Signature_Codec / Pulsar_N1 — encode/decode
+       pairs with wf_* well-formedness predicates.
    =================================================================== *)
 
 lemma pulsar_n1_byte_equality_extracted :
