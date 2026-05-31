@@ -54,8 +54,6 @@ type poly [mldsaN]uint32
 // each parameter set. Sized via slices since K and L vary by mode.
 type polyVec []poly
 
-func newPolyVec(n int) polyVec { return make(polyVec, n) }
-
 // reduceLe2Q computes y < 2q with y ≡ x (mod q).
 //
 // Identical to circl's ReduceLe2Q. Constant-time (no data-dependent
@@ -519,21 +517,6 @@ func polyPackLeGamma1(p *poly, buf []byte, gamma1Bits uint32) {
 	}
 }
 
-// polyDeriveUniformLeGamma1 samples p with coefficients uniformly in
-// (-γ₁, γ₁] using SHAKE-256(seed || nonce).
-func polyDeriveUniformLeGamma1(p *poly, seed *[64]byte, nonce uint16, gamma1Bits uint32) {
-	bufSize := (gamma1Bits + 1) * mldsaN / 8
-	var iv [66]byte
-	copy(iv[:64], seed[:])
-	iv[64] = byte(nonce)
-	iv[65] = byte(nonce >> 8)
-	h := sha3.NewShake256()
-	_, _ = h.Write(iv[:])
-	buf := make([]byte, bufSize)
-	_, _ = h.Read(buf)
-	polyUnpackLeGamma1(p, buf, gamma1Bits)
-}
-
 // polyDeriveUniformBall samples p with τ non-zero coefficients in {-1, +1}
 // using SHAKE-256(seed). Implementation follows FIPS 204 SampleInBall.
 func polyDeriveUniformBall(p *poly, seed []byte, tau int) {
@@ -616,27 +599,6 @@ func polyPackT0(p *poly, buf []byte) {
 	}
 }
 
-// polyUnpackT0 unpacks 13-bit-per-coefficient buf into p (coefficients
-// in [q-2^(D-1)+1, q+2^(D-1)] i.e. un-normalised centred-rep).
-func polyUnpackT0(p *poly, buf []byte) {
-	const halfD = uint32(1) << (mldsaD - 1)
-	for i := 0; i < mldsaN/8; i++ {
-		p[8*i+0] = uint32(buf[13*i+0]) | (uint32(buf[13*i+1]&0x1f) << 8)
-		p[8*i+1] = (uint32(buf[13*i+1]) >> 5) | (uint32(buf[13*i+2]) << 3) | (uint32(buf[13*i+3]&0x3) << 11)
-		p[8*i+2] = (uint32(buf[13*i+3]) >> 2) | (uint32(buf[13*i+4]&0x7f) << 6)
-		p[8*i+3] = (uint32(buf[13*i+4]) >> 7) | (uint32(buf[13*i+5]) << 1) | (uint32(buf[13*i+6]&0xf) << 9)
-		p[8*i+4] = (uint32(buf[13*i+6]) >> 4) | (uint32(buf[13*i+7]) << 4) | (uint32(buf[13*i+8]&0x1) << 12)
-		p[8*i+5] = (uint32(buf[13*i+8]) >> 1) | (uint32(buf[13*i+9]&0x3f) << 7)
-		p[8*i+6] = (uint32(buf[13*i+9]) >> 6) | (uint32(buf[13*i+10]) << 2) | (uint32(buf[13*i+11]&0x7) << 10)
-		p[8*i+7] = (uint32(buf[13*i+11]) >> 3) | (uint32(buf[13*i+12]) << 5)
-		for j := 0; j < 8; j++ {
-			// Convert to un-normalised (q - centred-rep): coefficients
-			// in [q - 2^(D-1) + 1, q + 2^(D-1)].
-			p[8*i+j] = mldsaQ + halfD - p[8*i+j]
-		}
-	}
-}
-
 // polyPackW1 packs the high-bits polynomial p into buf for the
 // challenge hash. The packing width depends on γ₂.
 //
@@ -654,16 +616,6 @@ func polyPackW1(p *poly, buf []byte, gamma2 uint32) {
 			buf[3*i+2] = byte(p[4*i+2]>>4) | byte(p[4*i+3]<<2)
 		}
 	}
-}
-
-// polyVecMakeHint computes the hint vector for w0+ct0 (= flag) against
-// w1. Returns popcount of the hint.
-func polyVecMakeHint(hint, p0, p1 polyVec, gamma2 uint32) uint32 {
-	var pop uint32
-	for i := range hint {
-		pop += hint[i].makeHint(&p0[i], &p1[i], gamma2)
-	}
-	return pop
 }
 
 // polyVecPackHint packs the K-vector hint into buf of length omega+K.

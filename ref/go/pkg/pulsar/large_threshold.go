@@ -136,7 +136,7 @@ func (s *LargeThresholdSigner) Round1(message []byte) (*LargeRound1Message, erro
 	for i := 0; i < shareWireSizeQ; i++ {
 		s.myMaskedShare[i] = s.SecretShare.Share[i] ^ s.myMask[i]
 	}
-	tau := s.transcriptTau1()
+	tau := transcriptTau1Bytes(s.SessionID, s.Attempt, s.Quorum, s.NodeID, s.SecretShare.Pub, s.Message)
 	commitInput := append(append([]byte{}, s.myMask[:]...), s.myMaskedShare[:]...)
 	commitInput = append(commitInput, tau...)
 	s.myCommit = transcriptHash32(tagSignR1, commitInput)
@@ -179,7 +179,7 @@ func (s *LargeThresholdSigner) Round2(round1Msgs []*LargeRound1Message) (*LargeR
 			continue
 		}
 		key := s.MACKeys[m.NodeID]
-		tau := s.transcriptTau1ForSender(m.NodeID)
+		tau := transcriptTau1Bytes(s.SessionID, s.Attempt, s.Quorum, m.NodeID, s.SecretShare.Pub, s.Message)
 		macInput := append(append([]byte{}, m.Commit[:]...), tau...)
 		expectedMAC := kmac256(key[:], macInput, 32, tagSignR1MAC)
 		gotMAC, ok := m.MACs[s.NodeID]
@@ -334,10 +334,3 @@ func LargeCombine(params *Params, groupPubkey *PublicKey, message []byte, ctx []
 	return &Signature{Mode: params.Mode, Bytes: sigBytes}, nil
 }
 
-func (s *LargeThresholdSigner) transcriptTau1() []byte {
-	return transcriptTau1Bytes(s.SessionID, s.Attempt, s.Quorum, s.NodeID, s.SecretShare.Pub, s.Message)
-}
-
-func (s *LargeThresholdSigner) transcriptTau1ForSender(sender NodeID) []byte {
-	return transcriptTau1Bytes(s.SessionID, s.Attempt, s.Quorum, sender, s.SecretShare.Pub, s.Message)
-}
