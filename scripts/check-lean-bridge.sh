@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Lean ↔ EasyCrypt Shamir bridge guard.
 #
-# Each of the four EC axioms named in proofs/lean-easycrypt-bridge.md
+# Each of the EC axioms named in proofs/lean-easycrypt-bridge.md
 # must:
 #   1. Still exist in the EC source as an `axiom` (not `lemma`).
 #   2. Carry an inline citation comment naming the Lean theorem.
 #   3. The Lean theorem named in the citation must EXIST in the
 #      named Lean file (hardened guard — post-audit).
+#   4. Be named in a `### Axiom N: \`<qual>.<name>\`` header in the
+#      bridge doc — and the number of such headers must equal the
+#      number of entries in BRIDGE[] (catches drift either way).
 #
 # Plus:
-#   4. The bridge doc must exist.
-#   5. Every EC file path mentioned in the bridge doc text must
+#   5. The bridge doc must exist.
+#   6. Every EC file path mentioned in the bridge doc text must
 #      exist on disk (catches stale refs to decomplected files).
 #
 # If any of these checks fails, this script exits 2 and the
@@ -119,7 +122,26 @@ if [[ ! -f "$BRIDGE_DOC" ]]; then
     echo "    [FAIL] $BRIDGE_DOC is missing"
     FAIL=1
 else
-    # 5. Every EC file path mentioned in the bridge doc must exist
+    # 4. Per-axiom: bridge doc must have a `### Axiom N: \`...axiom\``
+    # header for each BRIDGE[] entry. Catches the doc dropping or
+    # renaming an axiom without the guard table being updated.
+    for entry in "${BRIDGE[@]}"; do
+        IFS='|' read -r axiom _ _ _ _ <<< "$entry"
+        if ! grep -qE "^### Axiom [0-9]+:.*\`[A-Za-z0-9_]+\\.${axiom}\`" "$BRIDGE_DOC"; then
+            echo "    [FAIL] bridge doc missing '### Axiom N: \`<qual>.${axiom}\`' header"
+            FAIL=1
+        fi
+    done
+
+    # 4b. Header count must equal BRIDGE[] count. Catches the doc
+    # gaining a new axiom that the guard table hasn't tracked yet.
+    doc_axiom_count=$(grep -cE '^### Axiom [0-9]+:' "$BRIDGE_DOC")
+    if [[ "$doc_axiom_count" -ne "${#BRIDGE[@]}" ]]; then
+        echo "    [FAIL] bridge doc has $doc_axiom_count '### Axiom N:' headers but BRIDGE[] has ${#BRIDGE[@]} entries"
+        FAIL=1
+    fi
+
+    # 5/6. Every EC file path mentioned in the bridge doc must exist
     # on disk. Catches stale refs (e.g., to a file that was
     # decomplected and renamed).
     #
