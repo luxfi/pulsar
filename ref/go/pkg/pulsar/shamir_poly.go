@@ -130,4 +130,3 @@ func shamirPolyLambda(xs []uint32, i int) uint32 {
 	denInv := modInvQ(den)
 	return uint32((num * denInv) % shamirPrimeQ)
 }
-
