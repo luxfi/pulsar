@@ -9,33 +9,40 @@
 > is enumerated here with its full statement, location, closure
 > plan, and current status.
 
-## Trust footprint summary (after v8)
+## Trust footprint summary
+
+**22 named axioms total** in the extracted N1 byte-equality
+theorem's dependency cone — each with file:line in EC and Lean,
+each independently attackable through the per-axiom closure plan
+below.
 
 | Category | Count | Status |
 |---|---|---|
-| Stage-level byte-walk axioms | 3 | primitive — `sign_body_z_spec`, `combine_body_h_spec`, `sign_body_h_spec` |
-| Narrow combine z extraction | 2 | primitive (v8) — `combine_body_z_via_aggregation_spec`, `combine_body_partial_responses_spec` |
-| c_tilde dependency sub-stage | 2 | primitive — `combine_body_w_spec`, `sign_body_w_spec` |
-| Codec layout (mu_input) | 2 | primitive — `combine_body_mu_input_spec`, `sign_body_mu_input_spec` (sign-side conversion to derived lemma underway in v9) |
-| Accepted-path no-reject | 2 | primitive — `*_no_reject_on_accepted_honest_layout` |
-| Lean-bridged algebraic | 5 | primitive in EC; mechanized in Lean Mathlib |
-| Codec roundtrip (pack_n1) | 1 | primitive — `pack_unpack_n1_signature_roundtrip` |
-| Per-type FIPS 204 codec roundtrips | ~21 | primitive — see §6 below |
-| Derived lemmas (no longer primitive) | 7+ | derived via decomposition: `*_body_{c_tilde,mu,w1}_spec` × 2 sides + `combine_body_z_spec` |
+| Stage-level byte-walks | 1 | primitive — `sign_body_z_spec` |
+| Combine z extraction (v8 split) | 2 | primitive — `combine_body_z_via_aggregation_spec`, `combine_body_partial_responses_spec` |
+| w-stage matrix_a / mask_y sub-axioms (v12) | 4 | primitive — `{combine,sign}_body_{matrix_a,mask_y}_spec` |
+| w_low sub-axioms (h-stage, v10) | 2 | primitive — `{combine,sign}_body_w_low_spec` |
+| ExternalMu codec layout (v9) | 4 | primitive — 3 combine per-range + 1 sign collapsed |
+| Honest-execution no-reject | 2 | primitive — `*_no_reject_on_accepted_honest_layout` |
+| Signature-codec round-trip | 1 | primitive — `pack_unpack_n1_signature_roundtrip` |
+| **Subtotal — implementation-refinement** | **17** | byte-walk + codec round-trip + honest-execution no-reject |
+| Lean-bridged algebraic | 5 | primitive in EC; mechanised in Lean 4 + Mathlib |
+| **Total named axioms** | **22** | each with file:line in EC and Lean |
+| Per-type FIPS 204 codec round-trips | ~21 | primitive — see §7 below; outside the corollary cone |
+| Derived lemmas (formerly primitive) | 11+ | `*_body_{c_tilde,mu,w,w1,mu_input,h}_spec` × 2 sides + `combine_body_z_spec` |
 | EC admit budget | **0 / 0** | hard-pinned by `scripts/checks/ec-admits.sh` |
 | Lean ↔ EC bridge guards | **5 / 5** | hard-pinned by `scripts/check-lean-bridge.sh` |
 
-**Counted ONE WAY** (which is the relevant audit framing): the
-extracted N1 byte-equality theorem's dependency cone trusts ~36
-named axioms across the categories above, plus the EC/Jasmin/OCaml
-TCB. Each axiom is independently attackable; the next narrowing
-step is named in the "closure plan" column.
+## §1 Stage-level byte-walk axiom (1)
 
-## §1 Stage-level byte-walk axioms (3)
-
-These are obligations on the extracted Jasmin / libjade procedures.
-Each says "the extracted body's per-stage output value equals the
-centralized FIPS 204 op's output on the corresponding inputs."
+The only stage-level byte-walk that survives the v8 / v11 / v12
+decompositions. Combine's z-stage is a derived lemma composing
+`combine_body_z_via_aggregation_spec` +
+`combine_body_partial_responses_spec` with the Lean Lagrange bridge
+`threshold_partial_response_identity`. The h-stage on both sides is
+derived via `make_hint_of_w` structural composition over
+`w_low_spec`. The w-stage is decomposed into `matrix_a` + `mask_y`
+sub-axioms.
 
 ### §1.1 `sign_body_z_spec`
 
@@ -64,24 +71,12 @@ axiom sign_body_z_spec :
 - Step 3: bridge `sign_body_cs1_spec` to `sample_in_ball` + `vec_l_scale`.
 - Total estimated effort: 2-3 weeks.
 
-### §1.2 `combine_body_h_spec`
+### §1.2 h-stage axioms — both derived
 
-**File**: `proofs/easycrypt/Pulsar_N1_Combine_Refinement.ec`
-
-**Statement**: extracted h-vector equals `mldsa_compute_h` on the
-reconstructed share's inputs.
-
-**FIPS 204 §**: §6.2 + §3.4.3 (MakeHint)
-
-**Closure plan**:
-- Decompose via `make_hint_of_w` structural split (`w_low` + `w_high`
-  inputs to MakeHint as separate sub-axioms). Pattern from v7
-  HighBits. Estimated: 1-2 weeks.
-
-### §1.3 `sign_body_h_spec`
-
-Symmetric to `combine_body_h_spec`; libjade single-party version.
-Same closure plan.
+`combine_body_h_spec` and `sign_body_h_spec` are **derived lemmas**
+(v10) composing `*_body_w_low_spec` with `make_hint_of_w` structural
+identity over `w_high` from `Pulsar_N1.high_bits_of_w`. The narrower
+`{combine,sign}_body_w_low_spec` axioms are listed in §3 below.
 
 ## §2 Narrow combine z extraction (2 — v8 split)
 
@@ -112,47 +107,62 @@ messages equal `per_party_partial_response` on the per-party share.
 **Closure plan**: byte-walk through round-2 message parsing in
 extraction. Estimated: 1-2 weeks.
 
-## §3 c_tilde dependency sub-stage axioms (2)
+## §3 w-stage matrix_a / mask_y sub-axioms (4) + w_low sub-axioms (2)
 
-### §3.1 `combine_body_w_spec`
+The v12 split replaced the bundled `*_body_w_spec` axioms with
+narrower `matrix_a` + `mask_y` per-side pairs (each is a sub-axiom of
+the previous bundled w-stage obligation). The v10 split produced the
+`w_low` sub-axioms used by the derived h-stage lemmas.
 
-**Statement**: extracted w polynomial vector (BEFORE HighBits
-decomposition) matches the centralized `central_w` on inputs.
+### §3.1 `{combine,sign}_body_matrix_a_spec`
 
-**FIPS 204 §**: §6.2 (A·y at accepting kappa)
+**Statement**: extracted matrix A equals `central_matrix_a` from the
+public parameter ρ via `expand_a`.
 
-**Closure plan**: split into `expand_a` + `expand_mask` + `mat_vec_mul`
-sub-axioms + accepted-kappa selection. Hardest remaining target.
-Estimated: 3-4 weeks.
+**FIPS 204 §**: §3.5 Algorithm 32 (`ExpandA`)
 
-### §3.2 `sign_body_w_spec`
+**Closure plan**: BArray ↔ R_q polynomial-view bridge through
+`MLDSA65_Functional.expand_a`.
 
-Symmetric. Same closure plan but no aggregation step.
+### §3.2 `{combine,sign}_body_mask_y_spec`
 
-## §4 Codec layout axioms (2)
+**Statement**: extracted mask y at the accepting kappa equals
+`central_y_at_accepted_kappa`.
 
-### §4.1 `combine_body_mu_input_spec`
+**FIPS 204 §**: §6.2 (`ExpandMask` at the accepting κ)
 
-**File**: `proofs/easycrypt/Pulsar_N1_Combine_Refinement.ec`
+**Closure plan**: `expand_mask` + accepted-κ selection.
 
-**Statement**: protocol-witness mu_input bytes equal
-`external_mu_layout(m, ctx)` (now a constructive byte-list per v9).
+### §3.3 `{combine,sign}_body_w_low_spec`
 
-**FIPS 204 §**: §5.4.1 (ExternalMu layout)
+**Statement**: extracted w_low at the accepting kappa equals
+`central_w_low` (low-bits side of `decompose_vec_k`).
 
-**Closure plan**: cannot be fully closed without adding `m_ptr` /
-`ctx_ptr` to combine layout (protocol-witness limitation). v9
-decomposed into byte-range sub-axioms (prefix / ctx / m). Further
-closure requires the threshold-protocol model that defines how the
-witness ctx/m relate to memory contents.
+**FIPS 204 §**: §3.4.3 + §6.2 (`Decompose`)
 
-### §4.2 `sign_body_mu_input_spec`
+**Closure plan**: mirror lemma through `MLDSA65_Functional.decompose`.
 
-**File**: `proofs/easycrypt/Pulsar_N1_Sign_Refinement.ec`
+## §4 ExternalMu codec-layout axioms (4)
 
-**Status**: v9 — converted to DERIVED LEMMA. Replaced by narrower
-byte-layout axiom `sign_layout_m_buffer_external_mu`. The
-`sign_body_mu_input` op is now constructively defined via
+The v9 split decomposed the bundled `*_body_mu_input_spec` axioms
+into narrower per-range / per-buffer sub-axioms. Combine has three
+per-range sub-axioms over the protocol-witness ExternalMu buffer;
+sign collapses to one because sign owns `m_ptr` / `ctx_ptr` in its
+layout.
+
+### §4.1 Combine side — 3 per-range sub-axioms
+
+`combine_body_mu_input_prefix_spec`,
+`combine_body_mu_input_ctx_bytes_spec`,
+`combine_body_mu_input_m_bytes_spec` cover the first 2 bytes
+(prefix), the ctx-bytes slice, and the M-bytes suffix of the
+FIPS 204 §5.4.1 ExternalMu layout respectively.
+
+### §4.2 Sign side — 1 collapsed byte-layout axiom
+
+`sign_layout_m_buffer_external_mu`: the bytes written at `ptr_m`
+form the FIPS 204 §5.4.1 ExternalMu layout. The
+`sign_body_mu_input` op is constructively defined via
 `load_bytes mem ptrs.`ptr_m ptrs.`m_len`.
 
 ## §5 Accepted-path no-reject axioms (2)

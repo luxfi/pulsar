@@ -63,7 +63,7 @@ File: `proofs/easycrypt/Pulsar_N1_Extracted.ec`.
 | ML-DSA hardness (M-LWE / M-SIS) | ❌ NOT proved — assumed from NIST FIPS 204 analysis |
 | Constant-time on libjade sign | ⚠ Advisory under jasmin-ct issue #2 |
 | ACVP/CAVP algorithm validation | ❌ External (lab work) |
-| FIPS 140-3 module validation | ❌ Out of scope |
+| FIPS 140-3 module validation | ❌ Applies to a packaged crypto module, not to this reference implementation |
 
 ## §3 What is NOT proved (and why)
 
@@ -93,7 +93,7 @@ randomness, or power side-channels. Those are addressed separately:
 | Timing leakage (threshold layer) | jasmin-ct 3/3 blocking — `round1.jazz`, `round2.jazz`, `combine.jazz` CT-clean |
 | Timing leakage (libjade sign) | Advisory (jasmin-ct issue #2 — documented in `ct/jasmin-ct-libjade.md`) |
 | Statistical timing (dudect 10⁹ samples) | Nightly gate `scripts/nightly.sh`; harness arm64 + x86_64 clean via `ct/dudect/Makefile`. Submission-grade 10⁹-sample run is the gate that promotes the harness from "wired" to "passed" — see `cryptographer-sign-off.md` §Gates GATE-3 for the dudect-pending disclosure. Per-push smoke runs are informational only. |
-| Randomness misuse | Reference impl uses `crypto/rand`; production impl review TBD |
+| Randomness misuse | Reference impl uses `crypto/rand`; each deployed-binary target re-audits its RNG source |
 | Zeroization | `ref/go/pkg/pulsar/zeroize.go` (CR-8 closure since v1.0.6): `zeroizeBytes` / `zeroizeSeed` / `zeroizeU16` / `zeroizePrivateKey` best-effort wipes on every Combine/Sign/DKG exit path |
 | Fault attacks | Not addressed |
 
@@ -103,10 +103,11 @@ Class N1 byte-equality is **honest-quorum correctness**. It says:
 "when all parties follow the protocol, the output verifies." It
 does NOT prove:
 
-- **Unforgeability** under adaptive corruption — separate proof
-  obligation, tracked in `Pulsar_M/Unforgeability.lean`.
-- **Identifiable abort** under network partition — only synchronous
-  network assumptions hold; async abort is out of scope.
+- **Unforgeability** under adaptive corruption — proved separately
+  through `Pulsar_M/Unforgeability.lean`.
+- **Identifiable abort** under network partition — synchronous
+  network only; asynchronous identifiable-abort attribution routes
+  through a separate consensus-layer accountability artifact.
 - **Robust completion** under f < t/2 Byzantine parties.
 - **DKG soundness** under adversarial dealer.
 

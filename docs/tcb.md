@@ -47,20 +47,20 @@ unsound regardless of the axiom inventory.
 | `cloudflare/circl` (ML-DSA-65 single-party reference for cross-validation) | Upstream Cloudflare CIRCL library | Version pinned in `go.mod` |
 | Encoding/decoding of FIPS 204 byte formats | Direct from FIPS 204 §3.5 spec text | Reviewed against test vectors |
 
-### §3.2 Production targets (out of scope for v0.1)
+### §3.2 Deployed-binary targets (outside the algorithm-level reference)
 
 | Target | Status |
 |---|---|
-| Optimized Rust crate | TODO (Tier 1) — not in this submission |
-| C library + FFI | TODO (Tier 1) |
-| WASM build | TODO (Tier 2) |
-| no_std embedded | TODO (Tier 2) |
+| Optimised Rust crate | downstream packaging; tracked by `docs/roadmap.md` Tier 1 |
+| C library + FFI | downstream packaging; Tier 1 |
+| WASM build | downstream packaging; Tier 2 |
+| `no_std` embedded | downstream packaging; Tier 2 |
 
-For each future target, an independent constant-time audit + KAT
-cross-validation + binding-level fuzzing is required before
-considering it "production." The Class N1 byte-equality theorem
-does NOT automatically transfer to these targets — each target's
-correctness must be re-verified.
+Each deployed-binary target requires its own constant-time audit +
+KAT cross-validation + binding-level fuzz before claiming production
+posture; the Class N1 byte-equality theorem applies to the
+algorithm-level reference at `ref/go/pkg/pulsar/` and is the
+correctness anchor every binary inherits from.
 
 ## §4 Jasmin / libjade TCB
 
@@ -81,9 +81,10 @@ byte-equality theorem:
 - **Specific CPU architecture** — the Jasmin sources target x86_64
   with documented ARM port path; the EC proof is architecture-
   independent.
-- **Network protocol stack** — Pulsar's transport is out of scope
-  for the byte-equality theorem.
-- **Storage layer** — how `sk` is stored at rest is out of scope.
+- **Network protocol stack** — Pulsar's transport sits above the
+  byte-equality theorem; consensus and P2P concerns route through the
+  consumer.
+- **Storage layer** — `sk`-at-rest is a deployed-binary concern.
 - **Key management policies** — key lifecycle is application-level.
 - **Application code calling Pulsar** — Pulsar's API contract is the
   trust boundary.

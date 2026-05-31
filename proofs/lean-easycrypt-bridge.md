@@ -264,43 +264,37 @@ it is not strict closure inside the EC dependency cone.
 
 ## Citation comments
 
-Each of the four EC axioms above has an inline comment immediately
-preceding it that names the Lean theorem and file. Updating the EC
-axiom statement without updating the Lean side (or vice versa)
-trips the per-push test for "axiom signature change without bridge
-comment update" — currently a manual review item; could be a CI
-grep gate (see Future Work).
+Each of the five EC axioms above carries an inline comment immediately
+preceding it that names the Lean theorem and file. The CI guard
+`scripts/check-lean-bridge.sh` asserts every EC axiom in the bridge
+has an unchanged signature AND a citation comment naming a Lean
+theorem that still exists; signature drift trips the gate.
 
-## Future work
+## Closure paths
 
-1. **Mechanical close in EC.** Build out a minimal polynomial-
-   interpolation theory inside EasyCrypt (just enough to discharge
-   the four axioms). This removes the bridge entirely. Estimated
-   effort: 3-4 weeks.
-2. **Bridge guard in CI.** A `scripts/check-bridge.sh` that asserts
-   each EC axiom in the bridge has an unchanged signature AND a
-   citation comment naming a Lean theorem that still exists. Cheap
-   to add; catches drift.
-3. **Lean → EC tactic translation.** Long-term: if the EasyCrypt
-   community adds a Lean-proof-object consumer, the bridge becomes
-   a one-line `import` rather than four axiom statements.
+The bridge collapses entirely under either of two routes:
 
-## Honest summary
+1. **Mechanical close in EC.** Build a minimal polynomial-
+   interpolation theory inside EasyCrypt sufficient to discharge
+   the five axioms. The Mathlib `Lagrange.interpolate` machinery
+   is the porting target.
+2. **Lean → EC tactic translation.** When the EasyCrypt community
+   ships a Lean-proof-object consumer, the bridge becomes a
+   one-line `import` rather than five axiom statements.
+
+## Summary
 
 The trust footprint of the extracted N1 byte-equality theorem,
-including the bridge (v8):
+inclusive of this bridge:
 
-* Implementation-refinement axioms (EC, byte-walks): **4 stage-level
-  (z + h on combine/sign) + 1 c_tilde dependency sub-stage w on
-  combine/sign + 1 c_tilde dependency w on sign + 1 narrow combine
-  partial-response extraction**. The combine z-stage primitive is
-  replaced by the partial-response axiom + threshold_partial_response_identity
-  bridge.
-* Algebraic-content axioms bridged to Lean: **5** (Axioms 1-5
-  above). Each has a corresponding Lean theorem cited inline.
-  Axiom 5 (threshold_partial_response_identity) was added in v8
-  to discharge the combine z-stage aggregation.
-* Module-contract axioms in the extracted N1 corollary: **0**.
+* **22 named axioms total**, each with file:line in EC and Lean:
+  17 narrow implementation-refinement (14 byte-walk + 1
+  signature-codec round-trip + 2 honest-execution no-reject
+  post-conditions) plus 5 Lean-bridged algebraic (Axioms 1–5 above,
+  each citing a proved Lean theorem in
+  `~/work/lux/proofs/lean/Crypto/`).
+* **0** section-local module-contract axioms in the extracted N1
+  corollary.
 
-The full per-version per-axiom inventory lives in
-`proofs/easycrypt/Pulsar_N1_Extracted.ec` and `../SUBMISSION.md`.
+Per-axiom enumeration with closure plan: `docs/proof-axiom-inventory.md`.
+Authoritative source: `proofs/easycrypt/Pulsar_N1_Extracted.ec`.
