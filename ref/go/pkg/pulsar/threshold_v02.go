@@ -709,12 +709,12 @@ func (s *TransitionalThresholdSigner) Round1() (*TransitionalRound1Message, erro
 		return nil, ErrShortRand
 	}
 	var ySeed [64]byte
+	var attemptBE [4]byte
+	binary.BigEndian.PutUint32(attemptBE[:], s.Attempt)
 	yMix := make([]byte, 0, 64+16+4+len(s.NodeID))
 	yMix = append(yMix, rngBytes[:]...)
 	yMix = append(yMix, s.SessionID[:]...)
-	yMix = append(yMix,
-		byte(s.Attempt>>24), byte(s.Attempt>>16),
-		byte(s.Attempt>>8), byte(s.Attempt))
+	yMix = append(yMix, attemptBE[:]...)
 	yMix = append(yMix, s.NodeID[:]...)
 	copy(ySeed[:], cshake256(yMix, 64, tagAlgY))
 	zeroizeBytes(rngBytes[:])
@@ -1186,10 +1186,10 @@ var _ = mldsa87.SignatureSize
 // structure as v0.1's transcriptTau1Bytes but uses tagAlgR1 customisation
 // (callers feed this into the cSHAKE256/KMAC256 customisation field).
 func algTranscriptTau1(sid [16]byte, attempt uint32, quorum []NodeID, sender NodeID, pk *PublicKey, message []byte) []byte {
-	parts := [][]byte{}
-	parts = append(parts, []byte("ALG-V1"))
-	parts = append(parts, sid[:])
-	parts = append(parts, []byte{byte(attempt >> 24), byte(attempt >> 16), byte(attempt >> 8), byte(attempt)})
+	var attemptBE [4]byte
+	binary.BigEndian.PutUint32(attemptBE[:], attempt)
+	parts := make([][]byte, 0, 4+len(quorum)+2)
+	parts = append(parts, []byte("ALG-V1"), sid[:], attemptBE[:])
 	for _, q := range quorum {
 		parts = append(parts, q[:])
 	}
@@ -1198,8 +1198,7 @@ func algTranscriptTau1(sid [16]byte, attempt uint32, quorum []NodeID, sender Nod
 		parts = append(parts, pk.Bytes)
 	}
 	parts = append(parts, message)
-	out := []byte{}
-	out = append(out, leftEncode(uint64(len(parts)))...)
+	out := append([]byte{}, leftEncode(uint64(len(parts)))...)
 	for _, p := range parts {
 		out = append(out, encodeString(p)...)
 	}

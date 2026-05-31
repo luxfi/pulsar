@@ -153,11 +153,10 @@ var DefaultRoundQuorumPolicy = RoundQuorumPolicy{
 // logarithm to avoid floating-point precision loss; callers convert
 // to log2 as needed.
 func ApproxRoundSecurity(rho float64, policy RoundQuorumPolicy) float64 {
-	// Cumulative binomial Pr[X >= alpha; K, rho] via direct sum.
 	logFactorial := func(n int) float64 {
 		acc := 0.0
 		for i := 2; i <= n; i++ {
-			acc += logf(float64(i))
+			acc += math.Log(float64(i))
 		}
 		return acc
 	}
@@ -172,16 +171,9 @@ func ApproxRoundSecurity(rho float64, policy RoundQuorumPolicy) float64 {
 	for x := policy.Alpha; x <= policy.K; x++ {
 		// Pr[X=x] = C(K, x) * rho^x * (1-rho)^(K-x)
 		logp := logChoose(policy.K, x) +
-			float64(x)*logf(rho) +
-			float64(policy.K-x)*logf(1.0-rho)
-		sum += expf(logp)
+			float64(x)*math.Log(rho) +
+			float64(policy.K-x)*math.Log(1.0-rho)
+		sum += math.Exp(logp)
 	}
 	return sum
 }
-
-// logf / expf are stdlib wrappers; pulled behind named indirection so
-// unit tests can stub them if needed.
-var (
-	logf = func(x float64) float64 { return math.Log(x) }
-	expf = func(x float64) float64 { return math.Exp(x) }
-)
