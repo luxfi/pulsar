@@ -26,7 +26,7 @@ by `scripts/check-lean-bridge.sh`), Jasmin threshold sources + jasmin-ct
 ML-DSA implementations, royalty-free patent grant (`patents.md`),
 21-claim attorney-prep document (`patent-claims.md`), and 13/13
 production go-live blockers closed (`BLOCKERS.md`). Every other
-construction listed in `HANZO-CRYPTO-SUITE.md` — Corona, Magnetar,
+construction listed in `suite.md` — Corona, Magnetar,
 LSS, FROST/CGGMP21 (Lux profile), BLS aggregate (Lux profile), X-Wing-Sig,
 P3Q precompile, C-Chain / X-Chain PQ migration, Z-Chain PQ identity
 rollup, threshold TFHE — has varying degrees of LP-level spec
@@ -202,7 +202,7 @@ necessarily issued).
   `corona/docs/tcb.md`, `corona/docs/fips-204-traceability.md`
   (since Corona is byte-compatible with FIPS 204 verifier — same
   underlying ML-DSA semantics, R-LWE sibling),
-  `corona/HANZO-CRYPTO-SUITE.md` cross-reference,
+  `corona/docs/suite.md` cross-reference,
   `corona/docs/evaluation.md`, `corona/docs/ietf-draft.md`,
   `corona/docs/patent-claims.md`, `corona/CHANGELOG.md`.
 - EC proofs mirror Pulsar's structure: refinement chain + axiom
@@ -1189,7 +1189,7 @@ entries on track.
 - `lps/CRYPTO-CANONICAL.md` is the master crypto wiring doc.
 - `pulsar-mptc/docs/information-architecture.md` documents three-axis taxonomy.
 - LPs 168-179 mirror Hanzo HIPs 0077-0104 for E2E PQ.
-- `pulsar-mptc/SUITE.md` + `pulsar-mptc/HANZO-CRYPTO-SUITE.md` are master
+- `pulsar-mptc/docs/suite.md` + `pulsar-mptc/docs/suite.md` are master
   indexes.
 
 **Target end state (Q4 2029)**:
@@ -1564,8 +1564,8 @@ the Q4 2026 NIST submission deadline.
 ## §H Roadmap Maintenance
 
 This document is the authoritative crypto-stack roadmap. It supersedes
-prior ad-hoc planning in `HANZO-CRYPTO-SUITE.md` §"Recommended next-quarter
-work plan" and `SUITE.md` §"Equivalent-packaging roadmap".
+prior ad-hoc planning in `suite.md` §"Recommended next-quarter
+work plan" and `suite.md` §"Equivalent-packaging roadmap".
 
 **Update cadence**:
 - End-of-quarter: roadmap maintainer publishes a 1-page status update
@@ -1591,7 +1591,7 @@ work plan" and `SUITE.md` §"Equivalent-packaging roadmap".
 - Version: v1.0 (initial)
 - Date: 2026-05-18
 - Maintainer: `crypto-suite@lux.network`
-- Companion documents: `SUITE.md`, `HANZO-CRYPTO-SUITE.md`,
+- Companion documents: `suite.md`, `suite.md`,
   `information-architecture.md`, `SUBMISSION.md`, `proof-axiom-inventory.md`,
   `proof-claims.md`, `tcb.md`, `fips-204-traceability.md`,
   `BLOCKERS.md`, `patents.md`, `patent-claims.md`,

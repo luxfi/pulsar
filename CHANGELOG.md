@@ -154,8 +154,7 @@ independently-attackable sub-obligations:
 
 ### Submission documentation added (v10)
 
-- `SUBMISSION.md` — NIST MPTC cover sheet (updated with Tier-1/2/3 labels + patent posture cross-ref)
-- `NIST-SUBMISSION.md` — one-page executive summary
+- `SUBMISSION.md` — NIST MPTC cover sheet (updated with Tier-1/2/3 labels + patent posture cross-ref; absorbed prior one-page executive summary)
 - `docs/patents.md` — royalty-free patent grant + defensive termination + claim summary
 - `docs/proof-axiom-inventory.md` — per-axiom residual trust accounting with closure plans
 - `docs/proof-claims.md` — narrow EC/Lean refinement claim with explicit non-claims
@@ -164,7 +163,7 @@ independently-attackable sub-obligations:
 - `docs/patent-claims.md` — 21 numbered claim drafts (5 claim groups) for attorney review
 - `docs/evaluation.md` — experimental evaluation report per NIST IR 8214C §6
 
-### Out-of-scope for v0.1 (roadmap, see `NIST-SUBMISSION.md` §Roadmap)
+### Out-of-scope for v0.1 (roadmap, see `SUBMISSION.md` §Roadmap)
 
 - Full κ-loop probabilistic Hoare model (multi-week)
 - Full bit-level FIPS 204 codec mechanization (multi-month, Barbosa-Barthe-Dupressoir scale)
