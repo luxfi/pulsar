@@ -599,12 +599,12 @@ func (s *AlgebraicThresholdSigner) Round1() (*AlgebraicRound1Message, error) {
 		return nil, ErrShortRand
 	}
 	var ySeed [64]byte
+	var attemptBE [4]byte
+	binary.BigEndian.PutUint32(attemptBE[:], s.Attempt)
 	yMix := make([]byte, 0, 64+16+4+len(s.NodeID))
 	yMix = append(yMix, rngBytes[:]...)
 	yMix = append(yMix, s.SessionID[:]...)
-	yMix = append(yMix,
-		byte(s.Attempt>>24), byte(s.Attempt>>16),
-		byte(s.Attempt>>8), byte(s.Attempt))
+	yMix = append(yMix, attemptBE[:]...)
 	yMix = append(yMix, s.NodeID[:]...)
 	copy(ySeed[:], cshake256(yMix, 64, tagV03Y))
 	zeroizeBytes(rngBytes[:])
@@ -1139,10 +1139,10 @@ func polyVecExceeds(v polyVec, bound uint32) bool {
 // Distinct from algTranscriptTau1 (v0.2) so a cross-version replay
 // fails at the transcript hash. The "V03" string is bound into parts[0].
 func algV03TranscriptTau1(sid [16]byte, attempt uint32, quorum []NodeID, sender NodeID, pk *PublicKey, message []byte) []byte {
-	parts := [][]byte{}
-	parts = append(parts, []byte("V03"))
-	parts = append(parts, sid[:])
-	parts = append(parts, []byte{byte(attempt >> 24), byte(attempt >> 16), byte(attempt >> 8), byte(attempt)})
+	var attemptBE [4]byte
+	binary.BigEndian.PutUint32(attemptBE[:], attempt)
+	parts := make([][]byte, 0, 4+len(quorum)+2)
+	parts = append(parts, []byte("V03"), sid[:], attemptBE[:])
 	for _, q := range quorum {
 		parts = append(parts, q[:])
 	}
@@ -1151,8 +1151,7 @@ func algV03TranscriptTau1(sid [16]byte, attempt uint32, quorum []NodeID, sender 
 		parts = append(parts, pk.Bytes)
 	}
 	parts = append(parts, message)
-	out := []byte{}
-	out = append(out, leftEncode(uint64(len(parts)))...)
+	out := append([]byte{}, leftEncode(uint64(len(parts)))...)
 	for _, p := range parts {
 		out = append(out, encodeString(p)...)
 	}
