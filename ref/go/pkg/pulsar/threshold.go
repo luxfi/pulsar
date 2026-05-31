@@ -41,6 +41,7 @@ package pulsar
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"io"
 )
@@ -206,12 +207,12 @@ func (s *ThresholdSigner) Round1(message []byte) (*Round1Message, error) {
 	if _, err := io.ReadFull(s.rng, rngBytes[:]); err != nil {
 		return nil, ErrShortRand
 	}
+	var attemptBE [4]byte
+	binary.BigEndian.PutUint32(attemptBE[:], s.Attempt)
 	maskMix := make([]byte, 0, 64+16+4+len(s.NodeID))
 	maskMix = append(maskMix, rngBytes[:]...)
 	maskMix = append(maskMix, s.SessionID[:]...)
-	maskMix = append(maskMix,
-		byte(s.Attempt>>24), byte(s.Attempt>>16),
-		byte(s.Attempt>>8), byte(s.Attempt))
+	maskMix = append(maskMix, attemptBE[:]...)
 	maskMix = append(maskMix, s.NodeID[:]...)
 	copy(s.myMask[:], cshake256(maskMix, 64, tagSignMask))
 	// Wipe the raw RNG buffer; it carries entropy that under a
@@ -228,7 +229,7 @@ func (s *ThresholdSigner) Round1(message []byte) (*Round1Message, error) {
 	// mask, an adversary intercepting Round-2 could rotate (mask,
 	// masked) to (mask ⊕ δ, masked) and the reconstructed share would
 	// be silently corrupted; binding both closes that gap.
-	tau := s.transcriptTau1(message)
+	tau := transcriptTau1Bytes(s.SessionID, s.Attempt, s.Quorum, s.NodeID, s.SecretShare.Pub, s.Message)
 	commitInput := append(append([]byte{}, s.myMask[:]...), s.myMaskedShare[:]...)
 	commitInput = append(commitInput, tau...)
 	s.myCommit = transcriptHash32(tagSignR1, commitInput)
@@ -282,7 +283,7 @@ func (s *ThresholdSigner) Round2(round1Msgs []*Round1Message) (*Round2Message, *
 		// Peer's MAC to me uses the same shared key under our pair
 		// derivation (deriveMACKey is symmetric — see comment there).
 		key := s.MACKeys[m.NodeID]
-		tau := s.transcriptTau1ForSender(m.NodeID)
+		tau := transcriptTau1Bytes(s.SessionID, s.Attempt, s.Quorum, m.NodeID, s.SecretShare.Pub, s.Message)
 		macInput := append(append([]byte{}, m.Commit[:]...), tau...)
 		expectedMAC := kmac256(key[:], macInput, 32, tagSignR1MAC)
 		gotMAC, ok := m.MACs[s.NodeID]
@@ -479,27 +480,16 @@ func Combine(params *Params, groupPubkey *PublicKey, message []byte, ctx []byte,
 	return &Signature{Mode: params.Mode, Bytes: sigBytes}, nil
 }
 
-// transcriptTau1 builds the Round-1 transcript tau_1 = (sid, kappa,
-// T, i, pk, mu). tau_1 is bound into every commit and MAC so that a
-// cross-session replay of the commit-and-reveal pair becomes a
-// transcript mismatch.
-func (s *ThresholdSigner) transcriptTau1(_ []byte) []byte {
-	return transcriptTau1Bytes(s.SessionID, s.Attempt, s.Quorum, s.NodeID, s.SecretShare.Pub, s.Message)
-}
-
-// transcriptTau1ForSender builds tau_1 with sender's NodeID rather
-// than this party's NodeID — used when verifying a peer's commit
-// MAC. tau_1 is sender-dependent because each party's commit binds
-// to its own NodeID (preventing share-equivocation across parties).
-func (s *ThresholdSigner) transcriptTau1ForSender(sender NodeID) []byte {
-	return transcriptTau1Bytes(s.SessionID, s.Attempt, s.Quorum, sender, s.SecretShare.Pub, s.Message)
-}
-
-// transcriptTau1Bytes is the package-level implementation of tau_1.
+// transcriptTau1Bytes builds the Round-1 transcript τ_1 = (sid, κ, T,
+// sender, pk, μ). τ_1 is bound into every commit and MAC so a cross-
+// session replay of the commit-and-reveal pair becomes a transcript
+// mismatch. Sender-dependent: each party's commit binds its own NodeID
+// (preventing share-equivocation across parties).
 func transcriptTau1Bytes(sid [16]byte, attempt uint32, quorum []NodeID, sender NodeID, pk *PublicKey, message []byte) []byte {
-	parts := [][]byte{}
-	parts = append(parts, sid[:])
-	parts = append(parts, []byte{byte(attempt >> 24), byte(attempt >> 16), byte(attempt >> 8), byte(attempt)})
+	var attemptBE [4]byte
+	binary.BigEndian.PutUint32(attemptBE[:], attempt)
+	parts := make([][]byte, 0, 3+len(quorum)+2)
+	parts = append(parts, sid[:], attemptBE[:])
 	for _, q := range quorum {
 		parts = append(parts, q[:])
 	}
@@ -508,10 +498,8 @@ func transcriptTau1Bytes(sid [16]byte, attempt uint32, quorum []NodeID, sender N
 		parts = append(parts, pk.Bytes)
 	}
 	parts = append(parts, message)
-	// Flatten into a single byte string via SP 800-185 encode_string
-	// so commit boundaries are unambiguous.
-	out := []byte{}
-	out = append(out, leftEncode(uint64(len(parts)))...)
+	// SP 800-185 encode_string framing so commit boundaries are unambiguous.
+	out := append([]byte{}, leftEncode(uint64(len(parts)))...)
 	for _, p := range parts {
 		out = append(out, encodeString(p)...)
 	}
