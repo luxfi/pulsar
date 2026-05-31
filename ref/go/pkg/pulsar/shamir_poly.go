@@ -131,15 +131,3 @@ func shamirPolyLambda(xs []uint32, i int) uint32 {
 	return uint32((num * denInv) % shamirPrimeQ)
 }
 
-// zeroizePolyShare overwrites every coefficient of every polynomial
-// in the share.
-func zeroizePolyShare(s *shamirPolyShare) {
-	if s == nil {
-		return
-	}
-	for i := range s.Polys {
-		for j := range s.Polys[i] {
-			s.Polys[i][j] = 0
-		}
-	}
-}

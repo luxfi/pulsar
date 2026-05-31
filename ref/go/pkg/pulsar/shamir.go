@@ -209,7 +209,7 @@ func shamirReconstructGF(shares []shamirShare) ([SeedSize]uint16, error) {
 	return out, nil
 }
 
-// ErrInvalidShare is returned by shamirReconstruct when the
+// ErrInvalidShare is returned by shamirReconstructQ when an
 // interpolated constant term overflows byte range, indicating either
 // share tampering or that the original secret was not byte-valued.
 var ErrInvalidShare = errors.New("pulsar: reconstructed value out of byte range — share tampering suspected")

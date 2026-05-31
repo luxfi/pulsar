@@ -1284,21 +1284,10 @@ func packW1Vec(w1 polyVec, gamma2 uint32, K int) []byte {
 	return out
 }
 
-// polyConst returns the polynomial f with constant term c and all
-// other coefficients zero — the constant polynomial. Used to lift a
-// scalar λ_i ∈ GF(q) into the ring R_q for multiplication with NTT-
-// domain polynomials.
-func polyConst(c uint32) poly {
-	var p poly
-	p[0] = c
-	return p
-}
-
 // polyDeriveUniformBounded samples p with coefficients uniform in
 // (-bound, bound] from a SHAKE-256(seed ‖ nonce) byte-stream via
 // rejection sampling. Output coefficients are stored un-normalised in
-// [q-bound, q+bound] (the same convention polyDeriveUniformLeGamma1
-// uses for negatives).
+// [q-bound, q+bound] (centred-rep around q for negative values).
 //
 // Per FROST-for-FSwA, the per-party y_i is sampled with bound =
 // (γ_1 - 2β) / t so the quorum sum lies in (-γ_1 + 2β, γ_1 - 2β]
