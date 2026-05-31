@@ -27,15 +27,15 @@
 ## Submission packaging per tier
 
 Each tier targets the **same submission-grade documentation package**
-(SUBMISSION.md cover sheet, SPEC.md / IETF draft, EC + Lean proof
-artifacts, PATENTS.md, AXIOM-INVENTORY.md, PROOF-CLAIMS.md,
-FIPS-TRACEABILITY.md, TRUSTED-COMPUTING-BASE.md, test vectors,
+(SUBMISSION.md cover sheet, docs/spec-overview.md / IETF draft, EC + Lean proof
+artifacts, docs/patents.md, docs/proof-axiom-inventory.md, docs/proof-claims.md,
+docs/fips-204-traceability.md, docs/tcb.md, test vectors,
 docs/evaluation.md). Status by tier:
 
 | Doc | Pulsar | Corona | Magnetar | LSS |
 |---|---|---|---|---|
 | Cover sheet (`SUBMISSION.md`) | ✅ | partial (`~/work/lux/corona/DESIGN.md`) | placeholder | LP-019 (LPS) |
-| Standalone spec (`SPEC.md`) | ✅ | TBD | TBD | LP-019 (LPS) |
+| Standalone spec (`docs/spec-overview.md`) | ✅ | TBD | TBD | LP-019 (LPS) |
 | IETF draft | ✅ `docs/ietf-draft-skeleton.md` | TBD | TBD | TBD |
 | Reference impl | ✅ `ref/go/` | ✅ `~/work/lux/corona/` (full Go) | ❌ research-only | ✅ `~/work/lux/lps/` LP-019 + LP-141 |
 | EC proofs | ✅ 13/13 compile | partial (DKG only) | ❌ | ❌ |
@@ -62,12 +62,12 @@ docs/evaluation.md). Status by tier:
 ├── pulsar-mptc/              ← Tier 1, this repo (NIST MPTC submission target)
 │   ├── SUBMISSION.md         ← NIST cover sheet
 │   ├── SUITE.md              ← THIS file (master index)
-│   ├── SPEC.md               ← standalone protocol spec
-│   ├── PATENTS.md            ← royalty-free grant
-│   ├── AXIOM-INVENTORY.md
-│   ├── PROOF-CLAIMS.md
-│   ├── FIPS-TRACEABILITY.md
-│   ├── TRUSTED-COMPUTING-BASE.md
+│   ├── docs/spec-overview.md               ← standalone protocol spec
+│   ├── docs/patents.md            ← royalty-free grant
+│   ├── docs/proof-axiom-inventory.md
+│   ├── docs/proof-claims.md
+│   ├── docs/fips-204-traceability.md
+│   ├── docs/tcb.md
 │   ├── NIST-SUBMISSION.md    ← 1-page executive summary
 │   ├── CHANGELOG.md          ← per-version proof artifact log
 │   ├── docs/

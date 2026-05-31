@@ -25,13 +25,13 @@ Master index: `SUITE.md`. Submission package: `pulsar-mptc/` (Tier 1).
 
 | Tier | Construction | LP | Repo | Spec | Proofs | NIST submission | Status |
 |---|---|---|---|---|---|---|---|
-| 1 | **Pulsar** (Threshold ML-DSA) | LP-019 ref'd | `pulsar-mptc/`, `pulsar/` | ✅ SPEC.md + spec/pulsar.tex + IETF draft | ✅ EC 13/13, Lean 5/5 | ✅ v0.1 ready | **NIST-MPTC-submission ready** |
+| 1 | **Pulsar** (Threshold ML-DSA) | LP-019 ref'd | `pulsar-mptc/`, `pulsar/` | ✅ docs/spec-overview.md + spec/pulsar.tex + IETF draft | ✅ EC 13/13, Lean 5/5 | ✅ v0.1 ready | **NIST-MPTC-submission ready** |
 | 1b | **Corona** (Threshold R-LWE) | LP-020 | `~/work/lux/corona/` | partial DESIGN.md | partial DKG proofs | ❌ v0.2 target | implementation mature, packaging needed |
 | 3 | **Magnetar** (Threshold SLH-DSA) | TBD | none | `docs/magnetar.md` placeholder | ❌ | ❌ research-only | research-direction sketch |
 | 4 | **LSS** (Linear Shamir) | LP-019 + LP-141 | `~/work/lux/lps/`, `~/work/lux/mpc/` | LP-019 sections | none mechanized | ❌ wrapper-only | spec exists, no submission package |
 
 **Gap to "all tiers submission-ready"**:
-- Corona: full SUBMISSION.md + SPEC.md + PROOF-CLAIMS.md + AXIOM-INVENTORY.md + PATENTS.md package mirroring Pulsar. Estimate: 2-3 weeks.
+- Corona: full SUBMISSION.md + docs/spec-overview.md + docs/proof-claims.md + docs/proof-axiom-inventory.md + docs/patents.md package mirroring Pulsar. Estimate: 2-3 weeks.
 - Magnetar: research-paper + initial DKG prototype. Estimate: 2-3 months.
 - LSS: standalone IETF draft + reference vectors. Estimate: 2 weeks.
 
@@ -51,8 +51,8 @@ legacy, Cosmos Ed25519, Solana, etc.). Specified in
 **Per user direction "100% up to spec"**: each of FROST, CGGMP21,
 LSS, BLS needs:
 1. Equivalent of `pulsar-mptc/SUBMISSION.md` (cover sheet).
-2. Equivalent of `pulsar-mptc/SPEC.md` (text spec) — partially in LP-019.
-3. Equivalent of `pulsar-mptc/PATENTS.md` (FROST and CGGMP21 are
+2. Equivalent of `pulsar-mptc/docs/spec-overview.md` (text spec) — partially in LP-019.
+3. Equivalent of `pulsar-mptc/docs/patents.md` (FROST and CGGMP21 are
    academically published; need defensive grant statement).
 4. Implementation-correctness proof (EC + Lean) — currently absent for FROST/CGGMP21.
 5. Constant-time analysis — partial for FROST.
@@ -236,8 +236,8 @@ P3Q's gas cost becomes the bottleneck.
 - Pulsar is the only construction with FULL submission-grade
   packaging.
 - All others have varying degrees of LP-level spec maturity but
-  lack the matching SUBMISSION.md + PROOF-CLAIMS.md +
-  AXIOM-INVENTORY.md + TCB + IETF draft + PATENTS.md package.
+  lack the matching SUBMISSION.md + docs/proof-claims.md +
+  docs/proof-axiom-inventory.md + TCB + IETF draft + docs/patents.md package.
 - Bringing the full suite to Pulsar-grade packaging is a 6-12
   month coordinated effort.
 
@@ -261,9 +261,9 @@ All Hanzo Crypto Suite documents MUST satisfy:
 2. **Per-construction LP**: `~/work/lux/lps/LP-NNN-*.md`
 3. **Per-construction repo**: `~/work/lux/<construction>/`
 4. **Per-construction submission package** (when production-ready):
-   `<repo>/SUBMISSION.md`, `<repo>/SPEC.md`, `<repo>/PATENTS.md`,
-   `<repo>/PROOF-CLAIMS.md`, `<repo>/AXIOM-INVENTORY.md`,
-   `<repo>/TRUSTED-COMPUTING-BASE.md`, `<repo>/FIPS-TRACEABILITY.md`
+   `<repo>/SUBMISSION.md`, `<repo>/docs/spec-overview.md`, `<repo>/docs/patents.md`,
+   `<repo>/docs/proof-claims.md`, `<repo>/docs/proof-axiom-inventory.md`,
+   `<repo>/docs/tcb.md`, `<repo>/docs/fips-204-traceability.md`
    (if FIPS-anchored), `<repo>/docs/evaluation.md`,
    `<repo>/docs/ietf-draft.md`.
 5. **Master suite index**: `pulsar-mptc/SUITE.md` (for the PQ

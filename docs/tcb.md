@@ -1,13 +1,13 @@
 # TRUSTED-COMPUTING-BASE — Pulsar EC/Jasmin/OCaml TCB
 
 > **What you must trust below the residual EasyCrypt axioms.**
-> Companion to `AXIOM-INVENTORY.md` (the axioms above the TCB) and
-> `PROOF-CLAIMS.md` (the proof scope).
+> Companion to `proof-axiom-inventory.md` (the axioms above the TCB) and
+> `proof-claims.md` (the proof scope).
 
 The Pulsar Class N1 byte-equality theorem rests on three layered
 trust bases:
 
-1. **EasyCrypt residual axioms** — enumerated in `AXIOM-INVENTORY.md`.
+1. **EasyCrypt residual axioms** — enumerated in `proof-axiom-inventory.md`.
 2. **Lean theorems used as bridges** — enumerated in
    `proofs/lean-easycrypt-bridge.md`.
 3. **The trusted-computing base (TCB) below the proof tools** —
@@ -131,7 +131,7 @@ To independently verify Pulsar's claims, a reviewer should:
    3 independent ML-DSA implementations.
 6. Run `scripts/bench.sh` — expect performance within published
    bounds.
-7. Read `AXIOM-INVENTORY.md` and verify each axiom's statement
+7. Read `proof-axiom-inventory.md` and verify each axiom's statement
    matches the cited file:line.
 8. For Lean-bridged axioms, clone the Lean repo and verify the
    Lean theorems compile + prove what the bridge document claims.
@@ -161,7 +161,7 @@ Pulsar):
 
 **Document metadata**
 
-- Name: `TRUSTED-COMPUTING-BASE.md`
+- Name: `tcb.md`
 - Version: v1.0 (post v10)
 - Date: 2026-05-18
 - EC version pin: `git-hash 909464e` (opam switch `jasmin`)

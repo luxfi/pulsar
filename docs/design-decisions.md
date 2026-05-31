@@ -138,7 +138,7 @@ source of NIST PQC submission rejections. Freeze first, port second.
 ## DD-009 Patent claims: prepared in advance
 
 **Decision.** Patent-claim disclosures collected in
-`docs/patent-notes-draft.md` from day 1 of the repo. Every contribution
+`patent-notes-draft.md` from day 1 of the repo. Every contribution
 adds the contributor's patent-claim notice (or explicit "no claims").
 
 **Rationale.** NIST MPTC §6 requires Notes on Patent Claims as a package

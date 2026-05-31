@@ -2,7 +2,7 @@
 
 Closed-finding registry. New findings go under `## Open`; on fix they
 move to `## Closed` with commit + tag. IDs are cited from source-code
-comments and from `CRYPTOGRAPHER-SIGN-OFF.md`, `DEPLOYMENT-RUNBOOK.md`,
+comments and from `docs/cryptographer-sign-off.md`, `docs/deployment.md`,
 `NIST-SUBMISSION.md`, `spec/blockers.tex`.
 
 Earlier IDs `CR-6`/`CR-7`/`CR-8` (KEM-wrap of DKG envelopes, ephemeral

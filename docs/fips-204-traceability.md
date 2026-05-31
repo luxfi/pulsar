@@ -246,7 +246,7 @@ selection.
 
 **Document metadata**
 
-- Name: `FIPS-TRACEABILITY.md`
+- Name: `fips-204-traceability.md`
 - Version: v1.0 (post v10)
 - Date: 2026-05-18
 - FIPS 204 version: NIST FIPS 204 (August 2024, final)

@@ -117,7 +117,7 @@ For research collaboration on Magnetar:
 
 **Document metadata**
 
-- Name: `docs/magnetar.md`
+- Name: `magnetar.md`
 - Version: v0.1 (placeholder)
 - Date: 2026-05-18
 - Status: **Research direction, not specification.** No production
