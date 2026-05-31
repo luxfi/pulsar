@@ -67,8 +67,8 @@ var (
 // the Attempt field; see pulsar.tex §6.2 for the cross-restart
 // state discipline).
 type ThresholdSigner struct {
-	Params    *Params
-	NodeID    NodeID
+	Params      *Params
+	NodeID      NodeID
 	SecretShare *KeyShare
 
 	// SessionID uniquely identifies this signature attempt across

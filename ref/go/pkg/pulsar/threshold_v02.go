@@ -480,7 +480,7 @@ type TransitionalThresholdSigner struct {
 	SessionID [16]byte
 	Attempt   uint32
 
-	Quorum  []NodeID  // sorted ascending by NodeID
+	Quorum  []NodeID // sorted ascending by NodeID
 	Message []byte
 
 	// MACKeys is the per-pair MAC key set, the same per-pair session
@@ -491,10 +491,10 @@ type TransitionalThresholdSigner struct {
 	rng io.Reader
 
 	// Round-1 state, kept for Round-2 reveal.
-	myY      polyVec    // L polynomials in coefficient-form
-	myW      polyVec    // K polynomials in NTT-domain (Aŷ)
-	myWCoeff polyVec    // K polynomials in coefficient-form (= invNTT(myW))
-	myCommit [32]byte   // D_i
+	myY      polyVec  // L polynomials in coefficient-form
+	myW      polyVec  // K polynomials in NTT-domain (Aŷ)
+	myWCoeff polyVec  // K polynomials in coefficient-form (= invNTT(myW))
+	myCommit [32]byte // D_i
 
 	// Lagrange coefficient for this party in the current quorum. Set
 	// at signer construction; used in Round 2 to derive z_i.
@@ -1052,21 +1052,21 @@ func (s *TransitionalThresholdSigner) Round2Sign(round1 []*TransitionalRound1Mes
 //
 // TCB HONESTY (read the file header before claiming public-BFT-safe):
 //
-//   The protocol wire shape (commits, MACs, w-reveals, Z/CS2/CT0
-//   contributions) is fully checked here. The per-party Z, CS2, CT0
-//   contributions are validated for commit-bind and MAC integrity but
-//   are NOT consumed by the inner sign step. The actual signature
-//   comes from mldsaSign(setup.SkBytes, message, ...) — i.e. the
-//   master ML-DSA private key packed in TransitionalSetup.SkBytes.
+//	The protocol wire shape (commits, MACs, w-reveals, Z/CS2/CT0
+//	contributions) is fully checked here. The per-party Z, CS2, CT0
+//	contributions are validated for commit-bind and MAC integrity but
+//	are NOT consumed by the inner sign step. The actual signature
+//	comes from mldsaSign(setup.SkBytes, message, ...) — i.e. the
+//	master ML-DSA private key packed in TransitionalSetup.SkBytes.
 //
-//   Therefore: whoever runs TransitionalAggregate briefly holds the
-//   master sk in process memory. The aggregator TCB is identical to
-//   v0.1 reconstruct-and-sign; only the storage layer for the master
-//   sk differs. The wire shape is the v0.2 deliverable; the v0.3
-//   deliverable (PULSAR-V03-1 in BLOCKERS.md) removes the SkBytes
-//   dependency by porting FIPS 204 sign internals to polynomial-share
-//   arithmetic and emits (z, h) directly from the per-party (Z, CS2,
-//   CT0) contributions.
+//	Therefore: whoever runs TransitionalAggregate briefly holds the
+//	master sk in process memory. The aggregator TCB is identical to
+//	v0.1 reconstruct-and-sign; only the storage layer for the master
+//	sk differs. The wire shape is the v0.2 deliverable; the v0.3
+//	deliverable (PULSAR-V03-1 in BLOCKERS.md) removes the SkBytes
+//	dependency by porting FIPS 204 sign internals to polynomial-share
+//	arithmetic and emits (z, h) directly from the per-party (Z, CS2,
+//	CT0) contributions.
 //
 // Suitable for: TEE-bound custody (M-Chain bridge, A-Chain confidential
 // compute), single-operator deployments where the aggregator host is

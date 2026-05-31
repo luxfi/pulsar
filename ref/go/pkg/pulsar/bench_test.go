@@ -57,8 +57,8 @@ func benchVerify(b *testing.B, mode Mode) {
 	}
 }
 
-func BenchmarkDKG_5of3_P65(b *testing.B) { benchDKG(b, 5, 3, ModeP65) }
-func BenchmarkDKG_7of4_P65(b *testing.B) { benchDKG(b, 7, 4, ModeP65) }
+func BenchmarkDKG_5of3_P65(b *testing.B)  { benchDKG(b, 5, 3, ModeP65) }
+func BenchmarkDKG_7of4_P65(b *testing.B)  { benchDKG(b, 7, 4, ModeP65) }
 func BenchmarkDKG_10of7_P65(b *testing.B) { benchDKG(b, 10, 7, ModeP65) }
 
 func benchDKG(b *testing.B, n, t int, mode Mode) {
@@ -87,8 +87,8 @@ func benchDKG(b *testing.B, n, t int, mode Mode) {
 	}
 }
 
-func BenchmarkThresholdSign_5of3_P65(b *testing.B) { benchThresholdSign(b, 5, 3, ModeP65) }
-func BenchmarkThresholdSign_7of4_P65(b *testing.B) { benchThresholdSign(b, 7, 4, ModeP65) }
+func BenchmarkThresholdSign_5of3_P65(b *testing.B)  { benchThresholdSign(b, 5, 3, ModeP65) }
+func BenchmarkThresholdSign_7of4_P65(b *testing.B)  { benchThresholdSign(b, 7, 4, ModeP65) }
 func BenchmarkThresholdSign_10of7_P65(b *testing.B) { benchThresholdSign(b, 10, 7, ModeP65) }
 
 func benchThresholdSign(b *testing.B, n, t int, mode Mode) {

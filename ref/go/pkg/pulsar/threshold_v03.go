@@ -240,19 +240,19 @@ type AlgebraicKeyShare struct {
 //
 // LIFECYCLE OF THE MASTER SEED
 //
-//   1. Caller derives or supplies seed.
-//   2. DealAlgebraicV03Shares expands seed → (s_1, s_2, t_0, A, Tr) via
-//      deriveKeyMaterial.
-//   3. Polynomial-vector Shamir-splits each of s_1, s_2, t_0.
-//   4. ZEROISES km.s1, km.s2, km.t0, km.key, km.prv before return.
-//      (km.a, km.t1, km.rho, km.tr, km.pub are public — not zeroised.)
-//   5. Caller zeroises the original seed.
+//  1. Caller derives or supplies seed.
+//  2. DealAlgebraicV03Shares expands seed → (s_1, s_2, t_0, A, Tr) via
+//     deriveKeyMaterial.
+//  3. Polynomial-vector Shamir-splits each of s_1, s_2, t_0.
+//  4. ZEROISES km.s1, km.s2, km.t0, km.key, km.prv before return.
+//     (km.a, km.t1, km.rho, km.tr, km.pub are public — not zeroised.)
+//  5. Caller zeroises the original seed.
 //
 // After step 4, the master sk no longer exists in this process. Steps
 // 2–4 happen in a single function-call lifetime under defer — see the
 // zeroizeKeyMaterial call below.
 //
-// PRODUCTION PATH
+// # PRODUCTION PATH
 //
 // A real v0.3 deployment runs a polynomial-share DKG instead of a
 // trusted-dealer ceremony, so no single party ever holds the master
@@ -897,9 +897,9 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 //
 // Returns:
 //   - (sig, nil)               on success — sig.Bytes verifies under
-//                              unmodified mldsa.Verify
+//     unmodified mldsa.Verify
 //   - (nil, ErrAlgebraicRestart) when global FIPS 204 norm bounds reject;
-//                              caller restarts at κ+1
+//     caller restarts at κ+1
 //   - (nil, other)             on tamper/invalid-input
 func AlgebraicAggregate(
 	params *Params,

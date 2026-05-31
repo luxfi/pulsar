@@ -214,13 +214,14 @@ func TestAlgebraic_FullCycle_VariousQuorums(t *testing.T) {
 // such", not "matches a specific circl output".
 //
 // What this test pins:
-//   (1) The byte format is canonical FIPS 204 sigEncode (sig.Bytes
-//       length == params.SignatureSize, layout = c̃ ‖ z_packed ‖ hint).
-//   (2) The signature verifies under unmodified mldsa.Verify against
-//       the SAME public key the masterSk would generate from the SAME
-//       seed.
-//   (3) That public key is byte-equal to circl's NewKeyFromSeed
-//       output for that seed (cross-check via setup.Pub.Bytes).
+//
+//	(1) The byte format is canonical FIPS 204 sigEncode (sig.Bytes
+//	    length == params.SignatureSize, layout = c̃ ‖ z_packed ‖ hint).
+//	(2) The signature verifies under unmodified mldsa.Verify against
+//	    the SAME public key the masterSk would generate from the SAME
+//	    seed.
+//	(3) That public key is byte-equal to circl's NewKeyFromSeed
+//	    output for that seed (cross-check via setup.Pub.Bytes).
 func TestAlgebraic_ByteValid(t *testing.T) {
 	msg := []byte("v0.3 byte-valid FIPS 204 sigEncode")
 	var sid [16]byte
@@ -710,9 +711,10 @@ func TestAlgebraic_TminusOne_Fails(t *testing.T) {
 // it's emitted but before aggregation.
 //
 // Two flavours of dishonest behaviour:
-//   (a) tampered Z bytes but stale MAC — caught at aggregator MAC check
-//   (b) honest-format z that doesn't match what the algebraic structure
-//       requires — caught at FIPS 204 Verify post-aggregation
+//
+//	(a) tampered Z bytes but stale MAC — caught at aggregator MAC check
+//	(b) honest-format z that doesn't match what the algebraic structure
+//	    requires — caught at FIPS 204 Verify post-aggregation
 //
 // This test exercises (a) — the MAC gate. (b) is harder to contrive
 // without re-deriving correct MACs, which would require the cheater to

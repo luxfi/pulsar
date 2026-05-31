@@ -20,9 +20,9 @@ func makeLargeCommittee(n int) []NodeID {
 
 // TestLarge_E2E_DKG_ThresholdSign_Verify is the headline end-to-end
 // test for the GF(q) protocol stack. It runs:
-//   1. LargeDKGSession across a (T, N) committee  (DKG)
-//   2. LargeThresholdSigner / LargeCombine on a T-quorum  (Sign)
-//   3. FIPS 204 ML-DSA.Verify on the output  (Class N1 manifesto)
+//  1. LargeDKGSession across a (T, N) committee  (DKG)
+//  2. LargeThresholdSigner / LargeCombine on a T-quorum  (Sign)
+//  3. FIPS 204 ML-DSA.Verify on the output  (Class N1 manifesto)
 //
 // (T, N) = (2, 3) is the canonical Lux production deployment per
 // Quasar grouped sortition (DefaultGroupSize=3, DefaultGroupThreshold=2).
