@@ -61,8 +61,9 @@ mobile-adversary game explicitly.
 cSHAKE-256 / KMAC-256). NIST FIPS 202 + SP 800-185 are taken as
 building blocks.
 \item Side-channel attacks on the \emph{physical} hardware running a
-party (power analysis, EM, fault injection). Mitigation discussed in
-\S\ref{sec:knownlimits} as future work.
+party (power analysis, EM, fault injection). Handled at the
+deployed-binary layer; see \S\ref{sec:knownlimits} for the
+algorithm-correctness boundary.
 \item Compromise of the BIP-32/BIP-39 mnemonic from which
 device-specific keys are derived. The HD-derivation security
 argument lives in HIP-0077 \S``Identity''; the Pulsar layer
