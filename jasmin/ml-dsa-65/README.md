@@ -49,8 +49,7 @@ claim by routing through libjade's functional theorem for ML-DSA-65.
 
 ## What we do NOT use
 
-- libjade's ML-KEM (Kyber) tree — Pulsar is a signature scheme; KEM
-  is out of scope.
+- libjade's ML-KEM (Kyber) tree — Pulsar is a signature scheme; ML-KEM consumption routes through `~/work/lux/crypto/mlkem/` per FIPS 203.
 - libjade's lower-parameter Dilithium variants (Dilithium2, Dilithium5).
   Pulsar's submitted parameter set is ML-DSA-65 only; ML-DSA-44 and
   ML-DSA-87 variants are discussed in `spec/parameters.tex` but the

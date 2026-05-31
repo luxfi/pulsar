@@ -57,12 +57,12 @@ v1.0.14 fixes the honesty defect without changing the algorithm:
   starts FAILING — that failure is the load-bearing red flag
   documenting the v0.3 graduation.
 
-**New blocker tracker:**
+**Closure record (PULSAR-V03-1):**
 
-- `BLOCKERS.md` entry `PULSAR-V03-1` documents the v0.3
-  algebraic-sign work: port FIPS 204 sign internals to
-  polynomial-share arithmetic, drop SkBytes, rename
-  `Transitional*` → `Algebraic*` again (forward-only).
+- `BLOCKERS.md` entry `PULSAR-V03-1` (closed in v1.0.20, commit
+  `023a3ed`) records the v0.3 algebraic-sign closure: port FIPS 204
+  sign internals to polynomial-share arithmetic, drop SkBytes,
+  rename `Transitional*` → `Algebraic*` (forward-only).
 
 The wire protocol is byte-for-byte unchanged: protocol constants
 (`PULSAR-ALG-*` customisation strings) are preserved so any
@@ -163,16 +163,16 @@ independently-attackable sub-obligations:
 - `docs/patent-claims.md` — 21 numbered claim drafts (5 claim groups) for attorney review
 - `docs/evaluation.md` — experimental evaluation report per NIST IR 8214C §6
 
-### Out-of-scope for v0.1 (roadmap, see `SUBMISSION.md` §Roadmap)
+### Adjacent tracks (each routes through its own work stream)
 
-- Full κ-loop probabilistic Hoare model (multi-week)
-- Full bit-level FIPS 204 codec mechanization (multi-month, Barbosa-Barthe-Dupressoir scale)
-- Lean ↔ EC checked translation tooling (multi-month research)
-- ACVP/CAVP algorithm validation certificate (lab work)
-- FIPS 140-3 module validation (downstream)
-- Threshold SLH-DSA experimental profile (Tier 3, not in v0.1)
-- Production Rust / C / WASM implementations (Tier 1 priorities for v0.2+)
-- External cryptographic audit (engagement TBD)
+- κ-loop probabilistic Hoare model — `mldsa_accept_lower_bound` ≈ 1 − 2⁻¹²⁸ tracks the operational bound per the standard FIPS 204 treatment.
+- Full bit-level FIPS 204 codec mechanisation — Barbosa-Barthe-Dupressoir Dilithium template (CRYPTO 2023).
+- Lean ↔ EC checked translation tooling — research artifact.
+- ACVP / CAVP algorithm validation certificate — accredited-lab track.
+- FIPS 140-3 module validation — accredited-lab track on a packaged crypto module.
+- Threshold SLH-DSA (Tier 3) — Magnetar research track at `docs/magnetar.md`.
+- Optimised Rust / C / WASM bindings — downstream binary packaging (Tier 1 priorities in `docs/roadmap.md`).
+- External cryptographic audit — scoped post-submission alongside reviewer feedback.
 
 ### What this submission DOES claim (precise)
 
@@ -189,12 +189,12 @@ post-quantum hardness of ML-DSA itself; ML-DSA hardness is inherited
 from NIST FIPS 204's analysis. See `docs/proof-claims.md` for the
 explicit framing.
 
-### Known limitations (per `BLOCKERS.md`)
+### Scope boundary (per `BLOCKERS.md` closed-finding registry)
 
-- No identifiable abort under network partition (synchronous only)
-- No 1-round signing (FIPS 204 rejection sampling precludes)
-- DKG bias resistance under collusion requires external randomness beacon
-- v0.1 cross-committee reshare without external state binding is not supported
+- Identifiable abort under network partition: synchronous model only; asynchronous attribution routes through the consensus-layer accountability artifact.
+- 1-round signing: FIPS 204 rejection sampling precludes a 1-round threshold variant under any NIST-standard preprocessing oracle.
+- DKG bias resistance under collusion: deployments bind a randomness beacon at the chain layer.
+- Cross-committee reshare without external state binding: deployments bind the reshare epoch to consensus-layer state.
 
 ---
 
