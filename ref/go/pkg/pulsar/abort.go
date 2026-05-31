@@ -23,24 +23,24 @@ import (
 
 // Errors returned by abort-evidence verification.
 var (
-	ErrInvalidComplaint     = errors.New("pulsar: complaint structure invalid")
-	ErrComplaintSelfAcc     = errors.New("pulsar: complaint accuser equals accused")
-	ErrComplaintNoSig       = errors.New("pulsar: complaint missing accuser signature")
-	ErrComplaintKind        = errors.New("pulsar: complaint kind out of range")
-	ErrComplaintNoEv        = errors.New("pulsar: complaint missing evidence blob")
-	ErrEvidenceFieldCount   = errors.New("pulsar: evidence field count mismatch for kind")
-	ErrEvidenceFieldLen     = errors.New("pulsar: evidence field length below FIPS 204 minimum")
-	ErrEvidenceTrailing     = errors.New("pulsar: trailing bytes after last evidence field")
-	ErrEvidenceTruncated    = errors.New("pulsar: evidence field truncated")
-	ErrEvidenceDuplicate    = errors.New("pulsar: duplicate field where uniqueness required")
+	ErrInvalidComplaint   = errors.New("pulsar: complaint structure invalid")
+	ErrComplaintSelfAcc   = errors.New("pulsar: complaint accuser equals accused")
+	ErrComplaintNoSig     = errors.New("pulsar: complaint missing accuser signature")
+	ErrComplaintKind      = errors.New("pulsar: complaint kind out of range")
+	ErrComplaintNoEv      = errors.New("pulsar: complaint missing evidence blob")
+	ErrEvidenceFieldCount = errors.New("pulsar: evidence field count mismatch for kind")
+	ErrEvidenceFieldLen   = errors.New("pulsar: evidence field length below FIPS 204 minimum")
+	ErrEvidenceTrailing   = errors.New("pulsar: trailing bytes after last evidence field")
+	ErrEvidenceTruncated  = errors.New("pulsar: evidence field truncated")
+	ErrEvidenceDuplicate  = errors.New("pulsar: duplicate field where uniqueness required")
 )
 
 // Per-kind evidence-field counts (matches types.go:235-254 schema).
 //
-//   Equivocation = (commit1, commit2, broadcast_sig1, broadcast_sig2)  — 4 fields
-//   BadDelivery  = (share, blind, commits)                             — 3 fields
-//   MACFailure   = (mac, key)                                          — 2 fields
-//   RangeFailure = (transcript_line)                                   — 1 field
+//	Equivocation = (commit1, commit2, broadcast_sig1, broadcast_sig2)  — 4 fields
+//	BadDelivery  = (share, blind, commits)                             — 3 fields
+//	MACFailure   = (mac, key)                                          — 2 fields
+//	RangeFailure = (transcript_line)                                   — 1 field
 const (
 	equivocationFieldCount = 4
 	badDeliveryFieldCount  = 3
@@ -51,15 +51,15 @@ const (
 // Per-field minimum byte lengths. Set conservatively against the
 // FIPS 204 ML-DSA-65 + Pulsar Pedersen primitives.
 //
-//   commit  : 32 bytes (SHAKE-256-truncated Pedersen commit)
-//   sig     : 64 bytes  (FIPS 204 §3.7 minimum across schemes —
-//                        Ed25519 = 64; opaque to this package)
-//   share   : 32 bytes  (per-party ML-DSA share digest)
-//   blind   : 32 bytes  (Pedersen blinding seed)
-//   mac     : 32 bytes  (SHAKE-256-truncated MAC)
-//   key     : 32 bytes  (recipient identity / MAC key)
-//   t-line  : 1 byte    (transcript line is variable; require at
-//                        least one byte so empty doesn't pass)
+//	commit  : 32 bytes (SHAKE-256-truncated Pedersen commit)
+//	sig     : 64 bytes  (FIPS 204 §3.7 minimum across schemes —
+//	                     Ed25519 = 64; opaque to this package)
+//	share   : 32 bytes  (per-party ML-DSA share digest)
+//	blind   : 32 bytes  (Pedersen blinding seed)
+//	mac     : 32 bytes  (SHAKE-256-truncated MAC)
+//	key     : 32 bytes  (recipient identity / MAC key)
+//	t-line  : 1 byte    (transcript line is variable; require at
+//	                     least one byte so empty doesn't pass)
 const (
 	commitMinLen     = 32
 	sigMinLen        = 64
@@ -73,8 +73,8 @@ const (
 
 // parseEvidenceFields parses an evidence blob in TLV form:
 //
-//   field = 4 bytes (BE u32 length) || N bytes payload
-//   blob  = field || field || ... || field
+//	field = 4 bytes (BE u32 length) || N bytes payload
+//	blob  = field || field || ... || field
 //
 // Returns the parsed payloads (without their length prefixes). A
 // trailing-bytes overflow or truncated length-prefix yields a
@@ -230,14 +230,14 @@ type AbortSignatureVerifier interface {
 // MarshalAbortEvidence serialises an AbortEvidence to its canonical
 // wire form. Layout:
 //
-//   1 byte    kind
-//   32 bytes  accuser NodeID
-//   32 bytes  accused NodeID
-//   8 bytes   epoch (big-endian uint64)
-//   4 bytes   evidence length (big-endian uint32)
-//   N bytes   evidence
-//   4 bytes   signature length (big-endian uint32)
-//   M bytes   signature
+//	1 byte    kind
+//	32 bytes  accuser NodeID
+//	32 bytes  accused NodeID
+//	8 bytes   epoch (big-endian uint64)
+//	4 bytes   evidence length (big-endian uint32)
+//	N bytes   evidence
+//	4 bytes   signature length (big-endian uint32)
+//	M bytes   signature
 //
 // Wire-stable across versions; new ComplaintKind values append to
 // the kind table but do not shift existing field offsets.

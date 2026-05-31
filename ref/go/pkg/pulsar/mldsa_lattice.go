@@ -32,16 +32,16 @@ import (
 // Ring parameters per FIPS 204 §4. These are fixed across all three
 // parameter sets (Pulsar-44, Pulsar-65, Pulsar-87).
 const (
-	mldsaN     = 256       // ring degree
-	mldsaQ     = 8380417   // 2²³ - 2¹³ + 1
-	mldsaQinv  = 4236238847 // -(q⁻¹) mod 2³²
-	mldsaROver256 = 41978  // (256)⁻¹ · R² mod q, R = 2³²
-	mldsaD     = 13        // dropped low bits
-	mldsaTRSize = 64       // FIPS 204 ML-DSA SHAKE-256 hash of pk
-	mldsaCTildeSize = 48   // ML-DSA-65 c̃ length (also 87)
-	mldsaCTildeSize44 = 32 // ML-DSA-44 c̃ length
-	mldsaGamma2P65 = 261888 // (q-1)/32 for ML-DSA-65/87
-	mldsaGamma2P44 = 95232  // (q-1)/88 for ML-DSA-44
+	mldsaN            = 256        // ring degree
+	mldsaQ            = 8380417    // 2²³ - 2¹³ + 1
+	mldsaQinv         = 4236238847 // -(q⁻¹) mod 2³²
+	mldsaROver256     = 41978      // (256)⁻¹ · R² mod q, R = 2³²
+	mldsaD            = 13         // dropped low bits
+	mldsaTRSize       = 64         // FIPS 204 ML-DSA SHAKE-256 hash of pk
+	mldsaCTildeSize   = 48         // ML-DSA-65 c̃ length (also 87)
+	mldsaCTildeSize44 = 32         // ML-DSA-44 c̃ length
+	mldsaGamma2P65    = 261888     // (q-1)/32 for ML-DSA-65/87
+	mldsaGamma2P44    = 95232      // (q-1)/88 for ML-DSA-44
 )
 
 // poly is the ML-DSA polynomial in R_q = Z_q[X]/(X^256 + 1). Coefficients
@@ -639,8 +639,9 @@ func polyUnpackT0(p *poly, buf []byte) {
 
 // polyPackW1 packs the high-bits polynomial p into buf for the
 // challenge hash. The packing width depends on γ₂.
-//   γ₂ = 261888: 4-bit packing (PolyW1Size = N/2 = 128 bytes/poly).
-//   γ₂ =  95232: 6-bit packing (PolyW1Size = N · 6 / 8 = 192).
+//
+//	γ₂ = 261888: 4-bit packing (PolyW1Size = N/2 = 128 bytes/poly).
+//	γ₂ =  95232: 6-bit packing (PolyW1Size = N · 6 / 8 = 192).
 func polyPackW1(p *poly, buf []byte, gamma2 uint32) {
 	if gamma2 == mldsaGamma2P65 {
 		for i := 0; i < mldsaN/2; i++ {
