@@ -29,12 +29,12 @@
 │   └── *** NO proofs/ or jasmin/ ***
 │
 ├── pulsar-mptc/             ← NIST MPTC submission package (this repo)
-│   ├── SUBMISSION.md NIST-SUBMISSION.md     Submission cover sheets
-│   ├── spec-overview.md SUITE.md sync-status.md      Companion docs
-│   ├── patents.md proof-axiom-inventory.md proof-claims.md
-│   ├── fips-204-traceability.md tcb.md
-│   ├── HANZO-CRYPTO-SUITE.md information-architecture.md
-│   ├── roadmap.md CHANGELOG.md README.md
+│   ├── SUBMISSION.md           Submission cover sheet (top-level)
+│   ├── docs/spec-overview.md docs/suite.md docs/sync-status.md      Companion docs
+│   ├── docs/patents.md docs/proof-axiom-inventory.md docs/proof-claims.md
+│   ├── docs/fips-204-traceability.md docs/tcb.md
+│   ├── docs/information-architecture.md
+│   ├── docs/roadmap.md CHANGELOG.md README.md
 │   ├── docs/                  ietf-draft-skeleton, magnetar, evaluation,
 │   │                          patent-claims, x-wing-sig
 │   ├── spec/                  pulsar.tex + 3 supplements
@@ -125,12 +125,13 @@ The full NIST-submission documentation package + all formal-method
 artifacts:
 
 ```
-SUBMISSION.md NIST-SUBMISSION.md spec-overview.md SUITE.md sync-status.md
-patents.md proof-axiom-inventory.md proof-claims.md fips-204-traceability.md
-tcb.md HANZO-CRYPTO-SUITE.md
-information-architecture.md roadmap.md CHANGELOG.md
-ietf-draft-skeleton.md magnetar.md evaluation.md
-patent-claims.md x-wing-sig.md
+SUBMISSION.md CHANGELOG.md README.md (top-level)
+docs/spec-overview.md docs/suite.md docs/sync-status.md
+docs/patents.md docs/proof-axiom-inventory.md docs/proof-claims.md
+docs/fips-204-traceability.md docs/tcb.md
+docs/information-architecture.md docs/roadmap.md
+docs/ietf-draft-skeleton.md docs/magnetar.md docs/evaluation.md
+docs/patent-claims.md docs/x-wing-sig.md
 proofs/easycrypt/ (28 files; v4-v13 decomposition complete)
 proofs/lean-easycrypt-bridge.md
 jasmin/lib/ jasmin/ml-dsa-65/ jasmin/threshold/

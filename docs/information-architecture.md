@@ -8,8 +8,8 @@
 
 | If you want to read about... | Read here |
 |---|---|
-| **NIST MPTC submission for Pulsar** | `pulsar-mptc/SUBMISSION.md` + `NIST-SUBMISSION.md` |
-| **Hanzo PQ Threshold Suite overview** | `pulsar-mptc/SUITE.md` |
+| **NIST MPTC submission for Pulsar** | `pulsar-mptc/SUBMISSION.md` |
+| **Hanzo PQ Threshold Suite overview** | `pulsar-mptc/docs/suite.md` |
 | **Pulsar protocol spec** | `pulsar-mptc/docs/spec-overview.md` (text) + `pulsar-mptc/spec/pulsar.pdf` (formal) |
 | **Pulsar IETF / CFRG draft** | `pulsar-mptc/docs/ietf-draft-skeleton.md` |
 | **What's proved vs not proved** | `pulsar-mptc/docs/proof-claims.md` |
@@ -55,7 +55,7 @@ Classical signatures
     └── THRESHOLD: standard BLS aggregation  ← `lps/LP-NNN` (TBD)
 
 Hybrid / composition
-└── HANZO PQ THRESHOLD SUITE  ← `pulsar-mptc/SUITE.md` (master index)
+└── HANZO PQ THRESHOLD SUITE  ← `pulsar-mptc/docs/suite.md` (master index)
 
 Secret-sharing wrapper
 └── LSS (Linear Shamir Secret Sharing)  ← `lps/LP-019` + `lps/LP-141`
@@ -73,7 +73,7 @@ NIST submission reviewer
 
 IETF / CFRG editor
 ├── Entry: pulsar-mptc/docs/ietf-draft-skeleton.md
-├── Cross-ref: pulsar-mptc/SUITE.md (overview)
+├── Cross-ref: pulsar-mptc/docs/suite.md (overview)
 └── Conversion: mmark / kramdown-rfc → xml2rfc XML
 
 Lux protocol developer (writing a new precompile, etc.)
@@ -153,7 +153,7 @@ A reader can hop axes:
 
 For each new tier construction:
 
-1. Add a row to `SUITE.md` §Tiers.
+1. Add a row to `suite.md` §Tiers.
 2. Add a corresponding tier-N entry to `information-architecture.md`
    Axis 1.
 3. If production-grade: spin up a parallel doc package
@@ -191,4 +191,4 @@ To prevent drift across repos / LPs / docs:
 - Name: `information-architecture.md`
 - Version: v0.1
 - Date: 2026-05-18
-- Cross-references: `SUITE.md`, `~/work/lux/lps/CRYPTO-CANONICAL.md`
+- Cross-references: `suite.md`, `~/work/lux/lps/CRYPTO-CANONICAL.md`
