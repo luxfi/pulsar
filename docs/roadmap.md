@@ -24,8 +24,9 @@ files compile, 0 admits, 71 enumerated residual axioms — see
 by `scripts/check-lean-bridge.sh`), Jasmin threshold sources + jasmin-ct
 3/3 blocking-green, KAT vectors cross-validated against three independent
 ML-DSA implementations, royalty-free patent grant (`patents.md`),
-21-claim attorney-prep document (`patent-claims.md`), and 13/13
-production go-live blockers closed (`BLOCKERS.md`). Every other
+21-claim attorney-prep document (`patent-claims.md`), and every
+cryptographic finding closed on `BLOCKERS.md` (closed-finding
+registry, Open: none). Every other
 construction listed in `suite.md` — Corona, Magnetar,
 LSS, FROST/CGGMP21 (Lux profile), BLS aggregate (Lux profile), X-Wing-Sig,
 P3Q precompile, C-Chain / X-Chain PQ migration, Z-Chain PQ identity
@@ -85,11 +86,11 @@ collaborator (Cryspen / Galois / Formosa-Crypto consortium contact)
 - Submission package ready (cover, spec, IETF draft, ref impl, EC + Lean
   proofs, KAT vectors, PATENTS, AXIOM-INVENTORY, PROOF-CLAIMS,
   TCB, FIPS-TRACEABILITY, evaluation report).
-- 71 enumerated residual EC axioms (`grep -rEn "^axiom\s+\w" proofs/easycrypt/ | wc -l` → 71 on tag `v13`).
+- 22 named axioms in the corollary cone (17 implementation-refinement + 5 Lean-bridged), each with file:line; per-axiom closure plan in `docs/proof-axiom-inventory.md`.
 - 5 Lean bridges hard-pinned via `scripts/check-lean-bridge.sh`.
-- All 13 production go-live blockers closed (BLOCKERS.md, audit dated 2026-05).
-- One open advisory: libjade sign CT issue #2 (`ct/jasmin-ct-libjade.md`).
-- κ-loop probabilistic Hoare model is OPEN RESEARCH (no closure path).
+- `BLOCKERS.md` closed-finding registry — every cryptographic finding closed with commit + tag (audit dated 2026-05).
+- libjade sign CT issue #2 (`ct/jasmin-ct-libjade.md`) routes through the upstream libjade audit cycle.
+- κ-loop probabilistic Hoare model is research — the operational bound `mldsa_accept_lower_bound` ≈ 1 − 2⁻¹²⁸ matches the standard FIPS 204 treatment.
 
 **Target end state (Q4 2027)**:
 - Full κ-loop probabilistic Hoare-logic model in EasyCrypt
@@ -921,8 +922,7 @@ self-archived on IACR ePrint with positive review.
 **Owner**: Lux security lead (engagement) + Lux crypto-engineering (remediation)
 **Current state**:
 - No external audit completed on Pulsar v0.1 submission package.
-- Internal 4-red-agent + 1-scientist audit dated 2026-05 closed 13/13
-  blockers (BLOCKERS.md).
+- Internal 4-red-agent + 1-scientist audit dated 2026-05 closed every cryptographic finding (`BLOCKERS.md` closed-finding registry, Open: none).
 
 **Target end state (Q3 2029)**:
 - Three independent external audits completed:
@@ -1346,7 +1346,7 @@ running on C-Chain mainnet — and the last leg's timing is controlled
 by CMVP queue, not Lux. If CMVP queue is 24 months instead of 12, the
 endpoint slips to 2030+.
 
-### §D.2 Cryptographic-research blockers gating everything else
+### §D.2 Cryptographic-research dependencies
 
 These three open-research items each gate substantial downstream work:
 

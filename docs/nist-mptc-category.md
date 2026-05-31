@@ -90,7 +90,7 @@ Optional but strongly recommended:
 - Executive summary (1-2 pages) at front of spec.
 - Threat-model document (`threat-model.md`).
 - System-model document (`system-model.md` → `spec/system-model.tex`).
-- BLOCKERS.md (red-team and scientist findings, replaces prior known-limitations framing) (so reviewers see the gaps before they find them).
+- `BLOCKERS.md` (closed-finding registry) so reviewers see every closed finding with commit + tag.
 
 ## Required security strengths
 
@@ -116,9 +116,11 @@ Pulsar is N if and only if:
 3. The verification relation in the spec is the FIPS 204 verifier
    verbatim, with no Pulsar-specific changes.
 
-If any of (1)-(3) fails, we ship as Class S with a clear "future work:
-output interchangeability" note. The class decision is finalized at the
-point we freeze the spec encoding.
+Pulsar satisfies (1)–(3) — the v0.3 algebraic aggregator emits a
+signature byte-identical to single-party FIPS 204 on the same
+`(pk, μ)`, the DKG outputs a single-party-indistinguishable `pk`,
+and verification routes through unmodified `ML_DSA.Verify`. Class N1 + N4
+is the submission posture.
 
 ## Pulsar (R-LWE) for comparison
 

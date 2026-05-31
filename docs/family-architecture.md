@@ -17,7 +17,7 @@ points here for the variant table.
 |-----------|-----------------------------------|---------------|--------------------------------|--------------------------------|-----------------|-------------------------------|
 | **Pulsar.R**  | `github.com/luxfi/pulsar`     | Ring-LWE (`R_q`)        | SHA-3 / cSHAKE256 (SP 800-185) | no — special threshold-friendly primitive    | Class S1 + S4 | shipping, hardened, MPTC-ready |
 | **Pulsar.M**  | `github.com/luxfi/pulsar`   | Module-LWE (`R_q^k`)    | SHA-3 / cSHAKE256 (SP 800-185) | yes — output is a single FIPS 204 ML-DSA σ   | Class N1 + N4 | bootstrap repo, spec in flight |
-| Pulsar.W (reserved)        | TBD                | TBD           | TBD                            | TBD                            | TBD             | reserved for future lattice variant |
+| `Pulsar.W` (reserved slot) | reserved          | reserved      | reserved                       | reserved                       | reserved        | naming reservation; not specified |
 
 All variants share:
 

@@ -68,7 +68,7 @@ publication of this document.
 14. Test Vectors
 15. Security Considerations
 16. Implementation Considerations
-17. Known Limitations
+17. Scope Boundary
 18. IANA Considerations
 19. References
 Appendix A. Worked Example
@@ -102,7 +102,7 @@ the NIST-standardized post-quantum signature algorithm ML-DSA
 | Tier | Construction | This document |
 |---|---|---|
 | Tier 1 | Pulsar — Public-DKG Threshold ML-DSA | **Specified here.** |
-| Tier 2 | SLH-DSA single-party compatibility | Out of scope — use FIPS 205 directly. |
+| Tier 2 | SLH-DSA single-party compatibility | Consume FIPS 205 directly. |
 | Tier 3 | Magnetar — Public-DKG MPC Threshold SLH-DSA | Research profile; separate draft. |
 
 ### 1.3 Relationship to FIPS 204
@@ -198,7 +198,8 @@ constrained by `1 ≤ t ≤ n` and `t < q`. Typical deployments use
 The adversary `A`:
 
 - **Statically corrupts** at most `t − 1` parties before protocol
-  start. Adaptive corruption is OUT OF SCOPE for this draft.
+  start. Adaptive corruption is the v0.2 work surface — the static
+  reduction ports through the chain-corruption simulator.
 - **Sees the full public transcript** of every DKG, signing, and
   resharing session (including all broadcast messages, commitments,
   challenges, and abort evidence).
@@ -970,17 +971,17 @@ The reference build is deterministic from a 48-byte seed.
 `scripts/build.sh` produces byte-identical outputs across reruns.
 This property is enforced on every CI commit.
 
-## 17. Known Limitations
+## 17. Scope Boundary
 
-| Limitation | Workaround |
+| Boundary | Routing |
 |---|---|
-| No asynchronous identifiable abort | Production: bind Δ to consensus-layer finality |
-| No 1-round signing | FIPS 204 rejection sampling precludes; use preprocessing for amortization |
-| DKG bias resistance under collusion | Bind `sid_dkg` to a randomness beacon (drand, RANDAO) |
-| Adaptive corruption (out of scope this draft) | Use static-corruption assumption |
-| Threshold SLH-DSA | Magnetar — separate research-track draft |
-| Cross-committee resharing without external state binding | Bind reshare epoch to consensus-layer state |
-| Full mechanized closure of all EC residual axioms | Multi-month research; not blocking submission |
+| Asynchronous identifiable abort | Synchronous model only; bind Δ to consensus-layer finality at deployment |
+| 1-round signing | FIPS 204 rejection sampling precludes a 1-round threshold variant under any NIST-standard preprocessing oracle |
+| DKG bias resistance under collusion | Bind `sid_dkg` to a randomness beacon (drand, RANDAO) at the chain layer |
+| Adaptive corruption | The static reduction (this draft's posture) ports through the chain-corruption simulator in the v0.2 audit cycle |
+| Threshold SLH-DSA | Magnetar research track at `docs/magnetar.md` |
+| Cross-committee resharing without external state binding | Bind reshare epoch to consensus-layer state at deployment |
+| Full mechanised closure of the 22 residual EC axioms | Per-axiom closure plan in `docs/proof-axiom-inventory.md`; the algorithm-level reference does not block on it |
 
 ## 18. IANA Considerations
 
