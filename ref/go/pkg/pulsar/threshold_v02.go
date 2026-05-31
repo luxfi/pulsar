@@ -115,9 +115,6 @@ import (
 	"io"
 	"sort"
 
-	"github.com/cloudflare/circl/sign/mldsa/mldsa44"
-	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
-	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -1174,14 +1171,6 @@ func TransitionalAggregate(
 	return &Signature{Mode: params.Mode, Bytes: sigBytes}, nil
 }
 
-// ensureCirclLinked is a marker that pins the circl imports referenced
-// indirectly by mldsaSign through Sign in sign.go. Without this anchor
-// a future automated import cleanup could drop the explicit circl
-// dependencies threshold_v02.go relies on through the dispatch table.
-var _ = mldsa44.SignatureSize
-var _ = mldsa65.SignatureSize
-var _ = mldsa87.SignatureSize
-
 // algTranscriptTau1 builds the Round-1 transcript τ_1 for v0.2. Same
 // structure as v0.1's transcriptTau1Bytes but uses tagAlgR1 customisation
 // (callers feed this into the cSHAKE256/KMAC256 customisation field).
@@ -1209,10 +1198,10 @@ func algTranscriptTau1(sid [16]byte, attempt uint32, quorum []NodeID, sender Nod
 // per-party payload. MAC is taken over this transcript so any tamper
 // in (W, Z, CS2, CT0) flips the MAC.
 func algTranscriptTau2(sid [16]byte, attempt uint32, quorum []NodeID, sender NodeID, pk *PublicKey, message, w, z, cs2, ct0 []byte) []byte {
-	parts := [][]byte{}
-	parts = append(parts, []byte("ALG-V1-R2"))
-	parts = append(parts, sid[:])
-	parts = append(parts, []byte{byte(attempt >> 24), byte(attempt >> 16), byte(attempt >> 8), byte(attempt)})
+	var attemptBE [4]byte
+	binary.BigEndian.PutUint32(attemptBE[:], attempt)
+	parts := make([][]byte, 0, 8+len(quorum)+1)
+	parts = append(parts, []byte("ALG-V1-R2"), sid[:], attemptBE[:])
 	for _, q := range quorum {
 		parts = append(parts, q[:])
 	}
@@ -1220,13 +1209,8 @@ func algTranscriptTau2(sid [16]byte, attempt uint32, quorum []NodeID, sender Nod
 	if pk != nil {
 		parts = append(parts, pk.Bytes)
 	}
-	parts = append(parts, message)
-	parts = append(parts, w)
-	parts = append(parts, z)
-	parts = append(parts, cs2)
-	parts = append(parts, ct0)
-	out := []byte{}
-	out = append(out, leftEncode(uint64(len(parts)))...)
+	parts = append(parts, message, w, z, cs2, ct0)
+	out := append([]byte{}, leftEncode(uint64(len(parts)))...)
 	for _, p := range parts {
 		out = append(out, encodeString(p)...)
 	}

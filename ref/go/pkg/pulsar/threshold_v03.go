@@ -134,9 +134,6 @@ import (
 	"io"
 	"sort"
 
-	"github.com/cloudflare/circl/sign/mldsa/mldsa44"
-	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
-	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -1162,10 +1159,10 @@ func algV03TranscriptTau1(sid [16]byte, attempt uint32, quorum []NodeID, sender 
 // per-party payload. MAC is taken over this transcript so any tamper
 // in (W, Z, CS2, CT0) flips the MAC.
 func algV03TranscriptTau2(sid [16]byte, attempt uint32, quorum []NodeID, sender NodeID, pk *PublicKey, message, w, z, cs2, ct0 []byte) []byte {
-	parts := [][]byte{}
-	parts = append(parts, []byte("V03-R2"))
-	parts = append(parts, sid[:])
-	parts = append(parts, []byte{byte(attempt >> 24), byte(attempt >> 16), byte(attempt >> 8), byte(attempt)})
+	var attemptBE [4]byte
+	binary.BigEndian.PutUint32(attemptBE[:], attempt)
+	parts := make([][]byte, 0, 8+len(quorum)+1)
+	parts = append(parts, []byte("V03-R2"), sid[:], attemptBE[:])
 	for _, q := range quorum {
 		parts = append(parts, q[:])
 	}
@@ -1173,13 +1170,8 @@ func algV03TranscriptTau2(sid [16]byte, attempt uint32, quorum []NodeID, sender 
 	if pk != nil {
 		parts = append(parts, pk.Bytes)
 	}
-	parts = append(parts, message)
-	parts = append(parts, w)
-	parts = append(parts, z)
-	parts = append(parts, cs2)
-	parts = append(parts, ct0)
-	out := []byte{}
-	out = append(out, leftEncode(uint64(len(parts)))...)
+	parts = append(parts, message, w, z, cs2, ct0)
+	out := append([]byte{}, leftEncode(uint64(len(parts)))...)
 	for _, p := range parts {
 		out = append(out, encodeString(p)...)
 	}
@@ -1204,16 +1196,3 @@ func V03QuorumEvalPoints(quorum []NodeID, shares []*AlgebraicKeyShare) ([]uint32
 	}
 	return out, nil
 }
-
-// ensureV03CirclLinked pins the circl imports so a future automated
-// import cleanup does not drop them. v0.3 does NOT call mldsaSign or
-// circl SignTo at any point — the imports are kept ONLY because
-// (a) Verify code paths reference these packages elsewhere in the file
-// and (b) the test suite needs them for byte-validity checks.
-var _ = mldsa44.SignatureSize
-var _ = mldsa65.SignatureSize
-var _ = mldsa87.SignatureSize
-
-// Ensure encoding/binary is imported (used by the test fixture pack/
-// unpack helpers and indirectly by polyDeriveUniformBall).
-var _ = binary.LittleEndian
