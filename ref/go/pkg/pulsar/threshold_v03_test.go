@@ -33,7 +33,7 @@ import (
 // stageAlgebraic runs a deterministic v0.3 algebraic-threshold ceremony
 // to produce a signature, returning the signature, group public key,
 // and the trusted-dealer setup. Used by every test below.
-func stageAlgebraic(t *testing.T, n, threshold int, msg []byte, sid [16]byte, attempt uint32) (
+func stageAlgebraic(t testing.TB, n, threshold int, msg []byte, sid [16]byte, attempt uint32) (
 	*Signature,
 	*PublicKey,
 	*AlgebraicSetup,
