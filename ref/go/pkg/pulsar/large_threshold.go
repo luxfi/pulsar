@@ -333,4 +333,3 @@ func LargeCombine(params *Params, groupPubkey *PublicKey, message []byte, ctx []
 	zeroizeBytes(mixInput)
 	return &Signature{Mode: params.Mode, Bytes: sigBytes}, nil
 }
-
