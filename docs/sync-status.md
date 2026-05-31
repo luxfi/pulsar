@@ -30,11 +30,11 @@
 │
 ├── pulsar-mptc/             ← NIST MPTC submission package (this repo)
 │   ├── SUBMISSION.md NIST-SUBMISSION.md     Submission cover sheets
-│   ├── SPEC.md SUITE.md SYNC-STATUS.md      Companion docs
-│   ├── PATENTS.md AXIOM-INVENTORY.md PROOF-CLAIMS.md
-│   ├── FIPS-TRACEABILITY.md TRUSTED-COMPUTING-BASE.md
-│   ├── HANZO-CRYPTO-SUITE.md INFORMATION-ARCHITECTURE.md
-│   ├── ROADMAP.md CHANGELOG.md README.md
+│   ├── spec-overview.md SUITE.md sync-status.md      Companion docs
+│   ├── patents.md proof-axiom-inventory.md proof-claims.md
+│   ├── fips-204-traceability.md tcb.md
+│   ├── HANZO-CRYPTO-SUITE.md information-architecture.md
+│   ├── roadmap.md CHANGELOG.md README.md
 │   ├── docs/                  ietf-draft-skeleton, magnetar, evaluation,
 │   │                          patent-claims, x-wing-sig
 │   ├── spec/                  pulsar.tex + 3 supplements
@@ -73,9 +73,9 @@
 |---|---|---|
 | Built top-level proofs index | `~/work/lux/proofs/INDEX.md` | **created** |
 | Regenerated papers index from disk | `~/work/lux/papers/INDEX.md` | **refreshed (121 → 141)** |
-| Wrote this sync status | `~/work/lux/pulsar-mptc/SYNC-STATUS.md` | **this file** |
-| Wrote submission-readiness status | `~/work/lux/pulsar-mptc/STATUS-SUBMISSION-READINESS.md` | **created** |
-| Wrote single-impl merge plan | `~/work/lux/pulsar-mptc/SINGLE-IMPL-PLAN.md` | **created** |
+| Wrote this sync status | `~/work/lux/pulsar-mptc/docs/sync-status.md` | **this file** |
+| Wrote submission-readiness status | `~/work/lux/pulsar-mptc/docs/status.md` | **created** |
+| Wrote single-impl merge plan | `~/work/lux/pulsar-mptc/docs/single-impl-plan.md` | **created** |
 | Fix LP-180 stale `pulsar-m` paths | `~/work/lux/lps/LP-180-nist-mptc-submission.md` | **patched** |
 | Add pulsar-mptc to CRYPTO-CANONICAL | `~/work/lux/lps/CRYPTO-CANONICAL.md` | **deferred — single-line cross-ref** |
 
@@ -89,7 +89,7 @@ pulsar-mptc (identity, zeroize, n1_byte_equality_test, fuzz_test),
 
 Collapsing to a single canonical implementation requires a real merge,
 not a wholesale deletion. The merge specification lives in
-`SINGLE-IMPL-PLAN.md`. Until executed, the duplicate trees stand and
+`single-impl-plan.md`. Until executed, the duplicate trees stand and
 this audit flags the divergence as open work blocking "one and only
 one implementation" suite invariant.
 
@@ -125,12 +125,12 @@ The full NIST-submission documentation package + all formal-method
 artifacts:
 
 ```
-SUBMISSION.md NIST-SUBMISSION.md SPEC.md SUITE.md SYNC-STATUS.md
-PATENTS.md AXIOM-INVENTORY.md PROOF-CLAIMS.md FIPS-TRACEABILITY.md
-TRUSTED-COMPUTING-BASE.md HANZO-CRYPTO-SUITE.md
-INFORMATION-ARCHITECTURE.md ROADMAP.md CHANGELOG.md
-docs/ietf-draft-skeleton.md docs/magnetar.md docs/evaluation.md
-docs/patent-claims.md docs/x-wing-sig.md
+SUBMISSION.md NIST-SUBMISSION.md spec-overview.md SUITE.md sync-status.md
+patents.md proof-axiom-inventory.md proof-claims.md fips-204-traceability.md
+tcb.md HANZO-CRYPTO-SUITE.md
+information-architecture.md roadmap.md CHANGELOG.md
+ietf-draft-skeleton.md magnetar.md evaluation.md
+patent-claims.md x-wing-sig.md
 proofs/easycrypt/ (28 files; v4-v13 decomposition complete)
 proofs/lean-easycrypt-bridge.md
 jasmin/lib/ jasmin/ml-dsa-65/ jasmin/threshold/
@@ -187,7 +187,7 @@ Patch lands in `lps` commit alongside this audit.
 
 **Document metadata**
 
-- Name: `SYNC-STATUS.md`
+- Name: `sync-status.md`
 - Version: v0.1
 - Date: 2026-05-18
 - Owner: `submissions@lux.network`

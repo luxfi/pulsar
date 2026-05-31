@@ -18,7 +18,7 @@
 | Repository | <https://github.com/luxfi/pulsar> |
 | Submission tag | `submission-2026-11-16` |
 | Spec PDF | `spec/pulsar.pdf` |
-| License | Apache-2.0 (code) + CC-BY-4.0 (PATENTS.md) |
+| License | Apache-2.0 (code) + CC-BY-4.0 (docs/patents.md) |
 
 ## Headline claim
 
@@ -32,7 +32,7 @@ combine accepts (passes ML-DSA norm + kappa rejection checks),
 *then* the produced byte string equals the centralized ML-DSA-65
 signature on the same protocol-level inputs, under the stated layout,
 algebraic, and byte-walk assumptions enumerated in
-`AXIOM-INVENTORY.md`. Acceptance probability is tracked separately
+`docs/proof-axiom-inventory.md`. Acceptance probability is tracked separately
 through `accept_signing_attempt` and `mldsa_accept_lower_bound`.
 
 ## Package contents (mapped to NIST IR 8214C requirements)
@@ -44,7 +44,7 @@ through `accept_signing_attempt` and `mldsa_accept_lower_bound`.
 | Experimental evaluation report | `docs/evaluation.md` + `bench/results/REPORT.md` |
 | Test vectors | `vectors/` (5 JSON sets + per-(n,t) transcripts) |
 | Security analysis | `spec/pulsar.tex` §5 + `pulsar-m/*.tex` (separate audit artifact) |
-| Patent / IP statement | `PATENTS.md` (royalty-free grant) + `docs/patent-claims.md` (attorney prep) |
+| Patent / IP statement | `docs/patents.md` (royalty-free grant) + `docs/patent-claims.md` (attorney prep) |
 | Known limitations | `BLOCKERS.md` + `SUBMISSION.md` §"Does NOT claim" |
 | Contact / maintainers | `SUBMISSION.md` §Contact |
 
@@ -90,13 +90,13 @@ After v10 (latest commit on submission branch):
 | Accepted-path no-reject | 2 | `*_no_reject_on_accepted_honest_layout` |
 | Lean-bridged algebraic (v8) | 5 | Including `threshold_partial_response_identity` |
 | Codec roundtrip (pack_n1) | 1 | `pack_unpack_n1_signature_roundtrip` |
-| Per-type FIPS 204 codec roundtrips | ~21 | enumerated in `AXIOM-INVENTORY.md` §7 |
+| Per-type FIPS 204 codec roundtrips | ~21 | enumerated in `docs/proof-axiom-inventory.md` §7 |
 | **Derived lemmas (no longer primitive)** | 11+ | `*_body_{c_tilde,mu,w1,mu_input,h}_spec` × 2 sides + `combine_body_z_spec` |
 | EC admit budget | **0 / 0** | hard-pinned by `scripts/checks/ec-admits.sh` |
 
-Full enumeration: `AXIOM-INVENTORY.md`. Refinement chain:
-`PROOF-CLAIMS.md`. TCB: `TRUSTED-COMPUTING-BASE.md`. FIPS 204 §-map:
-`FIPS-TRACEABILITY.md`.
+Full enumeration: `docs/proof-axiom-inventory.md`. Refinement chain:
+`docs/proof-claims.md`. TCB: `docs/tcb.md`. FIPS 204 §-map:
+`docs/fips-204-traceability.md`.
 
 ## What this submission does NOT claim
 
@@ -135,7 +135,7 @@ should obtain byte-identical artifacts on reproduction.
 - **Defensive termination**: license terminates against any party
   asserting patents against Pulsar, FIPS 204 ML-DSA, or any other
   NIST-standardized PQ signature scheme.
-- **Full text**: `PATENTS.md` §3.
+- **Full text**: `docs/patents.md` §3.
 
 ## Contact
 

@@ -153,7 +153,7 @@ pulsar-mptc/                  ← submission framework (Go-module dependent)
 - [ ] **Sub-session 4 — CI gate (¼ day)**: add `scripts/check-single-impl.sh`
       that fails if `pulsar-mptc/ref/go/pkg/pulsar/` re-appears.
 - [ ] **Sub-session 5 — docs update (¼ day)**: refresh
-      `SUBMISSION.md`, `STATUS-SUBMISSION-READINESS.md`, `SYNC-STATUS.md`
+      `SUBMISSION.md`, `status.md`, `sync-status.md`
       to reflect single-impl.
 
 ## Why not just delete now
@@ -174,7 +174,7 @@ specification for that merge.
 
 **Document metadata**
 
-- Name: `SINGLE-IMPL-PLAN.md`
+- Name: `single-impl-plan.md`
 - Version: v0.1
 - Date: 2026-05-18
 - Owner: `crypto-merge@lux.network`

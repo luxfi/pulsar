@@ -44,7 +44,7 @@ downstream of this submission (see §"Layer 4" below).
 | Submission tag | `submission-YYYY-MM-DD` (cut from `main` at deadline) |
 | Spec PDF | `spec/pulsar.pdf` (built via `scripts/build.sh`) |
 | License | Apache-2.0 (code) — see `LICENSE` |
-| Patent posture | **Royalty-free grant** — see `PATENTS.md` (public-facing grant text) and `docs/patent-claims.md` (attorney-prep claim drafts). Lux Industries grants a worldwide, royalty-free, irrevocable patent license to any FIPS 204 ML-DSA-conformant implementation under Apache-2.0 or compatible OSI license, OR any NIST MPTC / PQC / ACVP submission, validation, or interoperability test. Defensive termination mirrors Apache-2.0 §3 and extends to all NIST-standardized PQ signature schemes. |
+| Patent posture | **Royalty-free grant** — see `docs/patents.md` (public-facing grant text) and `docs/patent-claims.md` (attorney-prep claim drafts). Lux Industries grants a worldwide, royalty-free, irrevocable patent license to any FIPS 204 ML-DSA-conformant implementation under Apache-2.0 or compatible OSI license, OR any NIST MPTC / PQC / ACVP submission, validation, or interoperability test. Defensive termination mirrors Apache-2.0 §3 and extends to all NIST-standardized PQ signature schemes. |
 | Tier | **Tier 1**: Threshold ML-DSA-65 (this submission). **Tier 2**: SLH-DSA (FIPS 205) single-party compatibility — out of scope for v0.1. **Tier 3**: Threshold SLH-DSA — experimental research profile, not in this submission. |
 
 ## Headline claim
@@ -70,7 +70,7 @@ signature without modification.
 > avoids the reconstruction via Lagrange-linearity but is not yet the
 > reference runtime. See `BLOCKERS.md` "Spec ↔ Go-reference protocol
 > drift" for full disclosure and the per-deployment guidance in
-> `CRYPTOGRAPHER-SIGN-OFF.md` §Gates GATE-1.
+> `docs/cryptographer-sign-off.md` §Gates GATE-1.
 
 **Theorem framing — accepted-path correctness.** The Class N1
 byte-equality theorem is conditional on acceptance: *if* the threshold
@@ -152,12 +152,12 @@ A reviewer with limited time should read in this order:
    - §5 Security games (EUF-CMA threshold, identifiable abort)
    - §6 Output-interchangeability proof (the Class N1 claim)
    - §7 NIST MPTC category mapping
-4. **`PROOF-CLAIMS.md`** — what's proved vs what's not (narrow claim)
-5. **`AXIOM-INVENTORY.md`** — residual EC trust base, per-axiom closure plan
-6. **`TRUSTED-COMPUTING-BASE.md`** — EC/Jasmin/OCaml TCB
-7. **`FIPS-TRACEABILITY.md`** — op/lemma → FIPS 204 § map
+4. **`docs/proof-claims.md`** — what's proved vs what's not (narrow claim)
+5. **`docs/proof-axiom-inventory.md`** — residual EC trust base, per-axiom closure plan
+6. **`docs/tcb.md`** — EC/Jasmin/OCaml TCB
+7. **`docs/fips-204-traceability.md`** — op/lemma → FIPS 204 § map
 8. **`docs/evaluation.md`** — performance + correctness + CT + sec-param evidence
-9. **`PATENTS.md`** — royalty-free patent grant text
+9. **`docs/patents.md`** — royalty-free patent grant text
 10. **`README.md`** — repository layout and how to reproduce
 11. **`vectors/README.md`** — KAT format + cross-validation gates
 12. **`BLOCKERS.md`** — what the construction does NOT claim
@@ -167,7 +167,7 @@ A reviewer with limited time should read in this order:
     protocol drift" (two-variant submission disclosure), "Class N1
     byte-equal output" (v0.1 aggregator trust caveat), "EUF-CMA
     under adaptive corruption" (static-corruption only in v0.1)
-13. **`CRYPTOGRAPHER-SIGN-OFF.md`** — independent cryptographer
+13. **`docs/cryptographer-sign-off.md`** — independent cryptographer
     review (APPROVED WITH GATES) covering construction soundness,
     proof-artifact verification, test surface, and the four
     pre-publish disclosure gates

@@ -43,11 +43,11 @@ implementation defects.
     `abort.go`, `zeroize.go`, `types.go`, `params.go`.
   - `n1_byte_equality_test.go` — empirical realization of the
     Class N1 byte-equality theorem at (5,3), (7,4), (10,7); all pass.
-- **Spec.** `~/work/lux/pulsar/SPEC.md` and
+- **Spec.** `~/work/lux/pulsar/docs/spec-overview.md` and
   `~/work/lux/pulsar/spec/pulsar.tex` (1,630 lines).
 - **Submission package.** `~/work/lux/pulsar/SUBMISSION.md`,
-  `CHANGELOG.md`, `PROOF-CLAIMS.md`,
-  `AXIOM-INVENTORY.md`, `BLOCKERS.md`.
+  `CHANGELOG.md`, `proof-claims.md`,
+  `proof-axiom-inventory.md`, `BLOCKERS.md`.
 - **Machine-checked proofs.**
   - EasyCrypt: 13 files at `~/work/lux/pulsar/proofs/easycrypt/`
     (8.2k lines of EC source; admit budget `0 / 0` hard-pinned by
@@ -192,12 +192,12 @@ implementation defects.
   artifact counts, tarball-cut tooling). `STATUS-SUBMISSION-
   READINESS.md` enumerates 14 artifact rows all marked shipped;
   open items list matches BLOCKERS.md disclosures.
-  `PROOF-CLAIMS.md` is exemplary: it states the narrow N1 claim
+  `proof-claims.md` is exemplary: it states the narrow N1 claim
   formally, enumerates 5 things explicitly NOT proved (lattice
   hardness, implementation covert channels, adaptive corruption
   unforgeability, bit-level codec, external Lean theorems), and
   ends with the honest one-paragraph version. No overclaiming
-  detected in `SUBMISSION.md` / `PROOF-CLAIMS.md`.
+  detected in `SUBMISSION.md` / `proof-claims.md`.
 
 ## Findings
 
@@ -224,8 +224,8 @@ implementation defects.
   marked WEAK and notes "Assertion not measurement. Add `dudect`
   to CI before claiming CT." This is the correct framing, but
   it is referenced from `SUBMISSION.md` only indirectly via
-  `BLOCKERS.md` and is not reflected in `PROOF-CLAIMS.md` §3.2.
-  Recommend cross-linking from `PROOF-CLAIMS.md` so a reviewer
+  `BLOCKERS.md` and is not reflected in `proof-claims.md` §3.2.
+  Recommend cross-linking from `proof-claims.md` so a reviewer
   reading the narrow N1 claim sees the dudect-pending status
   without having to read BLOCKERS.md.
 
@@ -288,7 +288,7 @@ package is shipped to NIST or relied upon by external
 auditors:
 
 - [x] **GATE-1 (deployment runbook).** **CLOSED 2026-05-18 in
-      `DEPLOYMENT-RUNBOOK.md` (v1.0.9)** — operator-facing
+      `deployment.md` (v1.0.9)** — operator-facing
       disclosure of the v0.1 reconstruction-aggregator TCB
       equivalence, mandatory host hardening checklist (mlock /
       core-dump-off / ptrace-off / TEE attestation recommended),
@@ -300,7 +300,7 @@ auditors:
       claim" now carries a two-variant disclosure block with
       explicit pointers to `BLOCKERS.md` "Spec ↔ Go-reference
       protocol drift", `spec/pulsar.tex` §4.1, and
-      `CRYPTOGRAPHER-SIGN-OFF.md` §Gates. "What to read first"
+      `cryptographer-sign-off.md` §Gates. "What to read first"
       §12 expanded with load-bearing BLOCKERS entries; §13
       adds the cryptographer sign-off as a numbered reviewer
       step.
@@ -314,7 +314,7 @@ auditors:
       nightly window via `ct/dudect/run-submission.sh`. Per-push
       smoke runs (~30k samples) are informational only and
       explicitly documented as "WEAK assertion not measurement"
-      in `PROOF-CLAIMS.md` §3.2. Closure of this gate moves the
+      in `proof-claims.md` §3.2. Closure of this gate moves the
       harness from "wired" to "passed" — gates publish to NIST
       MPTC as production-grade CT evidence, not gates v1.0.9
       release.
@@ -325,8 +325,8 @@ auditors:
       via earlier v1.0.7 propagation; no further change needed
       in v1.0.9.
       MIN-3 (PROOF-CLAIMS cross-link to dudect status): closed
-      in `PROOF-CLAIMS.md` §3.2 row 3 with operational caveat
-      pointing at GATE-3 and `CRYPTOGRAPHER-SIGN-OFF.md`. Row
+      in `proof-claims.md` §3.2 row 3 with operational caveat
+      pointing at GATE-3 and `cryptographer-sign-off.md`. Row
       "Zeroization" updated from "review TBD" to the CR-8
       closure in `zeroize.go` (since v1.0.6).
       MIN-4 (spec Ed25519 → ML-DSA-65): closed in
@@ -355,16 +355,16 @@ from this sign-off is not a finding:
   power, EM, fault, cache-timing.
 - Adaptive-corruption EUF-CMA-Threshold proof (the static-
   corruption case is in scope; adaptive is a deferred theorem
-  per `PROOF-CLAIMS.md` §3.3 and `BLOCKERS.md`).
+  per `proof-claims.md` §3.3 and `BLOCKERS.md`).
 - ACVP / CAVP / FIPS 140-3 validation (lab work).
 - The post-quantum hardness of ML-DSA itself
-  (`PROOF-CLAIMS.md` §3.1: this is NIST's analysis under
+  (`proof-claims.md` §3.1: this is NIST's analysis under
   FIPS 204).
 
 ## Sign-off
 
 I attest that, given the above review and the explicit non-claims
-documented in `./PROOF-CLAIMS.md`, `AXIOM-INVENTORY.md`,
+documented in `./docs/proof-claims.md`, `proof-axiom-inventory.md`,
 and `BLOCKERS.md`:
 
 - `luxfi/pulsar` v1.0.7 (commit `174941a`) is **APPROVED for live

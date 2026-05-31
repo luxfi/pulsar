@@ -161,7 +161,7 @@ lands.
 
 **Document metadata**
 
-- Name: `docs/x-wing-sig.md`
+- Name: `x-wing-sig.md`
 - Version: v0.1 (design direction; not specification)
 - Date: 2026-05-18
 - Status: **proposed**; LP not yet drafted; no implementation

@@ -241,7 +241,7 @@ deployed binary.
 
 **Document metadata**
 
-- Name: `docs/evaluation.md`
+- Name: `evaluation.md`
 - Version: v1.0 (post v10)
 - Date: 2026-05-18
 - Companion: `bench/results/REPORT.md` (raw bench numbers), `ct/dudect/README.md` (CT analysis methodology)
