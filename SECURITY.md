@@ -38,7 +38,8 @@ and the release tag's commit message.
 
 ## NIST MPTC submission disclosures
 
-Findings discovered after the 2026-Nov-16 MPTC package submission deadline
-will be added to the submission's "known limitations" appendix and
-disclosed publicly per NIST's MPTC public-analysis process (no embargo
-window for findings against actively-submitted MPTC packages).
+Findings discovered after the 2026-Nov-16 MPTC package submission
+deadline route through the submission's closed-finding registry
+appendix and are disclosed publicly per NIST's MPTC public-analysis
+process (no embargo window for findings against actively-submitted
+MPTC packages).

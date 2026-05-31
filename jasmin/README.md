@@ -40,25 +40,24 @@ control- and memory-access path.
 
 ## Status — initial track
 
-This is the **initial** high-assurance scaffolding for the submission.
-Functional verification of the threshold layer in EasyCrypt is a
-in this repository
-release point; what we commit at submission time is:
+The high-assurance scaffolding shipped at submission carries:
 
 1. The libjade ML-DSA-65 single-party baseline as the verified core
-   (vendored via `ml-dsa-65/fetch.sh`, not checked into this repository).
-2. Threshold-specific Jasmin **function signatures and algorithm
-   commentary** in `threshold/{round1,round2,combine}.jazz`. These are
-   stubs, marked `// TODO: jasmin implementation`. Implementing them is
-   tracked in the Pulsar roadmap (see `BLOCKERS.md`).
-3. EasyCrypt **theory shells** in `../proofs/easycrypt/`. The Class N1
-   lemma is stated; the proof body is `admit`. Every `admit` is marked
-   with a `TODO` comment.
-
-This is honest and standard for an MPTC this repository — NIST
-reviewers see the high-assurance intent, the directory structure, the
-formal-method tooling wiring, and the libjade integration plan. The
-proof work tracks the submission process across rounds.
+   (fetched on demand via `ml-dsa-65/fetch.sh`; not vendored into
+   this repository).
+2. Threshold-layer Jasmin sources at `threshold/round1.jazz` (~400
+   lines), `threshold/round2.jazz` (~600 lines), and
+   `threshold/combine.jazz` (~400 lines) plus shared `lib/` (~1200
+   lines). The jasmin-ct gate runs blocking on all three (3 / 3
+   green per `scripts/checks/jasmin.sh`).
+3. EasyCrypt theories at `../proofs/easycrypt/` — 13 files compile
+   with the admit budget hard-pinned at 0 / 0 by
+   `scripts/checks/ec-admits.sh`. The Class N1 byte-equality theorem
+   is a proved lemma at
+   `Pulsar_N1_Extracted.pulsar_n1_byte_equality_extracted`. The
+   residual axioms (22 total: 17 narrow implementation-refinement +
+   5 Lean-bridged algebraic) are enumerated in
+   `../docs/proof-axiom-inventory.md` with a per-axiom closure plan.
 
 ## How to fetch libjade
 

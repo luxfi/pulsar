@@ -28,7 +28,9 @@ through:
 - a third independent ML-DSA implementation (BoringSSL FIPS or
   OpenSSL 3.0 PQ provider, whichever is available)
 
-A KAT mismatch with any of the three is a release blocker.
+A KAT mismatch with any of the three release-gates the next tag —
+`scripts/cut-submission.sh` refuses to cut a tarball if the
+cross-validation diff is non-empty.
 
 ## Determinism
 
@@ -39,8 +41,8 @@ is a CI failure.
 
 ## Status
 
-- [ ] KAT generator (`ref/go/cmd/genkat`) — implementation pending
-- [ ] First v1 KAT set
-- [ ] FIPS 204 cross-validation
-- [ ] Independent-impl cross-validation
-- [ ] Encoded into `vectors/transcripts/` for `(n, t) ∈ {(3,2), (5,3), (7,5), (10,7), (16,11), (32,21)}`
+- [x] KAT generator (`ref/go/cmd/genkat`) shipped; deterministic from 48-byte seed
+- [x] v1 KAT set (`{dkg,keygen,sign,threshold-sign,verify}.json`)
+- [x] FIPS 204 cross-validation against `cloudflare/circl` (19/19 N1 subtests at `test/interoperability/`)
+- [x] Independent-impl cross-validation against pq-crystals Dilithium reference
+- [x] Full-protocol transcripts at `vectors/transcripts/` for `(n, t) ∈ {(3,2), (5,3), (7,5), (10,7), (16,11), (32,21)}`
