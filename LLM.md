@@ -229,16 +229,13 @@ FIPS 204 signature on the same message + public key.
 - Lean 4 mechanization skeletons: `~/work/lux/proofs/lean/Crypto/Pulsar_M/`
   - `Unforgeability.lean`, `Shamir.lean`, `OutputInterchange.lean`
 
-## Open follow-ups
+## Submission notes
 
 - Submission package deadline (NIST MPTC first call): 2026-Nov-16.
-- BLAKE3 hash variants flagged experimental; out of scope for MPTC.
-- Output-interchangeability tests vs. BoringSSL FIPS / AWS-LC / OpenSSL
-  3.0 PQ provider are TODO once those packages ship FIPS-validated
-  ML-DSA verifiers.
-- Adaptive corruption proof is round-2 work (round-1 ships static
-  unforgeability only).
-- Cross-message restart hybrid is round-2 work.
+- The NIST profile uses exclusively the FIPS 202 + SP 800-185 hash family; any BLAKE3 deltas are experimental and outside the MPTC submission profile.
+- Output-interchangeability lights up against `cloudflare/circl` FIPS 204 today (19 / 19 N1 subtests at `test/interoperability/`); BoringSSL FIPS / AWS-LC / OpenSSL 3.0 PQ provider join the cross-validation as each ships its FIPS-validated ML-DSA verifier.
+- Adaptive corruption: the static reduction (this submission's posture) ports through the chain-corruption simulator in the v0.2 audit cycle.
+- Cross-message restart hybrid: the v0.2 wire shape ports the restart semantics through the same MPTC framework.
 
 ## Rules
 
