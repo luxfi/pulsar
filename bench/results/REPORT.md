@@ -27,7 +27,7 @@ implementation at `ref/go/pkg/pulsar/`.
 |---|---|---|---|---|
 | Pulsar-44 (Cat 2)  | **175 µs** | **1.36 ms** | **245 µs** | matches FIPS 204 ML-DSA-44 baseline |
 | Pulsar-65 (Cat 3)  | **343 µs** | **2.63 ms** | **398 µs** | production target; Lux mainnet finality |
-| Pulsar-87 (Cat 5)  | **461 µs** | **3.29 ms** | (TBD)      | high-value treasury / governance |
+| Pulsar-87 (Cat 5)  | **461 µs** | **3.29 ms** | **517 µs** | high-value treasury / governance |
 
 All three operations are independent of share count — single-party Sign
 verifies under unmodified `cloudflare/circl/sign/mldsa{44,65,87}.Verify`
@@ -38,8 +38,9 @@ verifies under unmodified `cloudflare/circl/sign/mldsa{44,65,87}.Verify`
 Pulsar's 2-round threshold ceremony (DKG → Round-1 → Round-2 →
 Combine) produces a signature byte-identical to single-party FIPS 204
 Sign. Threshold-path benchmarks measure the same crypto primitives;
-the cost adders are network round-trips (out of scope here) and the
-Lagrange Combine at the aggregator.
+network round-trip adders belong to the consensus-layer benchmarks at
+`luxfi/consensus`, and the Lagrange Combine at the aggregator is
+measured below.
 
 Per-party Round-1 + Round-2 costs are dominated by the underlying
 ML-DSA-65 sign-share work, which lands within 10% of single-party
