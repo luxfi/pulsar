@@ -17,9 +17,9 @@ import (
 // TestAlgebraic_Debug_AlgebraicReconstruction probes the load-bearing
 // algebraic identity:
 //
-//   For a t-quorum Q with Lagrange coefficients (λ_i)_{i ∈ Q},
+//	For a t-quorum Q with Lagrange coefficients (λ_i)_{i ∈ Q},
 //
-//     Σ_{i ∈ Q}  λ_i · s_{1,i}   ≡   s_1   (mod q)    (coefficient-wise)
+//	  Σ_{i ∈ Q}  λ_i · s_{1,i}   ≡   s_1   (mod q)    (coefficient-wise)
 //
 // where s_{1,i} = polynomial-Shamir share of master s_1 at party i's
 // evaluation point. If this fails, the v0.3 z = Σ z_j formula is

@@ -30,9 +30,9 @@ const masterSeedHex = "e72de37c9c46cabcb45ed59f76ddf0937d3cc7a9fed9b1f23a30b9c98
 	"3a9bd1e6f5c12f4e3082a18b6e75d27a"
 
 type KeygenKAT struct {
-	Mode      string `json:"mode"`
-	Seed      string `json:"seed"`
-	PublicKey string `json:"public_key"`
+	Mode       string `json:"mode"`
+	Seed       string `json:"seed"`
+	PublicKey  string `json:"public_key"`
 	PrivateKey string `json:"private_key"`
 }
 

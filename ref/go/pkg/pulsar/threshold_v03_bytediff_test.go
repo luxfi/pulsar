@@ -14,16 +14,16 @@ import (
 // TestAlgebraic_DebugVsCirclVerify is the focused debug test.
 //
 // Approach:
-//   1. Stage a v0.3 ceremony to produce sig.Bytes
-//   2. Reconstruct the master sk from the dealer's seed (this is what
-//      the v0.1 path does internally)
-//   3. Pack the equivalent FIPS 204 PUBLIC KEY and call mldsa65.Verify
-//      directly on (pub, msg, sig.Bytes) — same as Pulsar.Verify does
-//   4. If verify fails, trace which sig field is wrong by:
-//      a. Unpacking sig.Bytes into (c̃, z, h)
-//      b. Comparing each component against a v0.1-Combine-produced sig
-//         on the same message (v0.1 uses circl directly so it WILL
-//         verify; its bytes are the ground truth)
+//  1. Stage a v0.3 ceremony to produce sig.Bytes
+//  2. Reconstruct the master sk from the dealer's seed (this is what
+//     the v0.1 path does internally)
+//  3. Pack the equivalent FIPS 204 PUBLIC KEY and call mldsa65.Verify
+//     directly on (pub, msg, sig.Bytes) — same as Pulsar.Verify does
+//  4. If verify fails, trace which sig field is wrong by:
+//     a. Unpacking sig.Bytes into (c̃, z, h)
+//     b. Comparing each component against a v0.1-Combine-produced sig
+//     on the same message (v0.1 uses circl directly so it WILL
+//     verify; its bytes are the ground truth)
 //
 // This is a structural debug test — its failure means we have a
 // concrete diff to chase. Once it passes, byte-equality is achieved.
@@ -748,4 +748,3 @@ func useHintVec(r polyVec, h polyVec, gamma2 uint32) polyVec {
 	}
 	return out
 }
-

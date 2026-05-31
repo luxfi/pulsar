@@ -112,7 +112,7 @@ func shamirPolyDealRandom(secret polyVec, n, t int, rng io.Reader) ([]shamirPoly
 // shamirPolyLambda computes the Lagrange coefficient λ_i at x=0 for
 // the i-th party in the quorum, given the quorum's evaluation points.
 //
-//   λ_i(0) = Π_{j ≠ i}  (-x_j) / (x_i - x_j)  mod q
+//	λ_i(0) = Π_{j ≠ i}  (-x_j) / (x_i - x_j)  mod q
 //
 // Returns the value in [0, q).
 func shamirPolyLambda(xs []uint32, i int) uint32 {

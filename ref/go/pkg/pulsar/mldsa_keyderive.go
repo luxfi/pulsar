@@ -29,16 +29,16 @@ import (
 // All polynomial fields are stored in STANDARD (un-NTT'd) coefficient
 // form. NTT-domain copies are computed locally at sign time.
 type mldsaKeyMaterial struct {
-	rho [32]byte    // ρ — public matrix seed
-	key [32]byte    // K — signing key seed (FIPS 204 sk-binding)
-	tr  [64]byte    // tr = SHAKE-256(pk, 64)
-	s1  polyVec     // length L, coefficients in [q-η, q+η]
-	s2  polyVec     // length K, coefficients in [q-η, q+η]
-	t0  polyVec     // length K, centred-rep low bits, un-normalised
-	t1  polyVec     // length K, high bits in [0, 2^10)
-	a   []polyVec   // K × L public matrix derived from ρ (NTT-domain)
-	pub []byte      // packed public key per FIPS 204 §5.1
-	prv []byte      // packed private key (full FIPS 204 sk encoding)
+	rho [32]byte  // ρ — public matrix seed
+	key [32]byte  // K — signing key seed (FIPS 204 sk-binding)
+	tr  [64]byte  // tr = SHAKE-256(pk, 64)
+	s1  polyVec   // length L, coefficients in [q-η, q+η]
+	s2  polyVec   // length K, coefficients in [q-η, q+η]
+	t0  polyVec   // length K, centred-rep low bits, un-normalised
+	t1  polyVec   // length K, high bits in [0, 2^10)
+	a   []polyVec // K × L public matrix derived from ρ (NTT-domain)
+	pub []byte    // packed public key per FIPS 204 §5.1
+	prv []byte    // packed private key (full FIPS 204 sk encoding)
 }
 
 // modeShape returns (K, L, η) for the given Mode.
