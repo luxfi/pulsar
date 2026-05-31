@@ -23,6 +23,20 @@ threshold protocol structure operates on ML-DSA-65's polynomial-vector-
 over-`R_q` algebra so the per-party-aggregated signature is bit-identical
 to a single-party FIPS 204 signature on the same message + public key.
 
+> **Aggregator-honesty caveat (v0.2 vs v0.3).** Bit-identity to a
+> single-party FIPS 204 signature is achieved without master-secret
+> reconstruction only by the **v0.3 algebraic** aggregator
+> (`ref/go/pkg/pulsar/threshold_v03.go::AlgebraicAggregate`). The
+> **v0.2 transitional** aggregator
+> (`ref/go/pkg/pulsar/threshold_v02.go::TransitionalAggregate`)
+> reconstructs the master ML-DSA secret in aggregator memory and
+> calls `mldsaSign(setup.SkBytes, …)` (`threshold_v02.go:1170`) —
+> output byte-equality holds but TCB at sign time includes the
+> aggregator. The N1 submission targets the v0.3 aggregator;
+> v0.2 is documented for protocol-evolution traceability.
+> PULSAR-V03-1 in `BLOCKERS.md` tracks the v0.3 byte-equality
+> closure (CLOSED in v1.0.20).
+
 | Repository | Module path | Role |
 |---|---|---|
 | **luxfi/pulsar** (this repo) | `github.com/luxfi/pulsar` | Active NIST MPTC submission package |
@@ -42,15 +56,13 @@ consumers who want the live production library should pin
 
 ## High-assurance headline
 
-The high-assurance stack is now structurally ready for final
-mechanized closure. All local EasyCrypt theorem bodies are admit-free,
-per-push gates are green, threshold Jasmin CT is blocking, fuzz / KAT /
-interop / dudect gates are wired at documented budgets, and the
-extracted N1 theorem has no section-local module-contract axioms. The
-only remaining implementation-refinement assumptions are **two
-localized byte-walk axioms** over pure signature output, each with a
-committed proof roadmap. The Lean↔EC algebraic bridge is named, cited,
-and CI-guarded.
+All local EasyCrypt theorem bodies are admit-free, per-push gates are
+green, threshold Jasmin CT is blocking, fuzz / KAT / interop / dudect
+gates are wired at documented budgets, and the extracted N1 theorem has
+no section-local module-contract axioms. The remaining
+implementation-refinement assumptions have been progressively
+decomposed into strictly narrower axioms with a committed proof
+roadmap; the Lean↔EC algebraic bridge is named, cited, and CI-guarded.
 
 The dependency graph is acyclic and each EC file owns one concern:
 
@@ -66,18 +78,43 @@ Sign_Wrapper       → sign wrapper bridge only
 Extracted          → final composition theorem only
 ```
 
-Hard boundary:
+Hard boundary (counts verified against `proofs/easycrypt/*.ec`
+`axiom`/`declare axiom` declarations as of HEAD):
 
-- 2 implementation-refinement byte-walk axioms, named/scoped with roadmaps
-- 4 Lean-bridged algebraic axioms, cited inline and CI-guarded
-- 0 admits
+- 14 implementation-refinement axioms in the refinement files
+  (counts authoritative from `Pulsar_N1_{Combine,Sign}_Refinement.ec`):
+    - 4 stage-extraction byte-walks
+      (`combine_body_{z_via_aggregation,partial_responses}_spec`,
+       `sign_body_{y,cs1}_spec`)
+    - 4 w-decomposition byte-walks
+      (`{combine,sign}_body_{matrix_a,mask_y}_spec`;
+       `*_body_w_spec` is now derived)
+    - 2 w_low byte-walks for the h-stage
+      (`{combine,sign}_body_w_low_spec`; `*_body_h_spec` derived
+       via `make_hint_of_w` structural composition)
+    - 4 ExternalMu codec-layout axioms
+      (combine: 3 per-range sub-axioms over the protocol-witness
+       buffer; sign: 1 collapsed `sign_layout_m_buffer_external_mu`
+       since sign owns `m_ptr`/`ctx_ptr` in its layout)
+- 1 codec-roundtrip axiom in `Pulsar_N1.ec`
+  (`pack_unpack_n1_signature_roundtrip`)
+- 5 Lean-bridged algebraic axioms, cited inline and CI-guarded
+  (see `proofs/lean-easycrypt-bridge.md`: `lagrange_inverse_eval`,
+  `reconstruct_linear`, `shamir_correct`, `add_share_zeroR`,
+  `threshold_partial_response_identity`)
+- 2 honest-execution no-reject post-conditions
+  (`{combine,sign}_no_reject_on_accepted_honest_layout`) gated on
+  `accept_signing_attempt` — protocol-level, not byte-walks
+- 0 admits in any `.ec` file
 - 0 section-local module-contract axioms in the extracted N1 corollary
 
 See `proofs/easycrypt/README.md` for the per-file dashboard and
 `proofs/lean-easycrypt-bridge.md` for the Lean↔EC correspondence.
 
-The next proof-count milestone is `combine_body_compute_sig_spec`:
-closing it reduces the implementation-refinement cone from 2 to 1.
+The next implementation-refinement decomposition target is
+`combine_body_partial_responses_spec` — the only remaining per-party
+byte-walk on the combine side over Round-2 messages. Closing it via a
+matrix_a/mask_y-style narrower split is the v13 roadmap.
 
 ## Why
 
@@ -92,8 +129,9 @@ threshold ML-DSA candidate. The 2-round threshold protocol skeleton is
 the same one Lux ships in production for Ring-LWE (see
 [`luxfi/corona`](https://github.com/luxfi/corona)), retargeted to the
 Module-LWE primitives ML-DSA itself uses; the resulting per-party-
-aggregated signature is bit-identical to a single-party FIPS 204 ML-DSA
-signature on the same message + public key.
+aggregated signature (under the v0.3 algebraic aggregator) is
+bit-identical to a single-party FIPS 204 ML-DSA signature on the same
+message + public key.
 
 The win, if Pulsar's Sign output is byte-equal to FIPS 204 Sign:
 - Threshold-produced signatures verify under unmodified FIPS 204 verifiers.
@@ -106,7 +144,7 @@ The win, if Pulsar's Sign output is byte-equal to FIPS 204 Sign:
 
 ```
 pulsar/
-├── BLOCKERS.md               PRODUCTION-GO-LIVE BLOCKER LIST (13 critical findings from red-team audit, 5 weak claims from scientist)
+├── BLOCKERS.md               open-issue tracker (currently: PULSAR-V03-1 root-cause + closure postmortem, CLOSED in v1.0.20)
 ├── docs/                     human-readable design notes
 │   ├── threat-model.md
 │   ├── nist-mptc-category.md
@@ -120,9 +158,11 @@ pulsar/
 │   └── references.bib
 ├── ref/
 │   ├── go/                   reference implementation (Go, no assembly)
-│   │   ├── cmd/              CLI entry points
-│   │   ├── internal/         private helpers
-│   │   └── pkg/              public API (sign/, dkg/, primitives/, hash/, fmt/)
+│   │   ├── cmd/genkat/       KAT generator binary
+│   │   └── pkg/pulsar/       single flat package: keygen, sign, DKG, reshare,
+│   │                          threshold (v0.1 / v0.2 transitional / v0.3
+│   │                          algebraic), large-committee path, abort tape,
+│   │                          KAT replay, fuzz
 │   └── c/                    conformance implementation (post-encoding-freeze)
 ├── vectors/                  Known Answer Tests (KATs)
 │   ├── kat-v1.json           input/output vectors per MPTC §IO-Testing
@@ -208,14 +248,14 @@ cron-scheduled):
 
 | package element | location | status |
 |---|---|---|
-| Technical Specification | `spec/pulsar.pdf` (1,536-line LaTeX → 28 pages, 491 KB) | drafted; encoding freeze 2026-Aug |
-| Reference Implementation | `ref/go/pkg/pulsar/` (89.7% coverage) | shipped |
+| Technical Specification | `spec/pulsar.{tex,pdf}` (1,633-line LaTeX → 577 KB PDF) | drafted; encoding freeze 2026-Aug |
+| Reference Implementation | `ref/go/pkg/pulsar/` (83.9% statement coverage) | shipped |
 | KAT vectors | `vectors/{dkg,keygen,sign,threshold-sign,verify}.json` | deterministic from seed |
-| Class N1 E2E interop | `test/interoperability/` (19/19 subtests vs cloudflare/circl) | passing |
-| Symbolic / Lean proofs | `~/work/lux/proofs/lean/Crypto/Pulsar/` (3 files, **zero `sorry`**) | mechanized |
+| Class N1 E2E interop | `test/interoperability/n1_class_test.go` (19 subtests across `TestN1_{SinglePartySignatures,ThresholdSignatures}_VerifyUnderFIPS204` + `TestN1_{TamperedSignatures,WrongMessage}_Rejected`, all PASS vs cloudflare/circl) | passing |
+| Symbolic / Lean proofs | `~/work/lux/proofs/lean/Crypto/Pulsar/{dkg2,OutputInterchange,Shamir,Unforgeability}.lean` + `Crypto/Threshold_Lagrange.lean` (5 files, zero `sorry`) | mechanized |
 | Constant-time analysis | `ct/dudect/` | harness present; results TBD |
 | Jasmin high-assurance | `jasmin/{ml-dsa-65,threshold,lib}/` | libjade pinned at 9426b32; round1 + round2 + combine implemented (~2,600 lines threshold + lib) |
-| EasyCrypt theories | `proofs/easycrypt/Pulsar_{N1,N4}.ec` + `lemmas/Pulsar_CT.ec` | theory shells; N1 reduction core remains `admit` (needs EasyCrypt expert) |
+| EasyCrypt theories | `proofs/easycrypt/Pulsar_{N1,N4}.ec` + `lemmas/Pulsar_CT.ec` + per-side {Layout,Refinement,Wrapper} + `Pulsar_N1_Extracted.ec` | 0 admits across all `.ec` files; 14 narrow implementation-refinement axioms + 1 codec-roundtrip + 5 Lean-bridged + 2 honest-execution post-conditions (see Hard boundary) |
 | Report on Experimental Evaluation | `bench/results/REPORT.md` | TBD |
 | Patent posture | `docs/patent-notes-draft.md` | drafted |
 | License | `LICENSE` (Apache-2.0) | ✓ |
