@@ -301,17 +301,15 @@ func UnmarshalAbortEvidence(buf []byte) (*AbortEvidence, error) {
 	return e, nil
 }
 
-// transcriptForComplaint returns the canonical transcript hash that
-// the accuser's long-term identity key signs over. The accuser's
-// signature is what makes the complaint a slashing-eligible artifact.
-//
-// transcriptForComplaint is the byte string passed to the identity-
-// key signer (e.g. Ed25519); the chain's slashing module verifies the
-// signature against the accuser's published identity key in the
-// validator-set record.
-func transcriptForComplaint(e *AbortEvidence) []byte {
+// TranscriptForComplaint returns the canonical to-be-signed bytes
+// of an AbortEvidence. The accuser's long-term identity key signs
+// these bytes; the chain's slashing module verifies the signature
+// against the accuser's published identity key in the validator-set
+// record. Callers constructing a complaint outside this package
+// pre-compute these bytes to feed their identity-key signer.
+func TranscriptForComplaint(e *AbortEvidence) []byte {
 	parts := [][]byte{
-		[]byte{byte(e.Kind)},
+		{byte(e.Kind)},
 		e.Accuser[:],
 		e.Accused[:],
 	}
@@ -325,15 +323,6 @@ func transcriptForComplaint(e *AbortEvidence) []byte {
 		out = append(out, encodeString(p)...)
 	}
 	return out
-}
-
-// TranscriptForComplaint is the public counterpart to
-// transcriptForComplaint, exposed so that callers can pre-compute the
-// to-be-signed bytes when constructing a complaint outside this
-// package (the package does not sign — identity-key signing happens
-// in the consumer's chain-specific identity layer).
-func TranscriptForComplaint(e *AbortEvidence) []byte {
-	return transcriptForComplaint(e)
 }
 
 // VerifyAbortEvidenceForm performs the third-party-verifiable
