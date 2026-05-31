@@ -86,8 +86,9 @@ ML-DSA-65 sign-share work, which lands within 10% of single-party
 Sign. Combine is `O(t)` Lagrange-coefficient products in R_q.
 
 **Threshold orchestration latency** (network RTTs, abort-detection,
-membership) is out of scope for this report; see the Lux Quasar
-consensus layer (`luxfi/consensus`).
+membership) belongs to the consensus layer; the Lux Quasar consensus
+benchmarks at `luxfi/consensus` are the source of truth for those
+adders.
 
 ## §4 Correctness — KAT cross-validation
 
@@ -207,17 +208,17 @@ diff bench/results/REPORT.md          # should reproduce within timing noise
 
 Drift = bug; please report at `https://github.com/luxfi/pulsar/issues`.
 
-## §10 Limitations and open work
+## §10 Adjacent tracks (what this report does not cover)
 
-| Limitation | Tracking |
+| Track | Owner |
 |---|---|
-| Threshold orchestration latency benchmarks (network RTTs, abort handling) | Out of scope — see Lux Quasar consensus benchmarks |
-| GPU/accelerated implementation | `luxfi/accel` — separate repo |
-| FIPS 140-3 module validation | Downstream — lab-run validation post-submission |
-| ACVP/CAVP algorithm validation | Downstream — lab-run validation |
-| Threshold SLH-DSA variant | Tier 3 (experimental research profile) — not in v0.1 |
-| Continuous fuzzing infrastructure | `test/fuzz/` exists; coverage expansion ongoing |
-| External cryptographic audit | Scoping; engagement timing TBD |
+| Threshold orchestration latency benchmarks (network RTTs, abort handling) | Lux Quasar consensus benchmarks at `luxfi/consensus` |
+| GPU / accelerated implementations | `luxfi/accel` |
+| FIPS 140-3 module validation | Accredited-lab track, downstream of this submission |
+| ACVP / CAVP algorithm validation | Accredited-lab track, downstream of this submission |
+| Threshold SLH-DSA (Tier 3) | Magnetar research track — `docs/magnetar.md` |
+| Continuous fuzzing infrastructure | `test/fuzz/` + `scripts/nightly.sh` 1-hour-per-target |
+| External cryptographic audit | Scoped post-submission alongside reviewer feedback |
 
 ## §11 Summary
 

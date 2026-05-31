@@ -52,7 +52,7 @@ Classical signatures
 ├── Schnorr / Ed25519
 │   └── THRESHOLD: FROST  ← `lps/LP-019` + `~/work/lux/mpc/`
 └── BLS
-    └── THRESHOLD: standard BLS aggregation  ← `lps/LP-NNN` (TBD)
+    └── THRESHOLD: standard BLS aggregation  ← `lps/LP-020`
 
 Hybrid / composition
 └── HANZO PQ THRESHOLD SUITE  ← `pulsar-mptc/docs/suite.md` (master index)
