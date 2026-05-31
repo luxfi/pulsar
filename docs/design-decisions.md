@@ -99,8 +99,9 @@ smallest-ID).
 positioning. HIP-0077 red review F10 flagged this. Pulsar's reshare
 selects via the chain's randomness beacon at the reshare epoch boundary.
 
-**Alternative.** Deterministic quorum, accept the leakage as a documented
-limitation. Rejected for MPTC submission.
+**Alternative.** Deterministic quorum, accepting the resulting
+mobile-adversary leakage as a documented deployment constraint.
+Rejected for the MPTC submission.
 
 **Status.** Final.
 

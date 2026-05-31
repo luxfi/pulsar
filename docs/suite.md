@@ -36,15 +36,15 @@ docs/evaluation.md). Status by tier:
 | Doc | Pulsar | Corona | Magnetar | LSS |
 |---|---|---|---|---|
 | Cover sheet (`SUBMISSION.md`) | ✅ | partial (`~/work/lux/corona/DESIGN.md`) | placeholder | LP-019 (LPS) |
-| Standalone spec (`docs/spec-overview.md`) | ✅ | TBD | TBD | LP-019 (LPS) |
-| IETF draft | ✅ `docs/ietf-draft-skeleton.md` | TBD | TBD | TBD |
+| Standalone spec (`docs/spec-overview.md`) | ✅ | v0.2+ | v0.3+ | LP-019 (LPS) |
+| IETF draft | ✅ `docs/ietf-draft-skeleton.md` | v0.2+ | v0.3+ | v0.2+ |
 | Reference impl | ✅ `ref/go/` | ✅ `~/work/lux/corona/` (full Go) | ❌ research-only | ✅ `~/work/lux/lps/` LP-019 + LP-141 |
 | EC proofs | ✅ 13/13 compile | partial (DKG only) | ❌ | ❌ |
-| Lean bridges | ✅ 5/5 | TBD | TBD | TBD |
-| Jasmin CT | ✅ 3/3 | TBD | ❌ | ❌ |
+| Lean bridges | ✅ 5/5 | v0.2+ | v0.3+ | v0.2+ |
+| Jasmin CT | ✅ 3/3 | v0.2+ | ❌ | ❌ |
 | Test vectors | ✅ `vectors/` | ✅ `~/work/lux/corona/` | ❌ | partial |
-| PATENTS | ✅ | TBD | TBD | covered by `~/work/lux/lps/PATENTS-OVERVIEW.md` if it exists |
-| Trust accounting | ✅ proof-axiom-inventory + proof-claims + tcb | TBD | TBD | TBD |
+| PATENTS | ✅ | v0.2+ | v0.3+ | covered by `~/work/lux/lps/PATENTS-OVERVIEW.md` if it exists |
+| Trust accounting | ✅ proof-axiom-inventory + proof-claims + tcb | v0.2+ | v0.3+ | v0.2+ |
 
 **Equivalent-packaging roadmap** (post v0.1 submission):
 - v0.2 (Q1 2027): Corona full submission package matching Pulsar's
@@ -125,7 +125,7 @@ home: this repo (Tier 1 Pulsar).
 |---|---|---|---|---|---|---|---|
 | 1 | **Pulsar** (Threshold ML-DSA) | LP-019 ref'd | this repo | ✅ docs/spec-overview.md + spec/pulsar.tex + IETF draft | ✅ EC 13/13, Lean 5/5 | ✅ v0.1 ready | **NIST-MPTC-submission ready** |
 | 1b | **Corona** (Threshold R-LWE) | LP-020 | `~/work/lux/corona/` | partial DESIGN.md | partial DKG proofs | ❌ v0.2 target | implementation mature, packaging needed |
-| 3 | **Magnetar** (Threshold SLH-DSA) | TBD | none | `docs/magnetar.md` placeholder | ❌ | ❌ research-only | research-direction sketch |
+| 3 | **Magnetar** (Threshold SLH-DSA) | v0.2+ | none | `docs/magnetar.md` placeholder | ❌ | ❌ research-only | research-direction sketch |
 | 4 | **LSS** (Linear Shamir) | LP-019 + LP-141 | `~/work/lux/lps/`, `~/work/lux/mpc/` | LP-019 sections | none mechanized | ❌ wrapper-only | spec exists, no submission package |
 
 ## §A2 Classical threshold signatures
@@ -178,7 +178,7 @@ AND PQ scheme. Useful for transitional deployment where:
 |---|---|---|---|---|
 | **ML-KEM-768** | FIPS 203 | LP-012 | `~/work/lux/crypto/mlkem` | production |
 | **X-Wing** (hybrid X25519 + ML-KEM) | draft IRTF CFRG | LP-115 | `~/work/lux/crypto/xwing` | production |
-| **X-Wing+** (Lux-extended profile) | n/a | LP-115 follow-up | `~/work/lux/crypto/xwing+` | production |
+| **X-Wing+** (Lux-extended profile) | n/a | LP-115 extension | `~/work/lux/crypto/xwing+` | production |
 
 ## §A5 ZK / accountability — Z-Chain PQ + P3Q precompile
 
@@ -242,12 +242,12 @@ Current Lux native chains:
 | Construction | NIST standard | IETF draft | EasyCrypt proof | Lean proof | Jasmin CT | Test vectors | LP |
 |---|---|---|---|---|---|---|---|
 | Pulsar | FIPS 204 (parent) | draft-hanzo-pulsar-threshold-mldsa-00 | ✅ 13/13 | ✅ 5/5 | ✅ 3/3 | ✅ | LP-019 |
-| Corona | none (Lux-original) | TBD | partial | TBD | TBD | partial | LP-020 |
-| Magnetar | FIPS 205 (parent) | none | none | none | none | none | TBD |
-| LSS | none | TBD | none | none | none | partial | LP-019 + LP-141 |
+| Corona | none (Lux-original) | v0.2+ | partial | v0.2+ | v0.3+ | partial | LP-020 |
+| Magnetar | FIPS 205 (parent) | none | none | none | none | none | v0.2+ |
+| LSS | none | v0.2+ | none | none | none | partial | LP-019 + LP-141 |
 | FROST | draft-irtf-cfrg-frost (upstream) | upstream | none in Lux | none | none | upstream KATs | LP-019 |
 | CGGMP21 | none | none | none | none | none | partial | LP-019 |
-| X-Wing-Sig | none (proposed) | TBD | TBD | TBD | TBD | TBD | TBD |
+| X-Wing-Sig | none (proposed) | v0.2+ | v0.3+ | v0.2+ | v0.3+ | v0.2+ | v0.3+ |
 | ML-KEM | FIPS 203 | RFC drafts | n/a (KEM) | n/a | partial | upstream | LP-012 |
 | X-Wing | draft IRTF | draft-irtf-cfrg-xwing | n/a | n/a | partial | upstream | LP-115 |
 | Z-Chain PQ | none (Lux-original) | none | none | partial Lean | none | none | LP-063 + LP-169 |
