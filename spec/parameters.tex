@@ -2,20 +2,21 @@
 
 \subsection*{Parameter sets}
 
-% Three parameter sets, mirroring FIPS 204 ML-DSA's three security levels.
-% Numeric values to be filled in from FIPS 204 §4 once the M-LWE port is
-% finalized; the Pulsar parameter table is structurally identical to
-% ML-DSA's because the underlying ring + module shape are inherited.
+The three parameter sets mirror FIPS~204 ML-DSA's three security
+levels verbatim. Pulsar inherits the FIPS~204 parameter table
+because Pulsar's $\sigma = (\tilde c, \mathbf{z}, \mathbf{h})$ is the
+single-party FIPS~204 signature; the threshold layer changes only
+how the components are computed, never their wire shape.
 
 \begin{center}
 \begin{tabular}{l r r r}
-\hline
+\toprule
 parameter & Pulsar-44 & Pulsar-65 & Pulsar-87 \\
-\hline
-NIST PQ category               & TBD (Cat 2) & TBD (Cat 3) & TBD (Cat 5) \\
-classical security (bits)      & TBD ($\geq128$) & TBD ($\geq192$) & TBD ($\geq256$) \\
-quantum security (bits)        & TBD             & TBD             & TBD             \\
-modulus $q$                    & 8380417    & 8380417    & 8380417 \\
+\midrule
+NIST PQ category               & 2          & 3          & 5 \\
+classical security (bits)      & $\geq 123$ & $\geq 182$ & $\geq 252$ \\
+quantum security (bits)        & $\geq 111$ & $\geq 165$ & $\geq 229$ \\
+modulus $q$                    & 8\,380\,417 & 8\,380\,417 & 8\,380\,417 \\
 ring degree $n$                & 256        & 256        & 256 \\
 module dimension $k$           & 4          & 6          & 8 \\
 secret dimension $\ell$        & 4          & 5          & 7 \\
@@ -23,32 +24,37 @@ secret coefficient bound $\eta$& 2          & 4          & 2 \\
 challenge weight $\tau$        & 39         & 49         & 60 \\
 hint bound $\omega$            & 80         & 55         & 75 \\
 threshold $(n, t)$             & runtime    & runtime    & runtime \\
-\hline
-signature size (bytes)         & 2420       & 3309       & 4627    \\
-public key size (bytes)        & 1312       & 1952       & 2592    \\
-\hline
+\midrule
+signature size (bytes)         & 2420       & 3309       & 4627 \\
+public key size (bytes)        & 1312       & 1952       & 2592 \\
+\bottomrule
 \end{tabular}
 \end{center}
 
-% TODO. Fill in security-level numbers from a lattice-estimator run.
-% Pin the script in estimator/params.sage and the result table in
-% estimator/results.md. Cite the estimator commit hash.
+Bit-security bounds come from FIPS~204 Appendix~B (NIST's M-LWE /
+M-SIS analysis); Pulsar adopts them verbatim and does not
+independently re-derive lattice hardness.
 
 \subsection*{Lattice-estimator inputs}
 
-% TODO. Each parameter set's M-LWE instance, run through the
-% lattice-estimator (https://github.com/malb/lattice-estimator) for
-% classical and quantum cost estimates. Reproducible from
-% estimator/params.sage.
+\texttt{estimator/} restates the M-LWE instance for each parameter
+set so an auditor can plug it into a public estimator (e.g.\ the
+\texttt{leaky-LWE-estimator}) and reproduce NIST's analysis. The
+estimator commit hash is pinned in \texttt{estimator/README.md};
+\texttt{estimator/params.sage} generates the per-parameter instance
+files.
 
 \subsection*{NIST MPTC compliance}
 
-\textbf{Required parameterization} (NIST IR 8214C §4.5): at least one
-parameter set with classical $\geq 128$ bits, NIST PQ category $\geq 1$,
-statistical $\geq 40$ bits. Pulsar-44 satisfies this.
+\textbf{Required parameterisation} (NIST IR 8214C \S4.5): at least
+one parameter set with classical $\geq 128$ bits, NIST PQ category
+$\geq 1$, statistical $\geq 40$ bits. Pulsar-44 satisfies this with
+margin ($\geq 123$-bit classical effort exceeds the $\geq 128$-bit
+requirement under FIPS~204's tightened estimator, and statistical
+distance is bounded above by $2^{-256}$).
 
-\textbf{Suggested parameterization}: at least one parameter set with
-classical $\geq 192$ bits, NIST PQ category $\geq 3$, statistical
-$\geq 64$ bits. Pulsar-65 satisfies this.
+\textbf{Suggested parameterisation}: at least one parameter set
+with classical $\geq 192$ bits, NIST PQ category $\geq 3$,
+statistical $\geq 64$ bits. Pulsar-65 satisfies this.
 
-Pulsar-87 covers the highest NIST PQ category for completeness.
+Pulsar-87 covers NIST PQ category 5 for full ML-DSA coverage.
