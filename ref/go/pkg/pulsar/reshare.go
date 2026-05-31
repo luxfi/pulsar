@@ -281,7 +281,7 @@ func (s *ReshareSession) Round1() (*DKGRound1Msg, error) {
 	}
 
 	// Shamir-share the contribution at threshold newT to the new committee.
-	keyMaterial := []byte{}
+	keyMaterial := make([]byte, 0, len("PULSAR-RESHARE-DEALER-V1")+64+len(blind))
 	keyMaterial = append(keyMaterial, []byte("PULSAR-RESHARE-DEALER-V1")...)
 	keyMaterial = append(keyMaterial, s.commitOldCommitteeRoot()...)
 	keyMaterial = append(keyMaterial, s.commitNewCommitteeRoot()...)

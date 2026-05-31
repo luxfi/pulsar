@@ -171,7 +171,7 @@ func (s *LargeDKGSession) Round1() (*LargeDKGRound1Msg, error) {
 	// derived seed) so two DKG sessions on the same contribution
 	// never collide.
 	committeeRoot := s.commitCommitteeRoot()
-	keyMaterial := []byte{}
+	keyMaterial := make([]byte, 0, len("PULSAR-DKG-DEALER-V1")+len(committeeRoot)+2+SeedSize)
 	keyMaterial = append(keyMaterial, []byte("PULSAR-DKG-DEALER-V1")...)
 	keyMaterial = append(keyMaterial, committeeRoot[:]...)
 	keyMaterial = append(keyMaterial, byte(s.myIndex>>8), byte(s.myIndex))
