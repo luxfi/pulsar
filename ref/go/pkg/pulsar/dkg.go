@@ -221,7 +221,7 @@ func (s *DKGSession) Round1() (*DKGRound1Msg, error) {
 	// blind_i material which existed only to feed the dropped
 	// commit-and-open layer.
 	committeeRoot := s.commitCommitteeRoot()
-	keyMaterial := []byte{}
+	keyMaterial := make([]byte, 0, len("PULSAR-DKG-DEALER-V1")+len(committeeRoot)+2+SeedSize)
 	keyMaterial = append(keyMaterial, []byte("PULSAR-DKG-DEALER-V1")...)
 	keyMaterial = append(keyMaterial, committeeRoot[:]...)
 	keyMaterial = append(keyMaterial, byte(s.myIndex>>8), byte(s.myIndex))

@@ -317,8 +317,7 @@ func TranscriptForComplaint(e *AbortEvidence) []byte {
 	binary.BigEndian.PutUint64(epochBuf[:], e.Epoch)
 	parts = append(parts, epochBuf[:])
 	parts = append(parts, e.Evidence)
-	out := []byte{}
-	out = append(out, leftEncode(uint64(len(parts)))...)
+	out := append([]byte{}, leftEncode(uint64(len(parts)))...)
 	for _, p := range parts {
 		out = append(out, encodeString(p)...)
 	}

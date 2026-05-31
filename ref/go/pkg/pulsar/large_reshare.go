@@ -209,7 +209,7 @@ func (s *LargeReshareSession) Round1() (*LargeDKGRound1Msg, error) {
 		return nil, ErrShortRand
 	}
 
-	keyMaterial := []byte{}
+	keyMaterial := make([]byte, 0, len("PULSAR-RESHARE-DEALER-V1")+64+len(blind))
 	keyMaterial = append(keyMaterial, []byte("PULSAR-RESHARE-DEALER-V1")...)
 	keyMaterial = append(keyMaterial, s.commitOldCommitteeRoot()...)
 	keyMaterial = append(keyMaterial, s.commitNewCommitteeRoot()...)
