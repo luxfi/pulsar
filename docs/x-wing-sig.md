@@ -142,7 +142,7 @@ Total to v0.1 IETF draft: ~2 months.
   verification.
 - LP-134: C-Chain + X-Chain topology — deployment target.
 - This document: `pulsar-mptc/docs/x-wing-sig.md`.
-- Suite-level inventory: `pulsar-mptc/HANZO-CRYPTO-SUITE.md` §3.
+- Suite-level inventory: `pulsar-mptc/docs/suite.md` §3.
 
 ## Honest framing
 
