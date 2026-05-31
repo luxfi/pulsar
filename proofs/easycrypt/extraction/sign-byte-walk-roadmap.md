@@ -1,10 +1,54 @@
-# `sign_body_compute_sig_spec` byte-walk roadmap
+# Sign-side byte-walk roadmap
 
-## Status
+## Status — current
 
-`sign_body_compute_sig_spec` is the **last remaining
-implementation-refinement axiom** on the sign side (the
-separation axiom became a lemma in `c4148a0`). It states:
+`sign_body_compute_sig_spec` is **no longer an axiom**. It is
+proved as a lemma at
+`proofs/easycrypt/Pulsar_N1_Sign_Refinement.ec:776`, composing
+the per-stage component-level lemmas
+(`sign_body_compute_components_spec`) with the structural pack
+identity (`Pulsar_N1.pack_n1_signature` shared on both extracted
+and centralised sides). The 7-step sub-claim decomposition that
+the original version of this roadmap sketched (S1..S7) has been
+landed implicitly via the v3 → v12 refactor — the per-stage
+axioms named below sit at strictly narrower granularity than the
+original `sign_body_compute_sig_spec`.
+
+The active byte-walk + codec-layout axiom family on the sign
+side (post-v12, all in `Pulsar_N1_Sign_Refinement.ec`):
+
+| Axiom | Line | Category | Replaces |
+|---|---|---|---|
+| `sign_layout_m_buffer_external_mu` | 510 | wrapper byte-layout (load_bytes ↔ external_mu) | v8 `sign_body_mu_input_spec` (narrowed in v9 to drop the abstract `sign_body_mu_input` op) |
+| `sign_body_matrix_a_spec` | 560 | w-stage sub-axiom (extracted matrix A = `central_matrix_a`) | half of v11 `sign_body_w_spec` |
+| `sign_body_mask_y_spec` | 570 | w-stage sub-axiom (extracted mask y at accepting kappa) | half of v11 `sign_body_w_spec` |
+| `sign_body_y_spec` | 649 | z-stage sub-axiom (extracted y = `central_y_at_accepted_kappa`) | half of v10 `sign_body_z_spec` |
+| `sign_body_cs1_spec` | 662 | z-stage sub-axiom (extracted cs1 = `apply_c_to_s1`) | half of v10 `sign_body_z_spec` |
+| `sign_body_w_low_spec` | 704 | h-stage sub-axiom (extracted w_low = `central_w_low`) | v9 `sign_body_h_spec` (after MakeHint structural split, v10) |
+| `sign_no_reject_on_accepted_honest_layout` | 826 | accepted-path companion: layout + accept event ⇒ status = 0 | new in followup B; pairs with `sign_body_compute_sig_spec` |
+
+The sign side does NOT consume `threshold_partial_response_identity` —
+that bridge is only required on the combine side (Lagrange
+aggregation across the quorum). The sign-side z-stage uses the
+structural `add_response_vec` composition shared with
+`Pulsar_N1.mldsa_compute_z`.
+
+This document is retained for **historical context**: the
+S1..S7 stage map below corresponds to FIPS 204 §6.2 stages and
+the kappa rejection-sampling loop, and it remains a useful
+reading guide to `sign.ec:3603-3641` and `sign_inner` at
+`sign.ec:3469`. The previous high-level framing — "the sign-side
+proof is harder because of the kappa loop" — has been
+side-stepped in the current source by introducing
+`combine_body_compute_status` / `sign_body_compute_status` and
+conditioning each per-stage lemma on `status = 0` (the
+accepted-path precondition), with the no-reject companion axiom
+discharging the status bit from the protocol-level
+`accept_signing_attempt` event.
+
+## Historical: original axiom statement
+
+The pre-v3 shape of the obligation:
 
 ```ec
 axiom sign_body_compute_sig_spec :
@@ -24,38 +68,25 @@ Pulsar_N1.mldsa_sign_op
 ```
 
 i.e., the centralised FIPS 204 ML-DSA-65 signature on the four
-protocol-level ghost fields. Tracked under #3.
+protocol-level ghost fields. The current shape (now a lemma)
+adds one precondition — `sign_body_compute_status mem_pre ptrs
+= 0` — which threads through `sign_no_reject_on_accepted_honest_layout`
+into the wrapper bridge.
 
-**Ghost contract**: ctx and rho_rnd are NOT direct libjade
+**Ghost contract**: ctx and rho_rnd are not direct libjade
 parameters. The wrapper carries them as ghost fields; the
 obligation includes the claim that the wrapper's mu derivation
 (`SHAKE256(0x00 || ctxlen || ctx || M)` per FIPS 204 §5.4.1
 ExternalMu) and K-derived randomness correspond to FIPS 204
 `Sign_internal` on the four-tuple. See the named ghost contract
-in `Pulsar_N1_Sign_Refinement.ec` and `lean-easycrypt-bridge.md`.
+block in `Pulsar_N1_Sign_Refinement.ec` and
+`../../lean-easycrypt-bridge.md`. In v9 the prior bundled
+`sign_body_mu_input_spec` axiom was narrowed to
+`sign_layout_m_buffer_external_mu` (a pure byte-layout claim
+about the wrapper-assembled `ptr_m` buffer; no libjade-body read
+appears in the statement).
 
-## Why the sign-side proof is harder than combine
-
-The combine-side proof (see `combine-byte-walk-roadmap.md`) gets
-to skip the rejection-sampling loop: combine is invoked AFTER
-each party has already computed and revealed their Round-2
-contribution; the aggregator's job is just polynomial sum-
-reconstruct + rejection-condition recheck + pack.
-
-The sign-side proof has to cover the FULL FIPS 204 §6.2 flow:
-
-* sk unpacking
-* mu computation
-* the kappa rejection-sampling loop
-* polynomial pack
-
-The kappa loop is the rough part — it's a `while` whose
-termination invariant is "eventually FIPS 204 §6.1 rejection
-conditions are satisfied". Proving termination + correctness
-of an unbounded rejection loop in EC is significantly harder
-than proving a fixed-length aggregation.
-
-## Extracted procedure shape
+## Historical: extracted procedure shape
 
 `M.sign` lives in `sign.ec:3603-3641`. Its signature:
 
@@ -74,88 +105,121 @@ rejection loop, the SHAKE-based mu computation, the
 expandA + expandMask + matrix-vector multiplication + decompose
 + rejection-check + pack flow — all of it lives in `sign_inner`.
 
-## Stage map (high-level)
+## Historical: stage map (FIPS 204 §6.2)
 
-| Stage | Extracted location | Functional op | Sub-claim |
+| Stage | Extracted location | Functional op | Sub-claim (now landed as a lemma) |
 |---|---|---|---|
-| 1. Read sk bytes from input pointer | `sign.ec:3625-3630` | `decode_sk` (Sign_Layout) | **(S1)** sk loaded matches `read_sk(mem, ptr_sk)` = `full.sgn_wire.sk_abs` |
-| 2. sign_inner: sk unpacking | `sign_inner` body, decode rho, K, tr, s1, s2, t0 from sk bytes per FIPS 204 §3.5.4 | `MLDSA65_Functional.unpack_sk` (to be defined; mirror of `pack_sk`) | **(S2)** (rho, K, tr, s1, s2, t0) decoded matches FIPS 204 §3.5.4 unpacking of full.sgn_sk_n1 |
-| 3. sign_inner: mu = SHAKE256(tr ‖ M) | `sign_inner`, SHAKE call | `shake256` op in MLDSA65_Functional | **(S3)** mu_computed = SHAKE256(tr ‖ msg ‖ ctx-encoded prehash) (ghost contract: ctx already folded into mu by the wrapper convention) |
-| 4. sign_inner: rho_prime derivation | deterministic: SHAKE256(K ‖ mu); hedged: SHAKE256(K ‖ rho_rnd ‖ mu) | `MLDSA65_Functional.shake256` | **(S4)** rho_prime equals FIPS 204 §6.2 derivation under the ghost-contract integration of full.sgn_rnd_n1 |
-| 5. sign_inner: kappa rejection loop | the WHILE loop in sign_inner — main body of `M.sign_inner` | composition: expand_mask, mat_vec_mul, decompose, sample_in_ball, mul, sub, make_hint, rejection checks | **(S5)** the loop terminates with kappa = some k* such that all R1-R4 conditions hold; the resulting (c_tilde*, z*, h*) match FIPS 204 §6.2 outputs at that kappa |
-| 6. sign_inner: pack_signature(c_tilde*, z*, h*) | `pack_signature` call in `sign_inner` | `MLDSA65_Functional.pack_signature` | **(S6)** sig_packed matches FIPS 204 §3.5.5 pack of (c_tilde*, z*, h*) |
-| 7. M.sign: write sig_packed at ptr_signature | `sign.ec:3634-3640` | `write_sig_sign` (Sign_Layout) | **(S7)** Sign_Layout.read_sig_sign (memory after the write loop) ptr_signature = decode_signature(sig_packed) |
+| 1. Read sk bytes from input pointer | `sign.ec:3625-3630` | `decode_sk` (Sign_Layout) | folded into `layout_sign_args` |
+| 2. sign_inner: sk unpacking | `sign_inner` body | `Pulsar_N1.unpack_sk` | folded into the structural unpack on both sides; `pack_unpack_sk_roundtrip` (axiom in `Pulsar_N1.ec:950`) pins the realisation |
+| 3. sign_inner: mu = SHAKE256(tr ‖ M) | `sign_inner`, SHAKE call | `Pulsar_N1.compute_mu` | `sign_layout_m_buffer_external_mu` (axiom) ⇒ `sign_body_mu_input_spec` (lemma) ⇒ `sign_body_mu_spec` (lemma) via structural `shake256_to_mu`; `compute_mu_injective` (axiom in `Pulsar_N1.ec:953`) pins the realisation |
+| 4. sign_inner: rho_prime derivation | deterministic / hedged | (folded into `sign_abs_op`'s `sgn_rnd_n1`) | wrapper ghost-contract obligation; not separately mechanized |
+| 5. sign_inner: kappa rejection loop | `sign_inner` body | composition of expand_mask, mat_vec_mul, decompose, sample_in_ball, mul, sub, make_hint | `sign_body_{matrix_a,mask_y}_spec` ⇒ `sign_body_w_spec` (lemma); `sign_body_{y,cs1}_spec` ⇒ `sign_body_z_spec` (lemma) via `mldsa_compute_z` structural; `sign_body_w_low_spec` ⇒ h-stage; `sign_no_reject_on_accepted_honest_layout` (axiom) discharges the status bit |
+| 6. sign_inner: pack_signature(c_tilde*, z*, h*) | `pack_signature` call | `Pulsar_N1.pack_n1_signature` | folded into structural `pack_n1_signature`; `pack_unpack_n1_signature_roundtrip` (axiom in `Pulsar_N1.ec:817`) pins the realisation |
+| 7. M.sign: write sig_packed at ptr_signature | `sign.ec:3634-3640` | `write_sig_sign` (Sign_Layout) | proved in `Pulsar_N1_Sign_Layout.ec` |
 
-## How the sub-claims compose
+## Composition
+
+The lemma chain that closes `sign_body_compute_sig_spec`:
 
 ```
-S1 ∧ S2 ∧ S3 ∧ S4 ∧ S5 ∧ S6 ∧ S7
-       ⇒ sign_body_compute_sig_spec
+sign_layout_m_buffer_external_mu
+  ⇒ sign_body_mu_input_spec
+  ⇒ sign_body_mu_spec                                (via shake256_to_mu)
+sign_body_{matrix_a,mask_y}_spec
+  ⇒ sign_body_w_spec                                 (via central_w)
+  ⇒ sign_body_w1_spec                                (via high_bits_of_w)
+sign_body_mu_spec ∧ sign_body_w1_spec
+  ⇒ sign_body_c_tilde_spec                           (via shake_mu_w1)
+sign_body_{y,cs1}_spec ∧ sign_body_c_tilde_spec
+  ⇒ sign_body_z_spec                                 (via mldsa_compute_z = add_response_vec)
+sign_body_w_spec ∧ sign_body_w_low_spec
+  ⇒ sign_body_h_spec                                 (via make_hint_of_w)
+sign_body_c_tilde_spec ∧ sign_body_z_spec ∧ sign_body_h_spec
+  ⇒ sign_body_compute_components_spec
+sign_body_compute_components_spec
+  ⇒ sign_body_compute_sig_spec                       (via pack_n1_signature congruence)
 ```
 
-S7 is mechanical (same shape as combine's S10). S6 mirrors
-combine's S9. S2 is structural (FIPS 204 §3.5.4 packing
-specified by Mathlib-equivalent byte layouts). S3, S4 are
-SHAKE256 calls — abstract op in MLDSA65_Functional that should
-be discharged via circl's SHAKE256 spec (already imported in
-the EC layout side). S1 is a layout-lemma corollary.
+The composition is fully landed in `Pulsar_N1_Sign_Refinement.ec`
+through versions v3 → v12. See the per-version delta in the
+ACCOUNTING block at the end of that file.
 
-**S5 is the hard one**. Bounding the kappa loop in EC requires:
-* a non-decreasing termination metric (e.g., expected iteration
-  count under the rejection-conditions probability — but a
-  termination proof in EC needs an explicit upper bound, not an
-  expected one),
-* an inductive invariant carrying the per-iteration randomness
-  derivation,
-* showing that the loop's exit state matches FIPS 204 §6.2's
-  selected (c_tilde, z, h) tuple.
+## Concrete attack surface (post-v12)
 
-In practice, FIPS 204 §6.2 is universally implemented as the
-"first-passing kappa" loop, and circl/libjade both bound it by a
-hard `kappa_max = 256` (or similar). For an EC proof, the
-worst-case-bounded-loop form is the right shape.
+What remains to mechanically close on the sign side, in suggested
+attack order:
 
-## Suggested attack order
+1. **`sign_layout_m_buffer_external_mu`** (wrapper byte-layout).
+   The narrowest remaining mu obligation: the bytes the wrapper
+   writes at `ptr_m` form the FIPS 204 §5.4.1 ExternalMu layout.
+   Single `load_bytes` claim; the wrapper-side writer is a
+   straight `store_bytes` of `[0; |ctx|] ++ ctx ++ M`. Mechanical.
+2. **`sign_body_w_low_spec`** (h-stage sub-axiom). Low-bits side
+   of the decompose at the accepting kappa. Direct mirror of
+   `combine_body_w_low_spec` — shared proof effort with the
+   combine side.
+3. **`sign_body_y_spec`** (z-stage). Extracted mask y at the
+   accepting kappa equals `central_y_at_accepted_kappa`.
+   Effectively `central_y_at_accepted_kappa` IS the mask-y stage
+   conditioned on `status = 0` — the obligation reduces to a
+   structural identity once the accepted-path is fixed.
+4. **`sign_body_cs1_spec`** (z-stage). Extracted c·s1 mixed
+   product equals `apply_c_to_s1`. The c value comes from
+   `central_c_from_c_tilde` applied to the extracted c_tilde
+   intermediate — composes with the c_tilde lemma chain.
+5. **`sign_body_{matrix_a,mask_y}_spec`** (w-stage). Mirrors of
+   the combine-side axioms; same BArray ↔ R_q polynomial-view
+   bridge required.
+6. **`sign_no_reject_on_accepted_honest_layout`** (companion).
+   Conditional status-bit claim: layout-conforming inputs +
+   `accept_signing_attempt` ⇒ `sign_body_compute_status = 0`.
+   Same shape as the combine-side companion. The kappa-loop
+   convergence (~ 1 − (3/4)^256 per attempt) is tracked
+   operationally via `Pulsar_N1.mldsa_accept_lower_bound`;
+   probabilistic Hoare logic for the loop is NOT in scope.
 
-1. **S7 first** (signature memory write). Mechanical mirror of
-   combine's S10. Estimated: 1-2 days.
+## Why the kappa loop is no longer the bottleneck
 
-2. **S6 second** (pack_signature). The same extracted
-   `pack_signature` proc as combine's S9 (libjade reuses it).
-   Estimated: 3-5 days (shared with combine S9 work).
+The original framing in the pre-v3 version of this roadmap
+treated the kappa rejection-sampling loop in `sign_inner` as the
+load-bearing obstacle — "proving termination + correctness of an
+unbounded rejection loop in EC is significantly harder than
+proving a fixed-length aggregation".
 
-3. **S2** (sk unpacking). Structural; FIPS 204 §3.5.4 byte
-   layout. Needs `unpack_sk` op in MLDSA65_Functional (not yet
-   present — write it). Estimated: 1 week.
+The current structure side-steps that obstacle by reducing each
+per-stage obligation to its accepted-path form (conditioned on
+`sign_body_compute_status mem_pre ptrs = 0`). The deterministic
+content of `sign_inner` at the accepting kappa is what
+`sign_body_{y,cs1,matrix_a,mask_y,w_low}_spec` capture; the
+probabilistic content of the kappa loop is what
+`sign_no_reject_on_accepted_honest_layout` discharges from the
+protocol-level `accept_signing_attempt` event.
 
-4. **S3, S4** (mu and rho_prime derivation). Each is a SHAKE256
-   call. Needs concrete `shake256` op in MLDSA65_Functional
-   bridged to circl's `cshake256` (already a Pulsar primitive).
-   The ghost-contract integration for ctx-into-mu and rho_rnd-
-   into-K-derivation is the named obligation; this work decides
-   whether to expose it as a separate axiom (per the bridge doc
-   § "future-refactor path") or keep it folded into S3 + S4.
-   Estimated: 1-2 weeks.
+The probability bound on `accept_signing_attempt` is operational
+(`Pulsar_N1.mldsa_accept_lower_bound`), not probabilistic-Hoare.
+That choice is the same one BBDFGHHLW (CRYPTO 2023) makes for
+single-party Dilithium and matches FIPS 204's standard treatment
+of the rejection sampler.
 
-5. **S1** (sk read from memory). Direct layout corollary.
-   Estimated: 1 day.
+## What this roadmap does NOT do
 
-6. **S5** (kappa rejection loop). The substantial work — needs
-   a bounded-loop termination + invariant. Estimated:
-   3-4 weeks.
-
-**Total honest estimate**: 6-9 weeks (similar to combine,
-dominated by the kappa loop).
+It does not produce mechanical closure of any of the axioms
+above. The historical S-map (S1..S7) is now landed implicitly
+via the per-stage axiom family; the residual obligations sit at
+the narrower granularity in the table above. Each axiom is
+independently attackable; the suggested order mirrors the
+combine-side ordering where shared.
 
 ## Cross-references
 
-* The wider trust accounting: `proofs/easycrypt/Pulsar_N1_Extracted.ec`
-  (composition theorem) and the per-file `ACCOUNTING` blocks at the
-  end of each refinement / wrapper / layout file. See
-  `proofs/easycrypt/README.md` for the per-file dashboard.
-* Algebraic bridge: `proofs/lean-easycrypt-bridge.md`.
-* Combine-side counterpart: `proofs/easycrypt/extraction/combine-byte-walk-roadmap.md`.
-* Ghost contract: named block in `proofs/easycrypt/Pulsar_N1_Sign_Refinement.ec`.
-* Linear-issue tracker: #3.
-* Libjade jasmin-ct dependency: `ct/jasmin-ct-libjade.md` (separately
-  blocking issue #2).
+- `Pulsar_N1_Sign_Refinement.ec:830-1120` — the per-file
+  ACCOUNTING block (per-version axiom delta v1 → v12)
+- `Pulsar_N1_Extracted.ec:34-92` — authoritative trust-boundary
+  accounting
+- `../README.md` — current axiom enumeration with file:line refs
+- `../../lean-easycrypt-bridge.md` — Lean↔EC bridge correspondence
+- `combine-byte-walk-roadmap.md` — combine-side counterpart
+- Ghost contract: named block in `Pulsar_N1_Sign_Refinement.ec`
+- Libjade jasmin-ct dependency: `../../../ct/jasmin-ct-libjade.md`
+  (separately blocking issue #2)
+- Linear issue tracker: #3
