@@ -337,7 +337,7 @@ func TestThresholdSign_QuorumTooSmall(t *testing.T) {
 		t.Fatalf("empty quorum not rejected: %v", err)
 	}
 	// Member not in quorum.
-	_, err = NewThresholdSigner(params, sid, 1, []NodeID{NodeID{0xff}}, shares[0], map[NodeID][32]byte{}, msg, deterministicReader([]byte{1}))
+	_, err = NewThresholdSigner(params, sid, 1, []NodeID{{0xff}}, shares[0], map[NodeID][32]byte{}, msg, deterministicReader([]byte{1}))
 	if err != ErrNotInQuorum {
 		t.Fatalf("non-member not rejected: %v", err)
 	}

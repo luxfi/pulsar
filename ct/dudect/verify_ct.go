@@ -91,8 +91,6 @@ var (
 	validPool [kValidPool]*pulsar.Signature
 )
 
-//export pulsar_verify_ct_setup
-//
 // Initialise the long-lived fixture. Returns 0 on success, non-zero
 // on failure. Must be called once before pulsar_verify_ct.
 //
@@ -101,6 +99,8 @@ var (
 // crypto/rand so the dudect run is not deterministic across launches
 // — that's intentional: the timing property must hold for ANY valid
 // (pk, msg, sig) triple, not a single hardcoded test vector.
+//
+//export pulsar_verify_ct_setup
 func pulsar_verify_ct_setup() C.int {
 	params := pulsar.MustParamsFor(pulsar.ModeP65)
 	sk, err := pulsar.GenerateKey(params, rand.Reader)
@@ -136,11 +136,11 @@ func pulsar_verify_ct_setup() C.int {
 	return 0
 }
 
-//export pulsar_verify_ct_sig_size
-//
 // Returns the FIPS 204 signature size for the configured mode. The
 // C harness uses this to size its per-sample scratch buffer to the
 // exact wire width Verify expects.
+//
+//export pulsar_verify_ct_sig_size
 func pulsar_verify_ct_sig_size() C.size_t {
 	if fixtureParams == nil {
 		return 0
@@ -148,16 +148,14 @@ func pulsar_verify_ct_sig_size() C.size_t {
 	return C.size_t(fixtureParams.SignatureSize)
 }
 
-//export pulsar_verify_ct_pool_size
-//
 // Returns the number of valid signatures in the per-startup pool.
 // The C harness draws class-B samples from pool[0..pool_size).
+//
+//export pulsar_verify_ct_pool_size
 func pulsar_verify_ct_pool_size() C.size_t {
 	return C.size_t(kValidPool)
 }
 
-//export pulsar_verify_ct_copy_pool
-//
 // Copies validPool[idx].Bytes into the caller-supplied dst buffer
 // (sig_size bytes). idx MUST be in [0, kValidPool); the C harness
 // enforces this via pulsar_verify_ct_pool_size. Returns 0 on
@@ -168,6 +166,8 @@ func pulsar_verify_ct_pool_size() C.size_t {
 // sig_size bytes; the timing of the copy is irrelevant because
 // dudect measures cycles around pulsar_verify_ct, not around this
 // setup-time data movement.
+//
+//export pulsar_verify_ct_copy_pool
 func pulsar_verify_ct_copy_pool(idx C.size_t, dst *C.uint8_t) C.int {
 	i := int(idx)
 	if i < 0 || i >= kValidPool || fixtureParams == nil || validPool[i] == nil {
@@ -179,8 +179,6 @@ func pulsar_verify_ct_copy_pool(idx C.size_t, dst *C.uint8_t) C.int {
 	return 0
 }
 
-//export pulsar_verify_ct
-//
 // One dudect measurement sample.
 //
 // data points to sig_size bytes of caller-controlled signature bytes
@@ -194,6 +192,8 @@ func pulsar_verify_ct_copy_pool(idx C.size_t, dst *C.uint8_t) C.int {
 // The function MUST be branchless on data — any data-dependent
 // branch we introduce here pollutes the measurement before Verify
 // even starts. We only copy data into a fresh slice and dispatch.
+//
+//export pulsar_verify_ct
 func pulsar_verify_ct(data *C.uint8_t) {
 	if fixtureParams == nil {
 		return
