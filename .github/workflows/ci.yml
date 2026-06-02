@@ -76,10 +76,13 @@ jobs:
         run: |
           # Ubuntu 24.04 (noble) dropped `alt-ergo` from apt — install via opam
           # below in the EasyCrypt step. apt only ships SMT solvers + opam base.
+          # libmpfr-dev + libppl-dev are required transitively for the jasmin
+          # opam package (apron → mlgmpidl). opam refuses to invoke apt
+          # interactively in CI, so we preinstall them here.
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             opam ocaml-nox m4 pkg-config libgmp-dev libpcre3-dev \
-            z3 zlib1g-dev
+            libmpfr-dev libppl-dev z3 zlib1g-dev
 
       - name: opam init (idempotent)
         run: |
