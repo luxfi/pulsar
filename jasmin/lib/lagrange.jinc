@@ -210,16 +210,23 @@ fn lagrange_coefficient_mont(
     reg u32 xj, xi;
     reg u32 num, denom, denom_inv, factor;
     reg u32 xj_mont, factor_mont;
+    // u64 index for the array accesses: indexing a reg-ptr u32 array with
+    // a u32 index makes the backend emit a zero-extended scaled index
+    // that is not an encodable x86 address in some register assignments.
+    // A native u64 index loads as [base + idx*4]. Values unchanged.
+    reg u64 idx;
 
     // acc = 1 in Montgomery form.
     acc = to_mont(1);
 
-    xi = eval_points[my_index];
+    idx = (64u) my_index;
+    xi = eval_points[idx];
 
     ?{}, j = #set0_32();
     while (j < quorum_size) {
         if (j != my_index) {
-            xj = eval_points[j];
+            idx = (64u) j;
+            xj = eval_points[idx];
 
             // numerator: (-x_j) mod q
             num = modq_neg(xj);

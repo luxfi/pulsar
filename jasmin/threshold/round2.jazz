@@ -54,6 +54,71 @@ from Jade require "crypto_sign/dilithium/dilithium3/amd64/ref/common.jinc"
 from Jade require "crypto_sign/dilithium/dilithium3/amd64/ref/packing.jinc"
 
 // -----------------------------------------------------------------------------
+// Recompute one peer's expected MAC:
+//   expected = KMAC256(K, commit || tau1, 32, "PULSAR-SIGN-R1-MAC-V1").
+//
+// `mac_data` is the contiguous 4-table buffer (see verify_peer_macs);
+// `base` = peer_index * 32 is the per-peer byte offset within each table.
+// The key / commit / tau sub-slices for this peer are copied into local
+// 32-byte buffers, then KMAC256 is run over commit || tau1 keyed by the
+// session key, squeezing the 32-byte tag into `expected_buf`.
+//
+// Real (stack-return) call: its keccak `state` (with the runtime-offset
+// byte view state[:u8 offset] inside kmac256_finalize_32) and theta
+// working set live in their own frame, so the caller verify_peer_macs
+// only needs to preserve its small loop state across the call rather than
+// hosting theta alongside it. Taking mac_data + base (rather than three
+// pre-sliced pointers) keeps both sides' working sets small.
+// Semantics/CT unchanged.
+#[returnaddress="stack"]
+fn r2_one_expected_mac(
+    reg ptr u8[4 * PULSARM_QUORUM_MAX * 32] mac_data,
+    reg u64 base,
+    reg ptr u8[32] expected_buf)
+    -> reg ptr u8[32]
+{
+    stack u8[32] key_buf;
+    stack u8[32] commit_buf;
+    stack u8[32] tau_buf;
+    stack u64[25] state;
+    reg ptr u64[25] state_rsp;
+    reg ptr u8[32] key_rsp, commit_rsp, tau_rsp, exp_rsp;
+    reg ptr u8[32] src_slice;
+    reg u64 offset, i;
+    reg u8 c;
+
+    // Copy this peer's key / commit / tau1 (sub-regions [0]/[1]/[2]).
+    // Take a 32-byte reg-ptr slice of the peer's row in each sub-region,
+    // then index by i alone — addressing the stack array with two runtime
+    // index terms (sub-region const + base + i) is not an encodable x86
+    // address, whereas a runtime-offset slice plus single-index load is.
+    src_slice = mac_data[0 * PULSARM_QUORUM_MAX * 32 + base : 32];
+    ?{}, i = #set0_64();
+    while (i < 32) { c = src_slice[i]; key_buf[i]    = c; i += 1; }
+    src_slice = mac_data[1 * PULSARM_QUORUM_MAX * 32 + base : 32];
+    ?{}, i = #set0_64();
+    while (i < 32) { c = src_slice[i]; commit_buf[i] = c; i += 1; }
+    src_slice = mac_data[2 * PULSARM_QUORUM_MAX * 32 + base : 32];
+    ?{}, i = #set0_64();
+    while (i < 32) { c = src_slice[i]; tau_buf[i]    = c; i += 1; }
+
+    state_rsp = state;
+    key_rsp = key_buf;
+    state_rsp = kmac256_init_R1MAC(state_rsp, key_rsp);
+
+    ?{}, offset = #set0_64();
+    commit_rsp = commit_buf;
+    tau_rsp = tau_buf;
+    state_rsp, offset = absorb_array32(state_rsp, offset, commit_rsp);
+    state_rsp, offset = absorb_array32(state_rsp, offset, tau_rsp);
+
+    exp_rsp = expected_buf;
+    state_rsp, exp_rsp = kmac256_finalize_32(state_rsp, offset, exp_rsp);
+    expected_buf = exp_rsp;
+    return expected_buf;
+}
+
+// -----------------------------------------------------------------------------
 // MAC verification: for each peer j != my_index, recompute the expected
 // KMAC256(K_{i,j}, D_j || tau_1_j, 32, "PULSAR-SIGN-R1-MAC-V1") and
 // constant-time compare against the received MAC.
@@ -61,26 +126,47 @@ from Jade require "crypto_sign/dilithium/dilithium3/amd64/ref/packing.jinc"
 // Returns 0 on full success; j+1 (encoding the first mismatched peer
 // index) on failure, so the caller can construct a ComplaintMACFailure
 // abort evidence with `accused = j`.
-// -----------------------------------------------------------------------------
-inline
+//
+// Compiled as a real (stack-return-address) call. The whole MAC region —
+// this loop, the per-peer buffers and the inlined r2_one_expected_mac
+// keccak — then lives in this function's own frame rather than flattening
+// into pulsar_round2 alongside its eleven unpacked caller pointers and
+// other hashes. The four per-peer byte tables are passed as ONE
+// contiguous buffer (mac_data, sub-regions [0]=mac_keys, [1]=commits,
+// [2]=tau1_digests, [3]=received_macs, each PULSARM_QUORUM_MAX*32 bytes),
+// and the two public u32 scalars are packed into a single u64 (quorum_size
+// in the high half, my_index in the low half), so the function needs only
+// two register parameters. The per-iteration working set — the inlined
+// r2_one_expected_mac keccak's theta plus mac_data, quorum_size, my_index,
+// the loop counter and status — sits right at the register-file limit, so
+// every freed parameter register matters. The runtime-offset keccak state
+// view is confined to this straight-line frame, so the stack-allocation
+// oracle accepts it. Semantics/CT unchanged (quorum_size / my_index public).
+//
+// Real (stack-return) call: keeps this loop and its call to
+// r2_one_expected_mac in a frame of its own, off pulsar_round2's heavily
+// populated frame (which already hosts the unpacked caller pointers and
+// the other digest calls).
+#[returnaddress="stack"]
 fn verify_peer_macs(
-    reg ptr u8[PULSARM_QUORUM_MAX * 32] mac_keys,
-    reg ptr u8[PULSARM_QUORUM_MAX * 32] commits,
-    reg ptr u8[PULSARM_QUORUM_MAX * 32] tau1_digests,
-    reg ptr u8[PULSARM_QUORUM_MAX * 32] received_macs,
-    reg u32 quorum_size,
-    reg u32 my_index)
+    reg ptr u8[4 * PULSARM_QUORUM_MAX * 32] mac_data,
+    reg u64 qm_packed)
     -> reg u64
 {
-    stack u8[32] key_buf;
-    stack u8[32] commit_buf;
-    stack u8[32] tau_buf;
     stack u8[32] received_buf;
     stack u8[32] expected_buf;
-    stack u64[25] state;
-    reg ptr u64[25] state_rsp;
-    reg ptr u8[32] key_rsp, commit_rsp, tau_rsp, recv_rsp, exp_rsp;
-    reg u64 offset;
+    reg ptr u8[32] recv_rsp, exp_rsp, recv_slice;
+    // quorum_size / my_index are loop-invariant and only read at the loop
+    // boundary, never inside the inlined keccak. Hold them in stack slots
+    // so they do not occupy registers across the theta-heavy MAC
+    // recomputation (that is what pushed the frame one register over).
+    stack u32 quorum_size_s;
+    stack u32 my_index_s;
+    stack u32 j_s;
+    stack u64 status_s;
+    reg u32 quorum_size;
+    reg u32 my_index;
+    reg u64 tmp64;
     reg u32 j;
     reg u64 base;
     reg u64 i;
@@ -88,46 +174,68 @@ fn verify_peer_macs(
     reg u8 eq;
     reg u64 status;
 
+    // Unpack the two public scalars (high 32 = quorum_size, low = my_index).
+    tmp64 = qm_packed;
+    tmp64 >>= 32;
+    quorum_size = (32u) tmp64;
+    quorum_size_s = quorum_size;
+    my_index = (32u) qm_packed;
+    my_index_s = my_index;
+
+    // status AND the loop counter j live in stack slots across the
+    // per-iteration r2_one_expected_mac call: every value kept in a
+    // (callee-saved) register across that call competes with the callee's
+    // 10-register keccak working set in Jasmin's global allocator, which
+    // is what exhausts the file. After this, only mac_data (the call's own
+    // argument) and the call's result pointer cross the boundary. base is
+    // likewise recomputed from j rather than held.
     ?{}, status = #set0_64();
+    status_s = status;
     ?{}, j = #set0_32();
+    j_s = j;
+    quorum_size = quorum_size_s;
     while (j < quorum_size) {
+        // The per-peer MAC recomputation is done unconditionally for
+        // every j (including j == my_index), and only the accusation
+        // update is gated on j != my_index. (Self index excluded from
+        // accusations.) j / my_index are public, so this introduces no
+        // secret-dependent behaviour; the access pattern is uniform.
+        // base = j*32; each table t starts at t*PULSARM_QUORUM_MAX*32.
+        base = (64u) j;
+        base *= 32;
+
+        // Recompute this peer's expected MAC in its own frame. j is in a
+        // stack slot across the call (see note above).
+        exp_rsp = expected_buf;
+        exp_rsp = r2_one_expected_mac(mac_data, base, exp_rsp);
+        expected_buf = exp_rsp;
+
+        // Received MAC is sub-region [3]. Reload j and recompute base
+        // (neither held across the call). Slice the peer's row, then index
+        // by i (two runtime index terms into the stack array would not be
+        // an encodable address; a runtime-offset slice is).
+        j = j_s;
+        base = (64u) j;
+        base *= 32;
+        recv_slice = mac_data[3 * PULSARM_QUORUM_MAX * 32 + base : 32];
+        ?{}, i = #set0_64();
+        while (i < 32) { c = recv_slice[i]; received_buf[i] = c; i += 1; }
+
+        recv_rsp = received_buf;
+        exp_rsp = expected_buf;
+        eq = ct_eq_32(exp_rsp, recv_rsp);
+
+        // Cryptographic declassification: the MAC verification
+        // outcome is a publicly-observable bit per the Pulsar
+        // protocol — wrong MAC ⇒ abort with accusation index. This
+        // is a protocol-level acceptance: the verifier learns
+        // accept/reject, which is exactly what `eq` encodes.
+        #declassify(eq);
+        // Reload the loop-invariant scalars and status now (after the
+        // keccak call), so they were not pinned to registers across it.
+        my_index = my_index_s;
+        status = status_s;
         if (j != my_index) {
-            base = (64u) j;
-            base *= 32;
-
-            ?{}, i = #set0_64();
-            while (i < 32) { c = mac_keys[base + i]; key_buf[i] = c; i += 1; }
-            ?{}, i = #set0_64();
-            while (i < 32) { c = commits[base + i]; commit_buf[i] = c; i += 1; }
-            ?{}, i = #set0_64();
-            while (i < 32) { c = tau1_digests[base + i]; tau_buf[i] = c; i += 1; }
-            ?{}, i = #set0_64();
-            while (i < 32) { c = received_macs[base + i]; received_buf[i] = c; i += 1; }
-
-            state_rsp = state;
-            key_rsp = key_buf;
-            state_rsp = kmac256_init_R1MAC(state_rsp, key_rsp);
-
-            ?{}, offset = #set0_64();
-            commit_rsp = commit_buf;
-            tau_rsp = tau_buf;
-            state_rsp, offset = absorb_array32(state_rsp, offset, commit_rsp);
-            state_rsp, offset = absorb_array32(state_rsp, offset, tau_rsp);
-
-            exp_rsp = expected_buf;
-            state_rsp, exp_rsp = kmac256_finalize_32(state_rsp, offset, exp_rsp);
-            expected_buf = exp_rsp;
-
-            recv_rsp = received_buf;
-            exp_rsp = expected_buf;
-            eq = ct_eq_32(exp_rsp, recv_rsp);
-
-            // Cryptographic declassification: the MAC verification
-            // outcome is a publicly-observable bit per the Pulsar
-            // protocol — wrong MAC ⇒ abort with accusation index. This
-            // is a protocol-level acceptance: the verifier learns
-            // accept/reject, which is exactly what `eq` encodes.
-            #declassify(eq);
             if (eq == 0) {
                 if (status == 0) {
                     status = (64u) j;
@@ -135,15 +243,24 @@ fn verify_peer_macs(
                 }
             }
         }
+        status_s = status;
+        j = j_s;
         j += 1;
+        j_s = j;
+        quorum_size = quorum_size_s;
     }
+    status = status_s;
     return status;
 }
 
 // -----------------------------------------------------------------------------
 // Aggregate bar_D = cSHAKE256("PULSAR-SIGN-R2-V1" || D_1 || ... || D_n).
 // -----------------------------------------------------------------------------
-inline
+// Stack-return call (not inlined): keeps its keccak `state` working set
+// in its own frame instead of flattening into pulsar_round2 alongside the
+// other inlined hashes and the eleven unpacked caller pointers, which
+// together overflow the register file. Semantics/CT unchanged.
+#[returnaddress="stack"]
 fn r2_aggregate_commit_digest(
     reg ptr u8[PULSARM_QUORUM_MAX * 32] commits,
     reg u32 quorum_size,
@@ -152,26 +269,34 @@ fn r2_aggregate_commit_digest(
 {
     stack u64[25] state;
     reg ptr u64[25] state_rsp;
+    // out and the byte count are loop-invariant / used only at the end;
+    // hold them in stack slots so they do not occupy registers during the
+    // keccak permutations driven inside the absorb loop (theta's working
+    // set is large; the function is otherwise the same shape as round1's
+    // commit-digest helper).
+    stack u64 nbytes_s;
     reg u64 offset;
     reg u64 i;
-    reg u64 base;
-    reg u32 j;
+    reg u64 nbytes;
     reg u8 c;
+
+    // The j-loop (per peer) over 32-byte commits is flattened to one byte
+    // loop over commits[0 .. quorum_size*32); the absorbed stream is
+    // identical (commits are contiguous, peer j at offset j*32).
+    nbytes = (64u) quorum_size;
+    nbytes *= 32;
+    nbytes_s = nbytes;
 
     state_rsp = state;
     state_rsp, offset = cshake256_absorb_prelude_R2(state_rsp);
 
-    ?{}, j = #set0_32();
-    while (j < quorum_size) {
-        base = (64u) j;
-        base *= 32;
-        ?{}, i = #set0_64();
-        while (i < 32) {
-            c = commits[base + i];
-            state_rsp, offset = absorb_one_byte(state_rsp, offset, c);
-            i += 1;
-        }
-        j += 1;
+    ?{}, i = #set0_64();
+    nbytes = nbytes_s;
+    while (i < nbytes) {
+        c = commits[i];
+        state_rsp, offset = absorb_one_byte(state_rsp, offset, c);
+        i += 1;
+        nbytes = nbytes_s;
     }
 
     state_rsp = cshake256_finalize(state_rsp, offset);
@@ -185,7 +310,9 @@ fn r2_aggregate_commit_digest(
 // Compute c_tilde = cSHAKE256("PULSAR-SIGN-R2-V1" || mu || pack_w1(bar_w))
 // truncated to 32 bytes (= 2*lambda for L3 / ML-DSA-65).
 // -----------------------------------------------------------------------------
-inline
+// Stack-return call (not inlined), same register-frame rationale as
+// r2_aggregate_commit_digest. Semantics/CT unchanged.
+#[returnaddress="stack"]
 fn r2_challenge_seed(
     reg ptr u8[64] mu,
     reg ptr u8[Li2_pack_w1len] bar_w_packed,
@@ -201,6 +328,12 @@ fn r2_challenge_seed(
     state_rsp = state;
     state_rsp, offset = cshake256_absorb_prelude_R2(state_rsp);
 
+    // Absorb mu (64) then pack_w1(bar_w) (768). The bar_w loop crosses the
+    // 136-byte rate boundary several times, so absorb_one_byte runs keccak
+    // mid-loop. Keeping the squeeze-output pointer in a register across
+    // that theta-heavy stretch competes with the permutation's working
+    // set; index bar_w_packed directly and reload from stack as needed so
+    // only the absorb cursor is live across the permutations.
     ?{}, i = #set0_64();
     while (i < 64) {
         c = mu[i];
@@ -218,6 +351,47 @@ fn r2_challenge_seed(
     ?{}, i = #set0_64();
     while (i < 32) { c = state_rsp[:u8 i]; c_tilde_out[i] = c; i += 1; }
     return c_tilde_out;
+}
+
+// -----------------------------------------------------------------------------
+// tau_2 = cSHAKE256("PULSAR-SIGN-R2-V1" || bar_D || mu || pack_w1(bar_w)),
+// truncated to 32 bytes. Stack-return call (not inlined) so its keccak
+// `state` working set stays in its own frame rather than flattening into
+// pulsar_round2 with the other hashes and the eleven unpacked caller
+// pointers. Absorbed byte stream and values are identical to the
+// previous inline body; CT unchanged.
+// -----------------------------------------------------------------------------
+#[returnaddress="stack"]
+fn r2_tau2_digest(
+    reg ptr u8[32] bar_D,
+    reg ptr u8[64] mu,
+    reg ptr u8[Li2_pack_w1len] bar_w_packed,
+    reg ptr u8[32] tau_out)
+    -> reg ptr u8[32]
+{
+    stack u64[25] state;
+    reg ptr u64[25] state_rsp;
+    reg ptr u8[32] bar_D_rsp;
+    reg u64 offset;
+    reg u64 i;
+    reg u8 c;
+
+    state_rsp = state;
+    state_rsp, offset = cshake256_absorb_prelude_R2(state_rsp);
+    bar_D_rsp = bar_D;
+    state_rsp, offset = absorb_array32(state_rsp, offset, bar_D_rsp);
+    ?{}, i = #set0_64();
+    while (i < 64) { c = mu[i]; state_rsp, offset = absorb_one_byte(state_rsp, offset, c); i += 1; }
+    ?{}, i = #set0_64();
+    while (i < Li2_pack_w1len) {
+        c = bar_w_packed[i];
+        state_rsp, offset = absorb_one_byte(state_rsp, offset, c);
+        i += 1;
+    }
+    state_rsp = cshake256_finalize(state_rsp, offset);
+    ?{}, i = #set0_64();
+    while (i < 32) { c = state_rsp[:u8 i]; tau_out[i] = c; i += 1; }
+    return tau_out;
 }
 
 // -----------------------------------------------------------------------------
@@ -266,24 +440,56 @@ fn r2_challenge_seed(
 // branching / load addresses). Per-buffer content sensitivity is
 // encoded by #declassify pragmas at the points where the protocol
 // declassifies them (e.g., w1 high-bits, signature challenge).
-#[ct = "public * public * public * public * public * public * public * public * public * public * public * public * public -> public"]
+// ABI note: the x86-64 SysV calling convention Jasmin targets passes at
+// most six arguments in registers, and Jasmin export functions require
+// every argument to be register-resident. The Round-2 entry point needs
+// eleven caller buffers plus two scalars, so the eleven pointers are
+// marshalled by the caller into one contiguous array of u64 addresses
+// (`ptrs_ptr`), in the fixed order documented below, and unpacked here.
+// This mirrors round1.jazz's "pack the public inputs into one blob"
+// convention. Only the addresses move into the blob — each buffer's
+// contents and sensitivity are exactly as before, so the per-buffer CT
+// classification (encoded via #declassify at the protocol declassify
+// points) and all computed values are unchanged.
+//
+// ptrs_ptr layout (each entry is a u64 little-endian pointer):
+//   [ 0] y_state_ptr        [ 1] share_ptr        [ 2] blind_ptr
+//   [ 3] peer_commits_ptr   [ 4] peer_bar_w_ptr   [ 5] peer_macs_ptr
+//   [ 6] peer_tau_ptr       [ 7] mac_keys_ptr     [ 8] eval_points_ptr
+//   [ 9] mu_ptr             [10] response_out_ptr
+//
+// CT: ptrs_ptr and quorum_size / my_index are public.
+#[ct = "public * public * public -> public"]
 export
 fn pulsar_round2(
-    reg u64 y_state_ptr,
-    reg u64 share_ptr,
-    reg u64 blind_ptr,
-    reg u64 peer_commits_ptr,
-    reg u64 peer_bar_w_ptr,
-    reg u64 peer_macs_ptr,
-    reg u64 peer_tau_ptr,
-    reg u64 mac_keys_ptr,
-    reg u64 eval_points_ptr,
-    reg u64 mu_ptr,
+    reg u64 ptrs_ptr,
     reg u32 quorum_size,
-    reg u32 my_index,
-    reg u64 response_out_ptr)
+    reg u32 my_index)
     -> reg u64
 {
+    reg u64 y_state_ptr;
+    reg u64 share_ptr;
+    reg u64 blind_ptr;
+    reg u64 peer_commits_ptr;
+    reg u64 peer_bar_w_ptr;
+    reg u64 peer_macs_ptr;
+    reg u64 peer_tau_ptr;
+    reg u64 mac_keys_ptr;
+    reg u64 eval_points_ptr;
+    reg u64 mu_ptr;
+    reg u64 response_out_ptr;
+    // Spilled pointer-table base, so the two late-used pointers can be
+    // reloaded lazily instead of staying live across the middle.
+    stack u64 ptrs_base;
+    reg u64 bw_base;
+    // status spilled across the step 3-11 body (see its use site).
+    stack u64 status_round2_s;
+    // quorum_size / my_index spilled: they are read in several places
+    // across the digest-call-heavy body, and a register pinned across any
+    // keccak call there competes with the (globally allocated) keccak
+    // permutation's working set. Reloaded from the stack before each use.
+    stack u32 qs_s;
+    stack u32 mi_s;
     // Workspace.
     stack u8[64] mu;
     stack u8[32] bar_D;
@@ -296,30 +502,35 @@ fn pulsar_round2(
     stack u32[Li2_l * Li2_polydeg] tmp_l;
     stack u32[Li2_l * Li2_polydeg] cs_l;
     stack u32[Li2_l * Li2_polydeg] cu_l;
+    stack u32[Li2_l * Li2_polydeg] scaled_l;
     stack u32[Li2_l * Li2_polydeg] z_i;
     stack u32[Li2_l * Li2_polydeg] r_i;
     stack u32[Li2_polydeg] c_poly;
     stack u32[Li2_polydeg] c_ntt;
     stack u32[Li2_k * Li2_polydeg] bar_w;
     stack u32[Li2_k * Li2_polydeg] my_w1;
-    stack u8[PULSARM_QUORUM_MAX * 32] commit_buf;
-    stack u8[PULSARM_QUORUM_MAX * 32] mac_key_buf;
-    stack u8[PULSARM_QUORUM_MAX * 32] mac_buf;
-    stack u8[PULSARM_QUORUM_MAX * 32] tau_buf;
+    // The four per-peer byte tables are held in one contiguous buffer so
+    // verify_peer_macs can take a single pointer (keeping its register-
+    // parameter count low; see its header). Sub-region layout, each
+    // PULSARM_QUORUM_MAX*32 bytes:
+    //   [0] mac_keys  [1] commits  [2] tau1_digests  [3] received_macs
+    stack u8[4 * PULSARM_QUORUM_MAX * 32] peer_mac_data;
     stack u32[PULSARM_QUORUM_MAX] eval_pts;
-    stack u64[25] state;
 
     reg ptr u8[64] mu_rsp;
-    reg ptr u8[32] bar_D_rsp, c_tilde_rsp;
+    reg ptr u8[32] bar_D_rsp, c_tilde_rsp, tau2_rsp;
     reg ptr u8[Li2_pack_w1len] packed_rsp;
-    reg ptr u8[PULSARM_QUORUM_MAX * 32] commits_rsp, mkey_rsp, mac_rsp, tau_rsp;
+    reg ptr u8[PULSARM_QUORUM_MAX * 32] commits_rsp;
+    reg ptr u8[4 * PULSARM_QUORUM_MAX * 32] mac_data_rsp;
     reg ptr u32[Li2_l * Li2_polydeg] vec_l_rsp;
+    reg ptr u32[Li2_l * Li2_polydeg] vec_l_out;
     reg ptr u32[Li2_k * Li2_polydeg] vec_k_rsp;
     reg ptr u32[Li2_polydeg] pc_rsp, pn_rsp;
     reg ptr u32[PULSARM_QUORUM_MAX] eval_rsp;
     reg ptr u64[25] state_rsp;
 
     reg u64 i, offset, base;
+    reg u64 qm_packed, tmp_qm;
     reg u32 j;
     // Separate scratch bytes for the public-input load loops vs the
     // secret-content load loop (mac_keys / share / blind). Sharing
@@ -330,6 +541,27 @@ fn pulsar_round2(
     reg u32 r32, sum32;
     reg u32 lambda_mont;
     reg u64 status;
+
+    // ---- 0. Unpack the caller-supplied pointer table (see ABI note) ----
+    // Each entry is a u64 address. Pointers used only by the early input-
+    // loading phase are unpacked now; peer_bar_w_ptr (step 4) and
+    // response_out_ptr (step 11) are re-loaded lazily from the spilled
+    // table right before their use, so they do not stay live across the
+    // hash-heavy middle and inflate register pressure there.
+    ptrs_base = ptrs_ptr;
+    y_state_ptr      = [:u64 ptrs_ptr +  0];
+    share_ptr        = [:u64 ptrs_ptr +  8];
+    blind_ptr        = [:u64 ptrs_ptr + 16];
+    peer_commits_ptr = [:u64 ptrs_ptr + 24];
+    peer_macs_ptr    = [:u64 ptrs_ptr + 40];
+    peer_tau_ptr     = [:u64 ptrs_ptr + 48];
+    mac_keys_ptr     = [:u64 ptrs_ptr + 56];
+    eval_points_ptr  = [:u64 ptrs_ptr + 64];
+    mu_ptr           = [:u64 ptrs_ptr + 72];
+
+    // Spill the two public scalars immediately (reloaded before each use).
+    qs_s = quorum_size;
+    mi_s = my_index;
 
     // ---- 1. Load inputs ----
     ?{}, i = #set0_64();
@@ -343,10 +575,14 @@ fn pulsar_round2(
         i += 1;
     }
     // my_w1 = last Li2_k polynomials of y_state (offset = (Li2_l + Li2_k) polynomials).
+    // Fold the base pointer and the constant poly offset into one register
+    // so each load is [base + index*4]; base-pointer + offset-register +
+    // index*scale is two base registers, which x86 cannot encode.
     base = (64u) (Li2_l + Li2_k) * Li2_polydeg * 4;
+    base += y_state_ptr;
     ?{}, i = #set0_64();
     while (i < Li2_k * Li2_polydeg) {
-        r32 = [:u32 y_state_ptr + base + 4 * i];
+        r32 = [:u32 base + 4 * i];
         my_w1[i] = r32;
         i += 1;
     }
@@ -366,6 +602,7 @@ fn pulsar_round2(
     }
 
     // eval_points (public).
+    quorum_size = qs_s;
     ?{}, j = #set0_32();
     while (j < quorum_size) {
         base = (64u) j;
@@ -378,23 +615,34 @@ fn pulsar_round2(
     // mac_keys are secret session keys K_{i,j}). Use a separate
     // scratch byte for the secret mac_keys load so jasmin-ct does
     // not back-propagate secrecy onto the public commit / mac / tau
-    // buffers via a shared `c` register.
+    // buffers via a shared `c` register. The four tables are stored in
+    // the contiguous peer_mac_data sub-regions described at its decl.
     ?{}, i = #set0_64();
     while (i < PULSARM_QUORUM_MAX * 32) {
-        c     = [:u8 peer_commits_ptr + i]; commit_buf[i]  = c;
-        c_sec = [:u8 mac_keys_ptr + i];     mac_key_buf[i] = c_sec;
-        c     = [:u8 peer_macs_ptr + i];    mac_buf[i]     = c;
-        c     = [:u8 peer_tau_ptr + i];     tau_buf[i]     = c;
+        c_sec = [:u8 mac_keys_ptr + i];     peer_mac_data[0 * PULSARM_QUORUM_MAX * 32 + i] = c_sec;
+        c     = [:u8 peer_commits_ptr + i]; peer_mac_data[1 * PULSARM_QUORUM_MAX * 32 + i] = c;
+        c     = [:u8 peer_tau_ptr + i];     peer_mac_data[2 * PULSARM_QUORUM_MAX * 32 + i] = c;
+        c     = [:u8 peer_macs_ptr + i];    peer_mac_data[3 * PULSARM_QUORUM_MAX * 32 + i] = c;
         i += 1;
     }
 
     // ---- 2. Verify peer MACs ----
-    mkey_rsp = mac_key_buf;
-    commits_rsp = commit_buf;
-    tau_rsp = tau_buf;
-    mac_rsp = mac_buf;
-    status = verify_peer_macs(mkey_rsp, commits_rsp, tau_rsp, mac_rsp,
-                              quorum_size, my_index);
+    // Pack the two public scalars into one u64 (quorum_size high, my_index
+    // low) so verify_peer_macs stays within two register parameters.
+    mac_data_rsp = peer_mac_data;
+    quorum_size = qs_s;
+    qm_packed = (64u) quorum_size;
+    qm_packed <<= 32;
+    my_index = mi_s;
+    tmp_qm = (64u) my_index;
+    qm_packed |= tmp_qm;
+    status = verify_peer_macs(mac_data_rsp, qm_packed);
+    // Spill status to a stack slot: it must stay live across the entire
+    // step 3-11 body (it gates the body and is the return value), and a
+    // register pinned across every digest call in that body competes with
+    // each callee's keccak working set in the global allocator. It is not
+    // modified inside the body, so we just reload it at the return.
+    status_round2_s = status;
     // Jasmin doesn't accept early `return` inside an `if`; fall through
     // and gate the rest of the body on `status == 0`. The MAC-failure
     // path leaves the output buffer in an indeterminate state, which
@@ -402,8 +650,10 @@ fn pulsar_round2(
     if (status == 0) {
 
     // ---- 3. Aggregate bar_D ----
-    commits_rsp = commit_buf;
+    // commits are sub-region [1] of peer_mac_data.
+    commits_rsp = peer_mac_data[1 * PULSARM_QUORUM_MAX * 32 : PULSARM_QUORUM_MAX * 32];
     bar_D_rsp = bar_D;
+    quorum_size = qs_s;
     bar_D_rsp = r2_aggregate_commit_digest(commits_rsp, quorum_size, bar_D_rsp);
 
     // ---- 4. Aggregate bar_w = sum_j bar_w_j (mod q) ----
@@ -414,14 +664,25 @@ fn pulsar_round2(
         bar_w[i] = my_w1[i];
         i += 1;
     }
+    // Reload peer_bar_w_ptr lazily here (entry [4] of the pointer table),
+    // so it is not live across the earlier MAC-verify / digest phase.
+    peer_bar_w_ptr = ptrs_base;
+    peer_bar_w_ptr = [:u64 peer_bar_w_ptr + 32];
+    quorum_size = qs_s;
+    my_index = mi_s;
     ?{}, j = #set0_32();
     while (j < quorum_size) {
         if (j != my_index) {
-            base = (64u) j;
-            base *= Li2_k * Li2_polydeg * 4;
+            // Fold the buffer base and the per-peer stride into one
+            // register so the inner load is an encodable [base + index*4]
+            // mode (base + per-peer-offset + index*scale would be two base
+            // registers plus index, which x86 cannot encode).
+            bw_base = (64u) j;
+            bw_base *= Li2_k * Li2_polydeg * 4;
+            bw_base += peer_bar_w_ptr;
             ?{}, i = #set0_64();
             while (i < Li2_k * Li2_polydeg) {
-                r32 = [:u32 peer_bar_w_ptr + base + 4 * i];
+                r32 = [:u32 bw_base + 4 * i];
                 sum32 = bar_w[i];
                 sum32 += r32;
                 // Reduce mod 2^32; canonical reduction happens at pack_w1 stage
@@ -434,10 +695,14 @@ fn pulsar_round2(
     }
 
     // Pack bar_w for c_tilde input and for transcript binding.
+    // Assign the pack_w1 result (a fresh stack array) directly into the
+    // stack buffer rather than bouncing through a reg-ptr; routing an
+    // inline function's returned stack array through a reg ptr and back
+    // into a stack array trips jasminc's variable-allocation oracle
+    // ("variable already set"). Direct stack-to-stack assignment is the
+    // pattern libjade itself uses and computes the identical bytes.
     vec_k_rsp = bar_w;
-    packed_rsp = bar_w_packed;
-    packed_rsp = pack_w1(vec_k_rsp);
-    bar_w_packed = packed_rsp;
+    bar_w_packed = pack_w1(vec_k_rsp);
 
     // ---- 5. c_tilde = SHAKE(mu || pack_w1(bar_w)) ----
     mu_rsp = mu;
@@ -466,7 +731,10 @@ fn pulsar_round2(
     c_ntt = pn_rsp;
 
     // ---- 7. lambda_i^T in Montgomery form ----
+    // Reload the scalars (after sampleInBall's keccak).
     eval_rsp = eval_pts;
+    my_index = mi_s;
+    quorum_size = qs_s;
     lambda_mont = lagrange_coefficient_mont(eval_rsp, my_index, quorum_size);
 
     // ---- 8. z_i = y_i + (c * lambda_i * s_i) ----
@@ -484,10 +752,17 @@ fn pulsar_round2(
     vec_l_rsp = cs_l;
     vec_l_rsp = ifft_to_mont_vecl(vec_l_rsp);
     cs_l = vec_l_rsp;
-    // d) scale by lambda_i (Montgomery form)
+    // d) scale by lambda_i (Montgomery form). Read from cs_l, write to a
+    // dedicated scratch buffer scaled_l, then copy back. Distinct input
+    // and output regions are required because handing one reg ptr to both
+    // the `v` and `out` parameters of polyvecl_scalar_mont tripped
+    // jasminc's variable-allocation oracle, while aliasing the output onto
+    // another already-aliased scratch (tmp_l) made its region "partial".
+    // out[k]=REDC(lambda*v[k]) is per-coefficient; values/CT unchanged.
     vec_l_rsp = cs_l;
-    vec_l_rsp = polyvecl_scalar_mont(lambda_mont, vec_l_rsp, vec_l_rsp);
-    cs_l = vec_l_rsp;
+    vec_l_out = scaled_l;
+    vec_l_out = polyvecl_scalar_mont(lambda_mont, vec_l_rsp, vec_l_out);
+    cs_l = vec_l_out;
     // e) z_i = y_i + cs_l
     ?{}, i = #set0_64();
     while (i < Li2_l * Li2_polydeg) {
@@ -513,9 +788,11 @@ fn pulsar_round2(
     vec_l_rsp = cu_l;
     vec_l_rsp = ifft_to_mont_vecl(vec_l_rsp);
     cu_l = vec_l_rsp;
+    // Read cu_l, write scaled_l, copy back (see step 8d note).
     vec_l_rsp = cu_l;
-    vec_l_rsp = polyvecl_scalar_mont(lambda_mont, vec_l_rsp, vec_l_rsp);
-    cu_l = vec_l_rsp;
+    vec_l_out = scaled_l;
+    vec_l_out = polyvecl_scalar_mont(lambda_mont, vec_l_rsp, vec_l_out);
+    cu_l = vec_l_out;
     ?{}, i = #set0_64();
     while (i < Li2_l * Li2_polydeg) { r_i[i] = cu_l[i]; i += 1; }
     vec_l_rsp = r_i;
@@ -523,23 +800,19 @@ fn pulsar_round2(
     r_i = vec_l_rsp;
 
     // ---- 10. tau_2 = cSHAKE("PULSAR-SIGN-R2-V1" || bar_D || mu || pack_w1(bar_w)) ----
-    state_rsp = state;
-    state_rsp, offset = cshake256_absorb_prelude_R2(state_rsp);
+    // Delegated to r2_tau2_digest (own register frame; see its header).
     bar_D_rsp = bar_D;
-    state_rsp, offset = absorb_array32(state_rsp, offset, bar_D_rsp);
-    ?{}, i = #set0_64();
-    while (i < 64) { c = mu[i]; state_rsp, offset = absorb_one_byte(state_rsp, offset, c); i += 1; }
-    ?{}, i = #set0_64();
-    while (i < Li2_pack_w1len) {
-        c = bar_w_packed[i];
-        state_rsp, offset = absorb_one_byte(state_rsp, offset, c);
-        i += 1;
-    }
-    state_rsp = cshake256_finalize(state_rsp, offset);
-    ?{}, i = #set0_64();
-    while (i < 32) { c = state_rsp[:u8 i]; tau2_digest[i] = c; i += 1; }
+    mu_rsp = mu;
+    packed_rsp = bar_w_packed;
+    tau2_rsp = tau2_digest;
+    tau2_rsp = r2_tau2_digest(bar_D_rsp, mu_rsp, packed_rsp, tau2_rsp);
+    tau2_digest = tau2_rsp;
 
     // ---- 11. Write response buffer ----
+    // Reload response_out_ptr lazily here (entry [10] of the pointer
+    // table); it is only needed by this final write phase.
+    response_out_ptr = ptrs_base;
+    response_out_ptr = [:u64 response_out_ptr + 80];
     // [0 .. 32) tau_2
     ?{}, i = #set0_64();
     while (i < 32) {
@@ -587,10 +860,9 @@ fn pulsar_round2(
     }
 
     // [7776 .. 8544) pack_w1(my_w1)
+    // Direct stack-to-stack assignment (see the bar_w pack_w1 note above).
     vec_k_rsp = my_w1;
-    packed_rsp = bar_w_packed;     // reuse the same stack buffer
-    packed_rsp = pack_w1(vec_k_rsp);
-    bar_w_packed = packed_rsp;
+    bar_w_packed = pack_w1(vec_k_rsp);
     ?{}, i = #set0_64();
     while (i < Li2_pack_w1len) {
         c = bar_w_packed[i];
@@ -614,6 +886,8 @@ fn pulsar_round2(
 
     // status already holds 0 (MAC verify passed); no need to reset
     } // end "if (status == 0)" body
+    // Reload status from its stack slot (it was not modified in the body).
+    status = status_round2_s;
     return status;
 }
 
@@ -668,13 +942,17 @@ fn pulsar_round2_mac(
     state_rsp, tag_rsp = kmac256_finalize_32(state_rsp, offset, tag_rsp);
     tag = tag_rsp;
 
+    // Fold the buffer base and the slot offset into one register so the
+    // per-byte store is an encodable [base + index] mode (base + slot +
+    // index would be three address registers, which x86 cannot encode).
     slot_offset = (64u) peer_index;
     slot_offset *= 32;
     slot_offset += PULSARM_R2_MAC_OFFSET;
+    slot_offset += response_buf_ptr;
     ?{}, i = #set0_64();
     while (i < 32) {
         c = tag[i];
-        [:u8 response_buf_ptr + slot_offset + i] = c;
+        [:u8 slot_offset + i] = c;
         i += 1;
     }
 
