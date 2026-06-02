@@ -300,16 +300,41 @@ func TestAlgebraic_NoSkAccess(t *testing.T) {
 		t.Fatalf("parse %s: %v", path, err)
 	}
 
-	// Find the AlgebraicAggregate function declaration.
-	var aggFunc *ast.FuncDecl
+	// Find BOTH AlgebraicAggregate and AlgebraicAggregateCtx — the v0.4
+	// ctx-bound entry point hosts the load-bearing logic (AlgebraicAggregate
+	// is a thin wrapper that calls AlgebraicAggregateCtx with nil ctx).
+	// The AST guard must cover both so a future refactor that reshuffles
+	// the wrapper/impl split cannot silently smuggle sk-bearing primitives
+	// past the public-BFT contract.
+	var aggFuncs []*ast.FuncDecl
 	for _, decl := range file.Decls {
-		if fd, ok := decl.(*ast.FuncDecl); ok && fd.Name.Name == "AlgebraicAggregate" {
-			aggFunc = fd
-			break
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		if fd.Name.Name == "AlgebraicAggregate" || fd.Name.Name == "AlgebraicAggregateCtx" {
+			aggFuncs = append(aggFuncs, fd)
 		}
 	}
+	if len(aggFuncs) != 2 {
+		t.Fatalf("expected exactly AlgebraicAggregate + AlgebraicAggregateCtx (2 funcs); found %d", len(aggFuncs))
+	}
+	// Test loop below runs the same checks against each in turn.
+	for _, aggFunc := range aggFuncs {
+		t.Run(aggFunc.Name.Name, func(t *testing.T) {
+			runAlgebraicAggregateASTChecks(t, aggFunc, file)
+		})
+	}
+}
+
+// runAlgebraicAggregateASTChecks runs the structural sk-isolation checks
+// against the given function declaration. Factored out so both
+// AlgebraicAggregate and AlgebraicAggregateCtx are covered by the same
+// banned-parameter / banned-call / banned-identifier sweep.
+func runAlgebraicAggregateASTChecks(t *testing.T, aggFunc *ast.FuncDecl, file *ast.File) {
+	t.Helper()
 	if aggFunc == nil {
-		t.Fatal("AlgebraicAggregate function not found")
+		t.Fatal("nil function decl")
 	}
 
 	// Check parameter types — none may carry sk material.
@@ -886,26 +911,8 @@ func reflectTypeOf(v interface{}) reflectType {
 // We use a tiny indirection so the import surface lives in a single
 // spot — see threshold_v03_reflect_test.go for the actual reflect import.
 
-// TestAlgebraic_TransitionalV02StillWorks confirms v0.2 still compiles
-// and runs alongside v0.3 — the v0.2 wire shape is preserved and
-// neither blocks the other.
-//
-// This is the "no backwards compatibility break" anchor: v0.2 consumers
-// can keep running through v0.2 functions; v0.3 consumers use the new
-// AlgebraicAggregate path. Both ship.
-func TestAlgebraic_TransitionalV02StillWorks(t *testing.T) {
-	msg := []byte("v0.2 still works")
-	var sid [16]byte
-	copy(sid[:], "v02-still-works1")
-	var err error
-	for attempt := uint32(0); attempt < 32; attempt++ {
-		_, _, _, _, _, _, _, err = stageTransitional(t, 5, 3, msg, sid, attempt)
-		if err == nil {
-			return
-		}
-		if err != ErrTransitionalRestart {
-			t.Fatalf("v0.2 unexpected err: %v", err)
-		}
-	}
-	t.Fatalf("v0.2 did not converge within 32 attempts: %v", err)
-}
+// Note: TestAlgebraic_TransitionalV02StillWorks was removed alongside
+// v0.2 (threshold_v02.go) — v0.3 is the sole permissionless production
+// path. Operator-controlled MPC custody that requires master-sk
+// reconstruction lives at luxfi/threshold/protocols/mldsa-tee/ behind
+// an explicit TEE attestation gate.
