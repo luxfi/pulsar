@@ -21,6 +21,110 @@ None.
 
 ## Closed
 
+### PULSAR-V04-CTX — v0.4 ctx-bound threshold sign (FIPS 204 §5.4)
+
+**Status**: CLOSED in v1.1.0 (tag pending — see CHANGELOG.md for the
+exact commit).
+**Owner**: cryptographer.
+
+#### Root cause
+
+`OrchestrateV03Sign` (and the underlying `AlgebraicAggregate` +
+`AlgebraicThresholdSigner.round2EmitFull`) hardcoded the FIPS 204
+§5.4 step-2 ctx prefix to the empty-ctx encoding:
+
+```go
+// BEFORE (v1.0.x): μ derivation
+h := sha3.NewShake256()
+h.Write(tr[:])
+h.Write([]byte{0x00, 0x00})   // ← always empty ctx
+h.Write(message)
+h.Read(mu[:])
+```
+
+ctx-bound permissionless threshold sign was therefore impossible:
+operators that needed FIPS 204 §5.2 domain separation (e.g. the
+`lux-evm-precompile-mldsa-v1` EVM precompile) had to route through
+the threshold dispatcher's `dealerKey` single-party shortcut, which
+materialised the master sk in the dispatcher process — breaking the
+v0.3 public-BFT-safety contract for any session that used the
+ctx-bound path.
+
+#### Fix
+
+Decomplect μ derivation into a single helper `deriveMuCtx(tr, ctx,
+msg, out)` (threshold_v03.go) that the v0.4 path threads ctx into the
+FIPS 204 §5.4 prefix:
+
+```go
+// AFTER (v1.1.0): single source of truth
+func deriveMuCtx(tr [64]byte, ctx, msg, out []byte) {
+    h := sha3.NewShake256()
+    h.Write(tr[:])
+    h.Write([]byte{0x00, byte(len(ctx))})   // FIPS 204 §5.4 single-byte length
+    if len(ctx) > 0 { h.Write(ctx) }
+    h.Write(msg)
+    h.Read(out[:64])
+}
+```
+
+New ctx-aware API surface:
+
+- `NewAlgebraicThresholdSignerCtx(..., ctx, ...)` — adds `Ctx`
+  field on `AlgebraicThresholdSigner`.
+- `AlgebraicAggregateCtx(..., ctx, ...)` — companion to
+  `AlgebraicAggregate`.
+- `OrchestrateV03SignCtx(..., ctx, ...)` — companion to
+  `OrchestrateV03Sign`.
+
+Backwards-compatibility invariants:
+
+- `OrchestrateV03Sign(msg)` is now a thin wrapper that calls
+  `OrchestrateV03SignCtx(nil, msg)`. Output bytes are
+  byte-identical to historical v0.3 (pinned by
+  `TestOrchestrateV03SignCtx_EmptyCtx_MatchesV03Sign`).
+- `AlgebraicAggregate(...)` is now a thin wrapper that calls
+  `AlgebraicAggregateCtx(..., nil, ...)`. Same byte-identity.
+- `NewAlgebraicThresholdSigner(...)` is now a thin wrapper that calls
+  `NewAlgebraicThresholdSignerCtx(..., nil, ...)`. The `Ctx` field is
+  nil on the historical constructor.
+
+ctx-length guard: `ErrCtxTooLarge` (alias of `ErrCtxTooLong` from
+sign.go) at all three boundaries — constructor, aggregator, and
+orchestrator.
+
+#### Graduation gate
+
+All currently TRUE on the tip of `main` at v1.1.0:
+
+1. `TestOrchestrateV03SignCtx_Mu_Includes_Ctx` PASS — distinct ctx
+   yields distinct μ; the production `deriveMuCtx` matches the
+   reference SHAKE-256 byte-for-byte; empty `nil` ctx equals empty
+   `[]byte{}` ctx (FIPS 204 §5.4 step-2 encoding).
+2. `TestOrchestrateV03SignCtx_EmptyCtx_MatchesV03Sign` PASS —
+   under identical deterministic RNG seeds, `OrchestrateV03Sign(msg)`
+   and `OrchestrateV03SignCtx(nil, msg)` emit bit-identical wire
+   bytes. Existing chain certs remain valid.
+3. `TestOrchestrateV03SignCtx_CtxTooLarge_Rejected` PASS — 256-byte
+   ctx rejected with `ErrCtxTooLarge` at constructor, aggregator,
+   and orchestrator; 255-byte ctx accepted at the boundary.
+4. `TestOrchestrateV03SignCtx_VerifyMatchesFIPS204` PASS — the
+   output verifies under cloudflare/circl's stock FIPS 204
+   `mldsa65.Verify(pub, msg, ctx, sig)` and is REJECTED under
+   different ctx or empty ctx (ctx binding is real). Aggregator-
+   side ctx mismatch against the signers' ctx fails at MAC verification
+   or norm rejection — never produces a valid sig under a different
+   ctx than the signers used.
+5. `TestAlgebraic_NoSkAccess/AlgebraicAggregate` and
+   `TestAlgebraic_NoSkAccess/AlgebraicAggregateCtx` PASS — AST guard
+   now covers BOTH the wrapper and the ctx-bound entry point. No
+   sk-bearing parameter, no sk-bearing call, no sk-bearing identifier.
+6. All v1.0.22 graduation gates remain TRUE (`TestAlgebraic_FullCycle_n5_t3`,
+   `TestAlgebraic_ByteValid`, `TestAMatrix_IsAlreadyInNTTDomain`,
+   `TestCirclInternalShape_VsPulsar`).
+7. Race-clean: `cd ref/go && GOWORK=off go test -race -count=1 -short
+   -timeout 900s ./pkg/pulsar/`.
+
 ### PULSAR-V03-1 — v0.3 algebraic sign: byte-equality with circl Verify
 
 **Status**: CLOSED in v1.0.20 (commit `023a3ed`).

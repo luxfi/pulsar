@@ -74,10 +74,12 @@ jobs:
 
       - name: Install system deps (OCaml + Why3 SMT)
         run: |
+          # Ubuntu 24.04 (noble) dropped `alt-ergo` from apt — install via opam
+          # below in the EasyCrypt step. apt only ships SMT solvers + opam base.
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             opam ocaml-nox m4 pkg-config libgmp-dev libpcre3-dev \
-            z3 alt-ergo zlib1g-dev
+            z3 zlib1g-dev
 
       - name: opam init (idempotent)
         run: |
@@ -97,6 +99,8 @@ jobs:
       - name: Install EasyCrypt (source build)
         run: |
           eval $(opam env --switch=jasmin)
+          # Install alt-ergo via opam (Ubuntu 24.04 dropped the apt package).
+          opam install alt-ergo --yes || true
           if ! command -v easycrypt >/dev/null 2>&1; then
             git clone --depth 1 https://github.com/EasyCrypt/easycrypt.git /tmp/easycrypt-src
             cd /tmp/easycrypt-src && opam install . --yes
