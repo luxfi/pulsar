@@ -63,23 +63,33 @@ fn kmac256_init_PRNG(reg ptr u64[25] state, reg ptr u8[32] K)
     return state;
 }
 
+// tau_1 preimage length: sid(16) || attempt_be(4) || node_id(32) ||
+// pk_seed(32) || mu(64). Assembled once by the caller and shared between
+// derive_rho_prime and round1_tau1_digest.
+param int PULSARM_TAU1_PREIMAGE_LEN = 16 + 4 + 32 + 32 + 64;
+
 // Derive rho_prime for party i, attempt kappa from:
-//   K           - 32-byte PRNG key K_i^prng (long-term secret)
-//   sid         - 16-byte session id (public)
-//   attempt     - kappa, 32-bit attempt counter (public)
-//   my_node_id  - 32-byte party id (public)
-//   pk_seed     - 32-byte ML-DSA-65 public-key seed rho (public)
-//   mu          - 64-byte FIPS 204 message hash binder (public)
+//   K            - 32-byte PRNG key K_i^prng (long-term secret)
+//   tau1_preimage- PULSARM_TAU1_PREIMAGE_LEN bytes, pre-assembled as
+//                  sid || attempt(BE32) || my_node_id || pk_seed || mu
+//                  (all public).
 //
 // rho_prime_out receives 64 bytes. CT note: K is SECRET.
-inline
+//
+// Compiled as a real (stack-return-address) call rather than inlined, so
+// its hashing working set gets an independent register frame instead of
+// flattening into pulsar_round1_commit. Inlined, the round-1 body (every
+// libjade primitive is `inline`) overflowed the 15 GP registers. The
+// preimage is passed as a single pre-assembled buffer (rather than five
+// separate operands) to keep the live argument count low enough that the
+// inlined keccak working set fits. Reg-ptr args alias caller stack arrays
+// per libjade convention; the absorbed byte stream and all values are
+// byte-identical to the previous five-operand form. CT unchanged (K
+// stays secret; no secret-dependent control flow or indexing).
+#[returnaddress="stack"]
 fn derive_rho_prime(
     reg ptr u8[32] K,
-    reg ptr u8[16] sid,
-    reg u32 attempt,
-    reg ptr u8[32] my_node_id,
-    reg ptr u8[32] pk_seed,
-    reg ptr u8[64] mu,
+    reg ptr u8[PULSARM_TAU1_PREIMAGE_LEN] tau1_preimage,
     reg ptr u8[64] rho_prime_out)
     -> reg ptr u8[64]
 {
@@ -94,13 +104,15 @@ fn derive_rho_prime(
     state_rsp = state;
     state_rsp = kmac256_init_PRNG(state_rsp, K);
 
-    // Absorb tau_1 = sid || attempt(BE32) || my_node_id || pk_seed || mu.
+    // Absorb tau_1 = sid || attempt(BE32) || my_node_id || pk_seed || mu,
+    // already laid out contiguously in tau1_preimage.
     ?{}, offset = #set0_64();
-    state_rsp, offset = absorb_array16(state_rsp, offset, sid);
-    state_rsp, offset = absorb_u32_be(state_rsp, offset, attempt);
-    state_rsp, offset = absorb_array32(state_rsp, offset, my_node_id);
-    state_rsp, offset = absorb_array32(state_rsp, offset, pk_seed);
-    state_rsp, offset = absorb_array64(state_rsp, offset, mu);
+    ?{}, i = #set0_64();
+    while (i < PULSARM_TAU1_PREIMAGE_LEN) {
+        c = tau1_preimage[i];
+        state_rsp, offset = absorb_one_byte(state_rsp, offset, c);
+        i += 1;
+    }
 
     // KMAC finaliser + squeeze 32 bytes into seed_i.
     seed_i_rsp = seed_i;

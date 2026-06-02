@@ -49,7 +49,13 @@ from Jade require "crypto_sign/dilithium/common/amd64/fips202.jinc"
 // After this routine, the state is ready to absorb the message body X,
 // starting at running offset 0 (the second 136-byte block having just
 // been permuted).
-inline
+//
+// Stack-return call (not inlined): this routine is large (two keccak
+// permutations plus 30+ state byte-writes). Inlining it into each of the
+// several Round-2 KMAC sites multiplied that working set across the whole
+// compilation unit until Jasmin's global register allocator ran dry. As
+// a real call it is emitted once. Semantics/CT unchanged.
+#[returnaddress="stack"]
 fn kmac256_init_R1MAC(reg ptr u64[25] state, reg ptr u8[32] K)
     -> reg ptr u64[25]
 {
@@ -100,7 +106,9 @@ fn kmac256_init_R1MAC(reg ptr u64[25] state, reg ptr u8[32] K)
 // followed by the cSHAKE256 finaliser (0x04 || ... || 0x80) and permute.
 // Squeezes the 32-byte tag into `tag_out`. Caller passes the current
 // absorption `offset` mod SHAKE256_RATE.
-inline
+// Stack-return call (not inlined), same global-pressure rationale as
+// kmac256_init_R1MAC. Semantics/CT unchanged.
+#[returnaddress="stack"]
 fn kmac256_finalize_32(
     reg ptr u64[25] state,
     reg u64 offset,
