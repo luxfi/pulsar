@@ -11,7 +11,7 @@
 // corona/gpu/gpu.go is the structural template for this package;
 // every export here has the matching corona counterpart.
 //
-// IMPORT-PATH DISCIPLINE — NIST-CLEAN REFERENCE
+// # IMPORT-PATH DISCIPLINE — NIST-CLEAN REFERENCE
 //
 // The pulsar NIST reference implementation lives at the parent import
 // path github.com/luxfi/pulsar/ref/go/pkg/pulsar. That package's
@@ -27,7 +27,7 @@
 // dispatcher. Compiling the reference (go test ./ref/go/pkg/pulsar/)
 // does not transitively pull this subpackage.
 //
-// DECOMPLECTING NOTE
+// # DECOMPLECTING NOTE
 //
 // Pulsar's per-coefficient NTT (FIPS 204 §3.6) operates on
 // [256]uint32 polynomials in 32-bit Montgomery form with q=8380417
@@ -66,7 +66,7 @@
 //     cgo plumbing is wired correctly without grepping the lattice
 //     source.
 //
-// THRESHOLD GATING
+// # THRESHOLD GATING
 //
 // Pulsar's production ring degree is N=256 (FIPS 204 fixed). Single-
 // poly Metal NTT on Apple M1 Max is strictly slower than the pure-Go
@@ -83,7 +83,7 @@
 // UseAcceleratorForce() to set threshold=1 and exercise the GPU path
 // at N=256 as a byte-equality gate.
 //
-// BUILD-TAG DISCIPLINE
+// # BUILD-TAG DISCIPLINE
 //
 // This package has NO build tags. It compiles identically across
 // cgo+gpu builds and pure-Go builds because the cgo plumbing lives
