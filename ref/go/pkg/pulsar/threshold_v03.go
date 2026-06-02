@@ -94,21 +94,17 @@ package pulsar
 //
 // CONSTRAINTS HONOURED
 //
-//   - Combine() (v0.1) and TransitionalAggregate() (v0.2) UNTOUCHED.
-//     v0.3 ships in this new file alongside, not on top of, the
-//     existing aggregators. The forward-only discipline: when a v0.3
-//     consumer ships, it switches to AlgebraicAggregate; v0.1 and v0.2
-//     consumers stay where they are.
-//   - The v0.3 wire shape REUSES the v0.2 wire types (TransitionalRound1Message,
-//     TransitionalRound2Message) verbatim. The wire bytes for
-//     (Commit, MACs, W, Z, CS2, CT0) are byte-identical across v0.2
-//     and v0.3 — only the inner aggregator changes. This is
-//     intentional: it lets v0.3 land as a pure aggregator-side upgrade
-//     without re-stabilising any wire shape.
-//   - Naming: this file uses "Algebraic*" because the wire shape IS
-//     algebraic AND the aggregator IS algebraic. The v0.2 "Transitional"
-//     prefix names the half-algebraic v0.2 state. v0.3 is honestly
-//     algebraic end-to-end.
+//   - v0.3 is the SOLE permissionless production path. v0.1's
+//     reconstruct-and-sign Combine() is retained for the seed-share
+//     small-committee path; v0.2's TransitionalAggregate (which
+//     materialised the master sk in process memory at sign time) has
+//     been removed from pulsar core. Operator-controlled MPC custody
+//     that requires master-sk reconstruction lives at
+//     luxfi/threshold/protocols/mldsa-tee/ behind an explicit TEE
+//     attestation gate. Public permissionless chains run v0.3.
+//   - Naming: "Algebraic*" because the wire shape IS algebraic AND the
+//     aggregator IS algebraic — no party (including the aggregator)
+//     ever holds the master sk during sign.
 //
 // REFERENCES
 //   - FIPS 204 §6 ML-DSA-Sign (Algorithm 22 + §7 polynomial subroutines)
@@ -177,6 +173,15 @@ var (
 	// ErrAlgebraicHintOverflow is returned when the FIPS 204 hint
 	// vector population exceeds ω. Restart-restart-able.
 	ErrAlgebraicHintOverflow = errors.New("pulsar: v0.3 hint popcount exceeds ω")
+
+	// ErrCtxTooLarge is the v0.4 ctx-bound aggregator alias for
+	// ErrCtxTooLong (sign.go). FIPS 204 §5.4 step 2 encodes |ctx| as a
+	// single byte; any ctx > 255 cannot be represented. Returned by
+	// OrchestrateV03SignCtx, NewAlgebraicThresholdSignerCtx, and
+	// AlgebraicAggregateCtx when len(ctx) > 255. Reuses the existing
+	// error value so error-equality matches across the single-party
+	// and threshold paths.
+	ErrCtxTooLarge = ErrCtxTooLong
 )
 
 // AlgebraicSetup is the per-committee public setup state for the v0.3
@@ -440,6 +445,16 @@ type AlgebraicThresholdSigner struct {
 	Quorum  []NodeID
 	Message []byte
 
+	// Ctx is the FIPS 204 §5.4 application-context octet string
+	// (0..255 bytes). The empty context (Ctx == nil or len(Ctx) == 0)
+	// is the v0.3 default and yields M' = 0x00 || 0x00 || M, matching
+	// historical OrchestrateV03Sign output. Non-empty Ctx is bound
+	// into μ as M' = 0x00 || |Ctx| || Ctx || M per FIPS 204.
+	//
+	// Set via the constructor parameter on NewAlgebraicThresholdSignerCtx;
+	// NewAlgebraicThresholdSigner leaves it nil.
+	Ctx []byte
+
 	// MACKeys is the per-pair MAC key set, same per-pair session keys
 	// EstablishSession produces. Mirror of v0.1/v0.2 ThresholdSigner.
 	MACKeys map[NodeID][32]byte
@@ -456,7 +471,8 @@ type AlgebraicThresholdSigner struct {
 	lambda uint32
 }
 
-// NewAlgebraicThresholdSigner constructs a v0.3 party-state machine.
+// NewAlgebraicThresholdSigner constructs a v0.3 party-state machine
+// with empty FIPS 204 §5.4 context (Ctx = nil).
 //
 // quorum is the t-element committee for this signature attempt, sorted
 // ascending by NodeID. share is THIS party's AlgebraicKeyShare.
@@ -467,6 +483,9 @@ type AlgebraicThresholdSigner struct {
 //
 // rng may be nil — crypto/rand is used by default. Pass a deterministic
 // reader for KAT runs.
+//
+// Backwards-compatibility: equivalent to
+// NewAlgebraicThresholdSignerCtx(..., nil, ...).
 func NewAlgebraicThresholdSigner(
 	params *Params,
 	setup *AlgebraicSetup,
@@ -475,6 +494,35 @@ func NewAlgebraicThresholdSigner(
 	quorum []NodeID,
 	share *AlgebraicKeyShare,
 	sessionKeys map[NodeID][32]byte,
+	message []byte,
+	rng io.Reader,
+) (*AlgebraicThresholdSigner, error) {
+	return NewAlgebraicThresholdSignerCtx(params, setup, sessionID, attempt,
+		quorum, share, sessionKeys, nil, message, rng)
+}
+
+// NewAlgebraicThresholdSignerCtx constructs a v0.4 party-state machine
+// with an explicit FIPS 204 §5.4 application context.
+//
+// ctx is the FIPS 204 octet-string context (0..255 bytes); pass nil
+// for the empty context (equivalent to NewAlgebraicThresholdSigner).
+// All parties in a quorum MUST be constructed with the same ctx — any
+// disagreement produces party-local μ-mismatches and the aggregator's
+// signature will fail to verify under the supplied group key.
+//
+// Returns ErrCtxTooLarge if len(ctx) > 255. This matches the FIPS 204
+// §5.4 single-byte length encoding.
+//
+// Other arguments are identical in semantics to NewAlgebraicThresholdSigner.
+func NewAlgebraicThresholdSignerCtx(
+	params *Params,
+	setup *AlgebraicSetup,
+	sessionID [16]byte,
+	attempt uint32,
+	quorum []NodeID,
+	share *AlgebraicKeyShare,
+	sessionKeys map[NodeID][32]byte,
+	ctx []byte,
 	message []byte,
 	rng io.Reader,
 ) (*AlgebraicThresholdSigner, error) {
@@ -492,6 +540,9 @@ func NewAlgebraicThresholdSigner(
 	}
 	if setup.Mode != params.Mode {
 		return nil, ErrModeMismatch
+	}
+	if len(ctx) > 255 {
+		return nil, ErrCtxTooLarge
 	}
 	if len(quorum) == 0 {
 		return nil, ErrEmptyQuorum
@@ -526,6 +577,13 @@ func NewAlgebraicThresholdSigner(
 		macKeys[peer] = key
 	}
 
+	// Defensive copy of ctx so caller mutation post-construction does
+	// not flip our μ derivation.
+	var ctxCopy []byte
+	if len(ctx) > 0 {
+		ctxCopy = append([]byte{}, ctx...)
+	}
+
 	return &AlgebraicThresholdSigner{
 		Params:    params,
 		Setup:     setup,
@@ -535,6 +593,7 @@ func NewAlgebraicThresholdSigner(
 		Attempt:   attempt,
 		Quorum:    append([]NodeID{}, quorum...),
 		Message:   append([]byte{}, message...),
+		Ctx:       ctxCopy,
 		MACKeys:   macKeys,
 		rng:       rng,
 	}, nil
@@ -789,17 +848,14 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 	w1Packed := packW1Vec(w1, gamma2, K)
 
 	// μ = SHAKE-256(tr || M', 64) where M' = 0x00 || |ctx| || ctx || M
-	// per FIPS 204 §5.4 step 2. ctx = "" (empty) → prefix is 0x00 0x00.
-	// Threshold path treats ctx as empty; ctx-aware threshold sign is
-	// a v0.4 deliverable (Pulsar.SignCtx threshold equivalent).
+	// per FIPS 204 §5.4 step 2. The empty-ctx case (s.Ctx == nil or
+	// len == 0) yields M' = 0x00 || 0x00 || M, byte-identical to the
+	// historical v0.3 output. v0.4 ctx-bound signing populates s.Ctx
+	// via NewAlgebraicThresholdSignerCtx; aggregator-side ctx MUST
+	// match what every signer used or the resulting cTilde will not
+	// match the aggregator's cTilde and the FIPS 204 norm checks fail.
 	var mu [64]byte
-	{
-		h := sha3.NewShake256()
-		_, _ = h.Write(s.Setup.Tr[:])
-		_, _ = h.Write([]byte{0x00, 0x00})
-		_, _ = h.Write(s.Message)
-		_, _ = h.Read(mu[:])
-	}
+	deriveMuCtx(s.Setup.Tr, s.Ctx, s.Message, mu[:])
 	cTildeSize := modeCTildeSize(s.Params.Mode)
 	cTilde := make([]byte, cTildeSize)
 	{
@@ -878,7 +934,8 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 }
 
 // AlgebraicAggregate produces a FIPS 204 ML-DSA signature from the
-// quorum's per-party (Z, CS2, CT0) contributions. PUBLIC-BFT-SAFE.
+// quorum's per-party (Z, CS2, CT0) contributions with EMPTY FIPS 204
+// §5.4 context. PUBLIC-BFT-SAFE.
 //
 // NO master sk is materialised at any point in this function. The
 // signature is emitted from pure algebraic sums followed by the FIPS
@@ -898,9 +955,43 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 //   - (nil, ErrAlgebraicRestart) when global FIPS 204 norm bounds reject;
 //     caller restarts at κ+1
 //   - (nil, other)             on tamper/invalid-input
+//
+// Backwards-compatibility: equivalent to AlgebraicAggregateCtx(..., nil, ...).
 func AlgebraicAggregate(
 	params *Params,
 	setup *AlgebraicSetup,
+	message []byte,
+	sessionID [16]byte,
+	attempt uint32,
+	quorum []NodeID,
+	quorumEvalPoints []uint32,
+	threshold int,
+	round1 []*AlgebraicRound1Message,
+	round2 []*AlgebraicRound2Message,
+	sessionKeys map[NodeID]map[NodeID][32]byte,
+) (*Signature, error) {
+	return AlgebraicAggregateCtx(params, setup, nil, message, sessionID, attempt,
+		quorum, quorumEvalPoints, threshold, round1, round2, sessionKeys)
+}
+
+// AlgebraicAggregateCtx produces a FIPS 204 ML-DSA signature bound to
+// the supplied §5.4 application context. PUBLIC-BFT-SAFE.
+//
+// Identical to AlgebraicAggregate but with explicit ctx threaded into
+// μ = SHAKE-256(tr || 0x00 || |ctx| || ctx || M, 64). Empty ctx
+// (nil or len == 0) byte-matches AlgebraicAggregate.
+//
+// ctx MUST match the ctx every signer used in their Round 2Sign step.
+// Aggregator/signer ctx mismatch produces a μ-mismatch and the FIPS 204
+// norm checks reject; in practice the protocol-layer driver pins ctx
+// alongside (session, attempt, message) for the whole quorum.
+//
+// Returns ErrCtxTooLarge if len(ctx) > 255 (FIPS 204 §5.4 single-byte
+// length encoding).
+func AlgebraicAggregateCtx(
+	params *Params,
+	setup *AlgebraicSetup,
+	ctx []byte,
 	message []byte,
 	sessionID [16]byte,
 	attempt uint32,
@@ -919,6 +1010,9 @@ func AlgebraicAggregate(
 	}
 	if setup.Mode != params.Mode {
 		return nil, ErrModeMismatch
+	}
+	if len(ctx) > 255 {
+		return nil, ErrCtxTooLarge
 	}
 	if len(round1) < threshold || len(round2) < threshold {
 		return nil, ErrInsufficientQuor
@@ -1041,15 +1135,12 @@ func AlgebraicAggregate(
 	// parties used.
 	w1Packed := packW1Vec(w1, gamma2, K)
 	// μ = SHAKE-256(tr || M', 64) where M' = 0x00 || |ctx| || ctx || M
-	// per FIPS 204 §5.4 step 2. Must match Round-2 mu derivation.
+	// per FIPS 204 §5.4 step 2. Must match the Round-2 mu derivation
+	// in every signer's round2EmitFull. Empty ctx (len == 0) yields
+	// M' = 0x00 || 0x00 || M, byte-identical to the historical v0.3
+	// path.
 	var mu [64]byte
-	{
-		h := sha3.NewShake256()
-		_, _ = h.Write(setup.Tr[:])
-		_, _ = h.Write([]byte{0x00, 0x00})
-		_, _ = h.Write(message)
-		_, _ = h.Read(mu[:])
-	}
+	deriveMuCtx(setup.Tr, ctx, message, mu[:])
 	cTildeSize := modeCTildeSize(params.Mode)
 	cTilde := make([]byte, cTildeSize)
 	{
@@ -1176,6 +1267,39 @@ func algV03TranscriptTau2(sid [16]byte, attempt uint32, quorum []NodeID, sender 
 		out = append(out, encodeString(p)...)
 	}
 	return out
+}
+
+// deriveMuCtx is the SINGLE source of truth for the v0.3/v0.4 ML-DSA
+// μ prehash. Both per-party round2EmitFull and the aggregator's
+// AlgebraicAggregateCtx call this so signer-aggregator parity is
+// structural — there is exactly ONE place to change M' encoding.
+//
+// Per FIPS 204 §5.4 step 2:
+//
+//	μ := SHAKE-256(tr || M', 64)
+//	M' := 0x00 || |ctx| || ctx || M
+//
+// where |ctx| is a single byte (FIPS 204 §5.4 single-byte length
+// encoding). Caller MUST validate len(ctx) <= 255 before invoking;
+// this helper trusts the precondition because the validation lives at
+// the API boundary (NewAlgebraicThresholdSignerCtx, AlgebraicAggregateCtx,
+// OrchestrateV03SignCtx).
+//
+// Empty ctx (nil OR len == 0) yields M' = 0x00 || 0x00 || M, which is
+// byte-identical to the historical empty-ctx v0.3 path. This is the
+// load-bearing backwards-compatibility invariant.
+//
+// out MUST be at least 64 bytes; deriveMuCtx writes exactly 64 bytes
+// into out[:64].
+func deriveMuCtx(tr [64]byte, ctx, msg, out []byte) {
+	h := sha3.NewShake256()
+	_, _ = h.Write(tr[:])
+	_, _ = h.Write([]byte{0x00, byte(len(ctx))})
+	if len(ctx) > 0 {
+		_, _ = h.Write(ctx)
+	}
+	_, _ = h.Write(msg)
+	_, _ = h.Read(out[:64])
 }
 
 // V03QuorumEvalPoints helper: given a slice of AlgebraicKeyShares
