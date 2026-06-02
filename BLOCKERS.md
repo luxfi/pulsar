@@ -23,7 +23,7 @@ None.
 
 ### PULSAR-V04-CTX — v0.4 ctx-bound threshold sign (FIPS 204 §5.4)
 
-**Status**: CLOSED in v1.1.0 (tag pending — see CHANGELOG.md for the
+**Status**: CLOSED in v1.1.1 (tag pending — see CHANGELOG.md for the
 exact commit).
 **Owner**: cryptographer.
 
@@ -57,7 +57,7 @@ msg, out)` (threshold_v03.go) that the v0.4 path threads ctx into the
 FIPS 204 §5.4 prefix:
 
 ```go
-// AFTER (v1.1.0): single source of truth
+// AFTER (v1.1.1): single source of truth
 func deriveMuCtx(tr [64]byte, ctx, msg, out []byte) {
     h := sha3.NewShake256()
     h.Write(tr[:])
@@ -95,7 +95,7 @@ orchestrator.
 
 #### Graduation gate
 
-All currently TRUE on the tip of `main` at v1.1.0:
+All currently TRUE on the tip of `main` at v1.1.1:
 
 1. `TestOrchestrateV03SignCtx_Mu_Includes_Ctx` PASS — distinct ctx
    yields distinct μ; the production `deriveMuCtx` matches the
