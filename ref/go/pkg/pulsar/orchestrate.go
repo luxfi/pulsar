@@ -60,9 +60,47 @@ import (
 // This helper does NOT compute sessionKeys for the caller — the
 // caller owns the identity layer. For a self-contained one-shot
 // API, see OrchestrateV03SignWithKeys below.
+//
+// EMPTY ctx: equivalent to OrchestrateV03SignCtx(..., nil, ...).
+// Output bytes are byte-identical to the historical empty-ctx v0.3
+// path; existing chain certs / KATs remain valid.
 func OrchestrateV03Sign(
 	params *Params,
 	setup *AlgebraicSetup,
+	msg []byte,
+	sessionID [16]byte,
+	quorum []NodeID,
+	quorumShares []*AlgebraicKeyShare,
+	evalPoints []uint32,
+	sessionKeys map[NodeID]map[NodeID][32]byte,
+	maxAttempts uint32,
+	rng io.Reader,
+) (*Signature, error) {
+	return OrchestrateV03SignCtx(params, setup, nil, msg, sessionID,
+		quorum, quorumShares, evalPoints, sessionKeys, maxAttempts, rng)
+}
+
+// OrchestrateV03SignCtx drives the full Round1 → Round2W → Round2Sign
+// → AlgebraicAggregateCtx cycle with an explicit FIPS 204 §5.4 context
+// string bound into μ.
+//
+// Identical in semantics to OrchestrateV03Sign but with a ctx []byte
+// parameter. Output signature verifies under FIPS 204 §6.3
+// VerifyCtx(pk, msg, ctx, sig) — byte-identical to a single-party
+// FIPS 204 deterministic SignCtx on the same (sk, ctx, msg) tuple up
+// to the y_total sampling difference inherent to the threshold path
+// (see threshold_v03.go's Class N1 byte-equality contract).
+//
+// ctx is the FIPS 204 octet-string context (0..255 bytes); nil for
+// the empty context. Returns ErrCtxTooLarge if len(ctx) > 255.
+//
+// Class N1 byte-equality: for any (msg, ctx) the resulting wire bytes
+// satisfy mldsa.VerifyCtx(pk, msg, ctx, sig) where pk is the group
+// public key bound into setup.Pub.
+func OrchestrateV03SignCtx(
+	params *Params,
+	setup *AlgebraicSetup,
+	ctx []byte,
 	msg []byte,
 	sessionID [16]byte,
 	quorum []NodeID,
@@ -80,6 +118,9 @@ func OrchestrateV03Sign(
 	}
 	if setup.Mode != params.Mode {
 		return nil, ErrModeMismatch
+	}
+	if len(ctx) > 255 {
+		return nil, ErrCtxTooLarge
 	}
 	threshold := len(quorum)
 	if threshold == 0 {
@@ -105,11 +146,11 @@ func OrchestrateV03Sign(
 	for attempt := uint32(0); attempt < maxAttempts; attempt++ {
 		signers := make([]*AlgebraicThresholdSigner, threshold)
 		for i := 0; i < threshold; i++ {
-			signer, err := NewAlgebraicThresholdSigner(
+			signer, err := NewAlgebraicThresholdSignerCtx(
 				params, setup, sessionID, attempt, quorum, quorumShares[i],
-				sessionKeys[quorum[i]], msg, rng)
+				sessionKeys[quorum[i]], ctx, msg, rng)
 			if err != nil {
-				return nil, fmt.Errorf("pulsar: NewAlgebraicThresholdSigner party %d: %w", i, err)
+				return nil, fmt.Errorf("pulsar: NewAlgebraicThresholdSignerCtx party %d: %w", i, err)
 			}
 			if err := signer.SetQuorumEvalPoints(evalPoints); err != nil {
 				return nil, fmt.Errorf("pulsar: SetQuorumEvalPoints party %d: %w", i, err)
@@ -156,13 +197,13 @@ func OrchestrateV03Sign(
 			r2[i] = m
 		}
 
-		sig, err := AlgebraicAggregate(params, setup, msg, sessionID, attempt,
+		sig, err := AlgebraicAggregateCtx(params, setup, ctx, msg, sessionID, attempt,
 			quorum, evalPoints, threshold, r1, r2, sessionKeys)
 		if err == nil {
 			return sig, nil
 		}
 		if !errors.Is(err, ErrAlgebraicRestart) {
-			return nil, fmt.Errorf("pulsar: AlgebraicAggregate attempt %d: %w", attempt, err)
+			return nil, fmt.Errorf("pulsar: AlgebraicAggregateCtx attempt %d: %w", attempt, err)
 		}
 		// Restart with attempt+1.
 	}
