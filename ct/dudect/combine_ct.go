@@ -92,14 +92,14 @@ var (
 	cFixtureTapes [kCombineValidPool]combineTape
 )
 
-//export pulsar_combine_ct_setup
-//
 // Build a real threshold ceremony fixture once. Returns 0 on
 // success, non-zero on failure.
 //
 // Topology: n=3 parties, t=2 threshold, ModeP65. This is the
 // smallest non-trivial threshold ceremony — keeps the dudect run
 // time per sample bounded.
+//
+//export pulsar_combine_ct_setup
 func pulsar_combine_ct_setup() C.int {
 	params := pulsar.MustParamsFor(pulsar.ModeP65)
 	n, t := 3, 2
@@ -248,24 +248,22 @@ func pulsar_combine_ct_setup() C.int {
 	return 0
 }
 
-//export pulsar_combine_ct_pool_size
-//
 // Returns the number of valid tapes in the per-startup pool.
+//
+//export pulsar_combine_ct_pool_size
 func pulsar_combine_ct_pool_size() C.size_t {
 	return C.size_t(kCombineValidPool)
 }
 
-//export pulsar_combine_ct_input_size
-//
 // Returns the per-sample input width: 4 bytes (a big-endian uint32
 // tape index, mod kCombineValidPool). The C harness sizes its
 // dudect chunk to this width.
+//
+//export pulsar_combine_ct_input_size
 func pulsar_combine_ct_input_size() C.size_t {
 	return C.size_t(4)
 }
 
-//export pulsar_combine_ct
-//
 // One dudect measurement sample.
 //
 // `data` points to a 4-byte big-endian uint32 tape index; the
@@ -278,6 +276,8 @@ func pulsar_combine_ct_input_size() C.size_t {
 // IMPORTANT: this function must NOT branch on the data beyond the
 // modular reduction. The reduction is constant-time over the
 // 4-byte input.
+//
+//export pulsar_combine_ct
 func pulsar_combine_ct(data *C.uint8_t) {
 	if cFixtureParams == nil {
 		return
