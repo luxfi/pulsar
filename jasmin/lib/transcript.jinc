@@ -293,11 +293,16 @@ fn absorb_u32_be(
     -> reg ptr u64[25], reg u64
 {
     reg u8 c;
-    c = (8u)(v >> 24);
+    reg u32 t;
+    // Compute each big-endian byte via an explicit u32 shift into a temp
+    // before the u8 truncation; a fused shift-and-truncate is not always a
+    // single x86 instruction (linearization rejects the blended form in
+    // some register assignments). Byte values are unchanged.
+    t = v; t >>= 24; c = (8u) t;
     state, offset = absorb_one_byte(state, offset, c);
-    c = (8u)(v >> 16);
+    t = v; t >>= 16; c = (8u) t;
     state, offset = absorb_one_byte(state, offset, c);
-    c = (8u)(v >> 8);
+    t = v; t >>= 8;  c = (8u) t;
     state, offset = absorb_one_byte(state, offset, c);
     c = (8u) v;
     state, offset = absorb_one_byte(state, offset, c);
