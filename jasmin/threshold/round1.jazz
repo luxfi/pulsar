@@ -97,15 +97,103 @@ fn round1_commit_digest(
     return D_out;
 }
 
+// Expand A from pk_seed and compute the commitment polynomials:
+//   w_i  = invNTT( A . NTT(y_i) )            (k polys, canonical form)
+//   w1_i = HighBits(w_i, 2*gamma2)           (k polys)
+//   w1_packed = pack_w1(w1_i)                (Li2_pack_w1len bytes)
+//
+// Pulled out of pulsar_round1_commit into its own (non-inline) function
+// so the very large inlined working set of expandA + mult_mat_vec +
+// decompose_vec gets an independent register frame. When this lived in
+// the caller, the entire round-1 body — every libjade primitive is
+// `inline` — flattened into one frame whose peak exceeded the 15 GP
+// registers (the allocator fails on the expandA keccak state colliding
+// with the still-live hashing pointers). Splitting at this boundary
+// leaves the heavy matrix expansion with only its own locals live.
+//
+// reg-ptr arguments alias the caller's stack arrays and are written
+// in place / returned by reference, exactly as libjade's own
+// primitives do. The arithmetic is byte-identical to the original
+// inlined sequence; no value, ordering, or CT property changes (all
+// inputs here — pk_seed public, y_i the party's masked nonce — keep
+// their original sensitivity and there are no secret-dependent
+// branches or indices).
+fn round1_w_from_y(
+    reg ptr u8[32] pk_seed,
+    reg ptr u32[Li2_l * Li2_polydeg] y_i,
+    reg ptr u32[Li2_k * Li2_polydeg] w_i_out,
+    reg ptr u32[Li2_k * Li2_polydeg] w1_i_out,
+    reg ptr u8[Li2_pack_w1len] w1_packed_out)
+    -> reg ptr u32[Li2_k * Li2_polydeg],
+       reg ptr u32[Li2_k * Li2_polydeg],
+       reg ptr u8[Li2_pack_w1len]
+{
+    stack u8[32] pk_seed_local;
+    stack u8[Li2_pack_w1len] w1_packed_local;
+    stack u32[Li2_l * Li2_polydeg] fft_y_i;
+    stack u32[Li2_k * Li2_l * Li2_polydeg] fft_matA;
+    stack u32[Li2_k * Li2_polydeg] w_i;
+    stack u32[Li2_k * Li2_polydeg] w0_i;
+    stack u32[Li2_k * Li2_polydeg] w1_i;
+    reg ptr u8[Li2_pack_w1len] w1_rsp;
+    reg u64 i;
+    reg u32 r32;
+    reg u8 cb;
+
+    // expandA consumes its seed as a by-value `stack u8[32]`; copy the
+    // incoming reg-ptr seed into a local stack array so the allocator
+    // does not have to place a reg-ptr argument onto the stack.
+    ?{}, i = #set0_64();
+    while (i < 32) { cb = pk_seed[i]; pk_seed_local[i] = cb; i += 1; }
+
+    // ---- Expand public matrix A from pk_seed ----
+    fft_matA = expandA(pk_seed_local);
+
+    // ---- w_i = A * y_i in NTT domain, then bring back ----
+    fft_y_i = deep_copy_vecl(y_i);
+    fft_y_i = fft_vec(fft_y_i);
+    w_i = mult_mat_vec(fft_matA, fft_y_i);
+    w_i = reduce32_veck(w_i);
+    w_i = ifft_to_mont_vec(w_i);
+    w_i = polyveck_caddq(w_i);
+
+    // ---- Decompose w_i = w1_i * 2*gamma2 + w0_i ----
+    w0_i, w1_i = decompose_vec(w_i);
+    // pack_w1 returns a fresh local stack buffer; capture it locally then
+    // copy into the caller-provided w1_packed_out (a pointer into a local
+    // stack region cannot be returned across the call boundary).
+    w1_rsp = w1_packed_local;
+    w1_rsp = pack_w1(w1_i);
+    w1_packed_local = w1_rsp;
+
+    // Copy w_i / w1_i into the caller-provided buffers.
+    ?{}, i = #set0_64();
+    while (i < Li2_k * Li2_polydeg) {
+        r32 = w_i[i];
+        w_i_out[i] = r32;
+        r32 = w1_i[i];
+        w1_i_out[i] = r32;
+        i += 1;
+    }
+    // Copy packed w1 into the caller buffer.
+    ?{}, i = #set0_64();
+    while (i < Li2_pack_w1len) {
+        cb = w1_packed_local[i];
+        w1_packed_out[i] = cb;
+        i += 1;
+    }
+
+    return w_i_out, w1_i_out, w1_packed_out;
+}
+
 // Compute tau_1 = cSHAKE256("PULSAR-SIGN-R1-V1") over:
 //   session_id || attempt(BE32) || my_node_id || pk_seed || mu
+// The preimage is pre-assembled by the caller (shared with
+// derive_rho_prime). Absorbed byte stream is identical to the previous
+// five-operand version.
 inline
 fn round1_tau1_digest(
-    reg ptr u8[16] sid,
-    reg u32 attempt,
-    reg ptr u8[32] my_node_id,
-    reg ptr u8[32] pk_seed,
-    reg ptr u8[64] mu,
+    reg ptr u8[PULSARM_TAU1_PREIMAGE_LEN] tau1_preimage,
     reg ptr u8[32] tau_out)
     -> reg ptr u8[32]
 {
@@ -118,11 +206,12 @@ fn round1_tau1_digest(
     state_rsp = state;
     state_rsp, offset = cshake256_absorb_prelude_R1(state_rsp);
 
-    state_rsp, offset = absorb_array16(state_rsp, offset, sid);
-    state_rsp, offset = absorb_u32_be(state_rsp, offset, attempt);
-    state_rsp, offset = absorb_array32(state_rsp, offset, my_node_id);
-    state_rsp, offset = absorb_array32(state_rsp, offset, pk_seed);
-    state_rsp, offset = absorb_array64(state_rsp, offset, mu);
+    ?{}, i = #set0_64();
+    while (i < PULSARM_TAU1_PREIMAGE_LEN) {
+        c = tau1_preimage[i];
+        state_rsp, offset = absorb_one_byte(state_rsp, offset, c);
+        i += 1;
+    }
 
     state_rsp = cshake256_finalize(state_rsp, offset);
 
@@ -171,12 +260,18 @@ export fn pulsar_round1_commit(
     reg u64 outputs_ptr)
     -> reg u64
 {
-    // Derived output pointers within outputs_ptr.
+    // Output base address. We keep it in a stack slot and only
+    // materialise the two derived output pointers (commit/y_state) into
+    // registers in the final write phase (steps 9-10). The middle of
+    // this function inlines several keccak permutations whose register
+    // demand is high; pinning two GP registers to long-lived output
+    // pointers across that region exhausts the allocator. Spilling the
+    // base and re-deriving late keeps the same addresses with no extra
+    // live registers during the hash-heavy section.
+    stack u64 outputs_base;
     reg u64 commit_out_ptr;
     reg u64 y_state_out_ptr;
-    commit_out_ptr = outputs_ptr;
-    y_state_out_ptr = outputs_ptr;
-    y_state_out_ptr += PULSARM_COMMIT_BYTES;
+    outputs_base = outputs_ptr;
 
     // Stack workspace
     stack u8[16] sid;
@@ -188,15 +283,19 @@ export fn pulsar_round1_commit(
     stack u8[32] tau1_digest;
     stack u8[Li2_pack_w1len] w1_packed;
     stack u8[32] D_i;
+    // tau_1 preimage (sid||attempt_be||node_id||pk_seed||mu), assembled
+    // once and shared by derive_rho_prime and round1_tau1_digest.
+    stack u8[PULSARM_TAU1_PREIMAGE_LEN] tau1_preimage;
     stack u32[Li2_l * Li2_polydeg] y_i;
-    stack u32[Li2_l * Li2_polydeg] fft_y_i;
-    stack u32[Li2_k * Li2_l * Li2_polydeg] fft_matA;
+    // fft_y_i / fft_matA / w0_i moved into round1_w_from_y (their own
+    // register frame); only w_i and w1_i remain here as they feed the
+    // y_state output below.
     stack u32[Li2_k * Li2_polydeg] w_i;
-    stack u32[Li2_k * Li2_polydeg] w0_i;
     stack u32[Li2_k * Li2_polydeg] w1_i;
     stack u16 nonce_local;
     reg u16 nonce_reg;
     reg u64 i;
+    reg u64 w_base;
     // Separate scratch bytes for the public-input copy loops (sid,
     // node_id, pk_seed, mu) versus the secret randomness copy loop.
     // Sharing `c` across all five would make jasmin-ct join its level
@@ -214,6 +313,11 @@ export fn pulsar_round1_commit(
     reg ptr u8[32] tau1_rsp;
     reg ptr u8[32] D_rsp;
     reg ptr u8[Li2_pack_w1len] w1_rsp;
+    reg ptr u32[Li2_l * Li2_polydeg] yi_rsp;
+    reg ptr u32[Li2_k * Li2_polydeg] wi_rsp;
+    reg ptr u32[Li2_k * Li2_polydeg] w1i_rsp;
+    reg ptr u8[PULSARM_TAU1_PREIMAGE_LEN] preimage_rsp;
+    reg u32 attempt_be;
 
     // ---- 1. Copy inputs into stack workspace ----
     // Public inputs blob layout: [sid:16][node_id:32][pk_seed:32][mu:64]
@@ -238,17 +342,32 @@ export fn pulsar_round1_commit(
     #declassify(pk_seed);
     #declassify(mu);
 
+    // ---- 1b. Assemble the tau_1 preimage once ----
+    // Layout: sid(16) || attempt(BE32) || node_id(32) || pk_seed(32) || mu(64).
+    // This matches the byte stream the previous five-operand absorb
+    // produced; both derive_rho_prime and round1_tau1_digest consume it.
+    ?{}, i = #set0_64();
+    while (i < 16) { c = sid[i]; tau1_preimage[i] = c; i += 1; }
+    // Big-endian attempt bytes. Compute each byte into a register first;
+    // a store of a shifted-then-truncated value is not a single x86
+    // instruction. Byte order is unchanged (matches absorb_u32_be).
+    attempt_be = attempt; attempt_be >>= 24; c = (8u) attempt_be; tau1_preimage[16] = c;
+    attempt_be = attempt; attempt_be >>= 16; c = (8u) attempt_be; tau1_preimage[17] = c;
+    attempt_be = attempt; attempt_be >>=  8; c = (8u) attempt_be; tau1_preimage[18] = c;
+    attempt_be = attempt;                    c = (8u) attempt_be; tau1_preimage[19] = c;
+    ?{}, i = #set0_64();
+    while (i < 32) { c = node_id[i]; tau1_preimage[20 + i] = c; i += 1; }
+    ?{}, i = #set0_64();
+    while (i < 32) { c = pk_seed[i]; tau1_preimage[52 + i] = c; i += 1; }
+    ?{}, i = #set0_64();
+    while (i < 64) { c = mu[i];      tau1_preimage[84 + i] = c; i += 1; }
+    #declassify(tau1_preimage);
+
     // ---- 2. Derive rho_prime_i via KMAC(K, tau_1, "PULSAR-SIGN-PRNG-V1") ----
     randomness_rsp = randomness;
-    sid_rsp        = sid;
-    node_id_rsp    = node_id;
-    pk_seed_rsp    = pk_seed;
-    mu_rsp         = mu;
+    preimage_rsp   = tau1_preimage;
     rho_prime_rsp  = rho_prime;
-    rho_prime_rsp = derive_rho_prime(
-        randomness_rsp, sid_rsp, attempt,
-        node_id_rsp, pk_seed_rsp, mu_rsp,
-        rho_prime_rsp);
+    rho_prime_rsp = derive_rho_prime(randomness_rsp, preimage_rsp, rho_prime_rsp);
     rho_prime = rho_prime_rsp;
 
     // ---- 3. Sample y_i = expandMask(rho_prime, nonce = attempt) ----
@@ -257,31 +376,26 @@ export fn pulsar_round1_commit(
     nonce_reg = nonce_local;
     y_i = expandMask(rho_prime_rsp, nonce_reg);
 
-    // ---- 4. Expand public matrix A from pk_seed ----
-    fft_matA = expandA(pk_seed);
-
-    // ---- 5. Compute w_i = A * y_i in NTT domain, then bring back ----
-    fft_y_i = deep_copy_vecl(y_i);
-    fft_y_i = fft_vec(fft_y_i);
-    w_i = mult_mat_vec(fft_matA, fft_y_i);
-    w_i = reduce32_veck(w_i);
-    w_i = ifft_to_mont_vec(w_i);
-    w_i = polyveck_caddq(w_i);
-
-    // ---- 6. Decompose w_i = w1_i * 2*gamma2 + w0_i ----
-    w0_i, w1_i = decompose_vec(w_i);
-    w1_rsp = w1_packed;
-    w1_rsp = pack_w1(w1_i);
+    // ---- 4-6. Expand A, compute w_i = A*y_i, decompose, pack w1 ----
+    // Delegated to the non-inline round1_w_from_y so that expandA's large
+    // inlined working set occupies its own register frame (see that
+    // function's header). Results (w_i, w1_i, w1_packed) are written back
+    // into the local stack buffers by reference.
+    pk_seed_rsp = pk_seed;
+    yi_rsp      = y_i;
+    wi_rsp      = w_i;
+    w1i_rsp     = w1_i;
+    w1_rsp      = w1_packed;
+    wi_rsp, w1i_rsp, w1_rsp =
+        round1_w_from_y(pk_seed_rsp, yi_rsp, wi_rsp, w1i_rsp, w1_rsp);
+    w_i      = wi_rsp;
+    w1_i     = w1i_rsp;
     w1_packed = w1_rsp;
 
     // ---- 7. Compute tau1_digest ----
-    sid_rsp     = sid;
-    node_id_rsp = node_id;
-    pk_seed_rsp = pk_seed;
-    mu_rsp      = mu;
-    tau1_rsp    = tau1_digest;
-    tau1_rsp = round1_tau1_digest(
-        sid_rsp, attempt, node_id_rsp, pk_seed_rsp, mu_rsp, tau1_rsp);
+    preimage_rsp = tau1_preimage;
+    tau1_rsp     = tau1_digest;
+    tau1_rsp = round1_tau1_digest(preimage_rsp, tau1_rsp);
     tau1_digest = tau1_rsp;
 
     // ---- 8. Compute D_i = cSHAKE256(pack_w1(w1_i)) ----
@@ -291,6 +405,10 @@ export fn pulsar_round1_commit(
     D_i = D_rsp;
 
     // ---- 9. Write commit_out ----
+    // Re-derive the output pointers now (see outputs_base comment above).
+    commit_out_ptr = outputs_base;
+    y_state_out_ptr = outputs_base;
+    y_state_out_ptr += PULSARM_COMMIT_BYTES;
     // [0..32)
     ?{}, i = #set0_64();
     while (i < 32) {
@@ -327,34 +445,36 @@ export fn pulsar_round1_commit(
     }
 
     // ---- 10. Write y_state_out ----
-    // y_i (l polys, 4 bytes per coeff, little-endian)
+    // Each coefficient is emitted as one little-endian u32 store. On x86
+    // a u32 store produces exactly the four LE bytes the previous
+    // explicit byte-shift sequence wrote, so the output is byte-identical;
+    // it also avoids the unencodable shifted-byte-store-with-compound-
+    // address pattern the byte form produced after offset folding. The
+    // per-poly base offset is folded into a base register (w_base) so the
+    // address stays a simple [base + index*4] mode.
+    // y_i (l polys)
     ?{}, i = #set0_64();
     while (i < Li2_l * Li2_polydeg) {
         r32 = y_i[i];
-        [:u8 y_state_out_ptr + 4*i + 0] = (8u)(r32 >>  0);
-        [:u8 y_state_out_ptr + 4*i + 1] = (8u)(r32 >>  8);
-        [:u8 y_state_out_ptr + 4*i + 2] = (8u)(r32 >> 16);
-        [:u8 y_state_out_ptr + 4*i + 3] = (8u)(r32 >> 24);
+        [:u32 y_state_out_ptr + 4*i] = r32;
         i += 1;
     }
     // w_i (k polys)
+    w_base = y_state_out_ptr;
+    w_base += 4*(Li2_l*Li2_polydeg);
     ?{}, i = #set0_64();
     while (i < Li2_k * Li2_polydeg) {
         r32 = w_i[i];
-        [:u8 y_state_out_ptr + 4*(Li2_l*Li2_polydeg) + 4*i + 0] = (8u)(r32 >>  0);
-        [:u8 y_state_out_ptr + 4*(Li2_l*Li2_polydeg) + 4*i + 1] = (8u)(r32 >>  8);
-        [:u8 y_state_out_ptr + 4*(Li2_l*Li2_polydeg) + 4*i + 2] = (8u)(r32 >> 16);
-        [:u8 y_state_out_ptr + 4*(Li2_l*Li2_polydeg) + 4*i + 3] = (8u)(r32 >> 24);
+        [:u32 w_base + 4*i] = r32;
         i += 1;
     }
     // w1_i (k polys)
+    w_base = y_state_out_ptr;
+    w_base += 4*((Li2_l + Li2_k)*Li2_polydeg);
     ?{}, i = #set0_64();
     while (i < Li2_k * Li2_polydeg) {
         r32 = w1_i[i];
-        [:u8 y_state_out_ptr + 4*((Li2_l + Li2_k)*Li2_polydeg) + 4*i + 0] = (8u)(r32 >>  0);
-        [:u8 y_state_out_ptr + 4*((Li2_l + Li2_k)*Li2_polydeg) + 4*i + 1] = (8u)(r32 >>  8);
-        [:u8 y_state_out_ptr + 4*((Li2_l + Li2_k)*Li2_polydeg) + 4*i + 2] = (8u)(r32 >> 16);
-        [:u8 y_state_out_ptr + 4*((Li2_l + Li2_k)*Li2_polydeg) + 4*i + 3] = (8u)(r32 >> 24);
+        [:u32 w_base + 4*i] = r32;
         i += 1;
     }
 
@@ -424,14 +544,18 @@ export fn pulsar_round1_mac(
     state_rsp, tag_rsp = kmac256_finalize_32(state_rsp, offset, tag_rsp);
     tag = tag_rsp;
 
-    // Write tag into commit_buf at peer_index slot.
+    // Write tag into commit_buf at peer_index slot. Fold the buffer base
+    // and the slot offset into a single register so the per-byte store is
+    // an encodable [base + index] mode (base + slot + index would be
+    // three address registers, which x86 cannot encode).
     slot_offset = (64u) peer_index;
     slot_offset *= 32;
     slot_offset += PULSARM_R1_MAC_OFFSET;
+    slot_offset += commit_buf_ptr;
     ?{}, i = #set0_64();
     while (i < 32) {
         c = tag[i];
-        [:u8 commit_buf_ptr + slot_offset + i] = c;
+        [:u8 slot_offset + i] = c;
         i += 1;
     }
 

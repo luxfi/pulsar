@@ -111,6 +111,7 @@ fn pulsar_combine(
     reg u32 r32, sum32;
     reg u8 c;
     reg u8 fail_bits;
+    reg u8 shifted;
     reg u8 r1_fail, r2_fail, r3_fail, r4_fail;
     reg u8 norm_z, norm_w_low, norm_ct0;
     reg u32 hint_count;
@@ -161,13 +162,20 @@ fn pulsar_combine(
     // signature (produced by libjade `pack_signature` below).
     ?{}, j = #set0_32();
     while (j < threshold) {
+        // Fold the per-message base (round2_msgs_ptr + j*RESPONSE_BYTES)
+        // into a single register so each inner load is an encodable
+        // [base + disp32 + index*scale] mode. Without this fold the
+        // address carries two base registers plus index+scale, which the
+        // x86 effective-address encoder cannot represent. Semantics are
+        // identical: base now points at the start of message j.
         base = (64u) j;
         base *= PULSARM_RESPONSE_BYTES;
+        base += round2_msgs_ptr;
 
         // a) z_i u32 stream → add to z_agg.
         ?{}, i = #set0_64();
         while (i < Li2_l * Li2_polydeg) {
-            r32 = [:u32 round2_msgs_ptr + base + PULSARM_R2_Z_OFFSET + 4 * i];
+            r32 = [:u32 base + PULSARM_R2_Z_OFFSET + 4 * i];
             sum32 = z_agg[i];
             sum32 += r32;
             z_agg[i] = sum32;
@@ -177,7 +185,7 @@ fn pulsar_combine(
         // b) r_i u32 stream → add to cs2.
         ?{}, i = #set0_64();
         while (i < Li2_k * Li2_polydeg) {
-            r32 = [:u32 round2_msgs_ptr + base + PULSARM_R2_R_OFFSET + 4 * i];
+            r32 = [:u32 base + PULSARM_R2_R_OFFSET + 4 * i];
             sum32 = cs2[i];
             sum32 += r32;
             cs2[i] = sum32;
@@ -348,11 +356,21 @@ fn pulsar_combine(
     if (hint_count > Li2_omega) { r4_fail = 1; }
 
     // ---- 8. accept = R1 AND R2 AND R3 AND R4 ----
+    // Materialise each shifted fail bit into its own register before the
+    // OR. The x86 backend cannot encode `or r, (s << imm)` (a shifted
+    // sub-expression as the OR's source operand), so we shift into
+    // `shifted` first and then OR. Same bit pattern, no algorithm change.
     ?{}, fail_bits = #set0_8();
     fail_bits |= r1_fail;
-    fail_bits |= r2_fail << 1;
-    fail_bits |= r3_fail << 2;
-    fail_bits |= r4_fail << 3;
+    shifted = r2_fail;
+    shifted <<= 1;
+    fail_bits |= shifted;
+    shifted = r3_fail;
+    shifted <<= 2;
+    fail_bits |= shifted;
+    shifted = r4_fail;
+    shifted <<= 3;
+    fail_bits |= shifted;
 
     // Jasmin does not allow `return` inside an `if` block; fall
     // through and gate the pack on `fail_bits == 0`.
