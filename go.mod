@@ -4,6 +4,7 @@ go 1.26.3
 
 require (
 	github.com/cloudflare/circl v1.6.3
+	github.com/luxfi/accel v1.0.7
 	github.com/luxfi/lattice/v7 v7.1.4
 	golang.org/x/crypto v0.49.0
 )
