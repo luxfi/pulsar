@@ -674,11 +674,19 @@ func (s *AlgebraicThresholdSigner) Round1() (*AlgebraicRound1Message, error) {
 		ySeed[i] = 0
 	}
 
-	// Compute w = A · y.
+	// Compute w = A · y. Forward-NTT y[] in one batched call so the
+	// accel substrate engages when L >= MLDSABatchThreshold.
 	yHat := make(polyVec, L)
 	for i := 0; i < L; i++ {
 		yHat[i] = y[i]
-		yHat[i].ntt()
+	}
+	{
+		out := batchNTT(yHat)
+		for i := 0; i < L; i++ {
+			for j := 0; j < mldsaN; j++ {
+				yHat[i][j] = uint32(out[i][j])
+			}
+		}
 	}
 	w := make(polyVec, K)
 	for i := 0; i < K; i++ {
@@ -877,12 +885,28 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 	cLambdaHat := cLambda
 	cLambdaHat.ntt()
 
+	// Forward-NTT s1[], s2[], t0[] in three batched calls so the accel
+	// substrate engages on parameter sets where L (resp. K) clears the
+	// MLDSABatchThreshold. Each batched call replaces L (resp. K) per-
+	// poly ntt()s; the downstream mulHat / invNTT / normalize pipeline
+	// is unchanged.
+	s1Hat := make(polyVec, L)
+	for i := 0; i < L; i++ {
+		s1Hat[i] = s.Share.S1[i]
+	}
+	{
+		out := batchNTT(s1Hat)
+		for i := 0; i < L; i++ {
+			for j := 0; j < mldsaN; j++ {
+				s1Hat[i][j] = uint32(out[i][j])
+			}
+		}
+	}
+
 	z := make(polyVec, L)
 	for i := 0; i < L; i++ {
-		s1iHat := s.Share.S1[i]
-		s1iHat.ntt()
 		var tmp poly
-		tmp.mulHat(&cLambdaHat, &s1iHat)
+		tmp.mulHat(&cLambdaHat, &s1Hat[i])
 		tmp.invNTT()
 		tmp.normalize()
 		yi := s.myY[i]
@@ -890,23 +914,45 @@ func (s *AlgebraicThresholdSigner) round2EmitFull(round1 []*AlgebraicRound1Messa
 		z[i].normalize()
 	}
 
+	s2Hat := make(polyVec, K)
+	for i := 0; i < K; i++ {
+		s2Hat[i] = s.Share.S2[i]
+	}
+	{
+		out := batchNTT(s2Hat)
+		for i := 0; i < K; i++ {
+			for j := 0; j < mldsaN; j++ {
+				s2Hat[i][j] = uint32(out[i][j])
+			}
+		}
+	}
+
 	cs2 := make(polyVec, K)
 	for i := 0; i < K; i++ {
-		s2iHat := s.Share.S2[i]
-		s2iHat.ntt()
 		var tmp poly
-		tmp.mulHat(&cLambdaHat, &s2iHat)
+		tmp.mulHat(&cLambdaHat, &s2Hat[i])
 		tmp.invNTT()
 		cs2[i] = tmp
 		cs2[i].normalize()
 	}
 
+	t0Hat := make(polyVec, K)
+	for i := 0; i < K; i++ {
+		t0Hat[i] = s.Share.T0[i]
+	}
+	{
+		out := batchNTT(t0Hat)
+		for i := 0; i < K; i++ {
+			for j := 0; j < mldsaN; j++ {
+				t0Hat[i][j] = uint32(out[i][j])
+			}
+		}
+	}
+
 	ct0 := make(polyVec, K)
 	for i := 0; i < K; i++ {
-		t0iHat := s.Share.T0[i]
-		t0iHat.ntt()
 		var tmp poly
-		tmp.mulHat(&cLambdaHat, &t0iHat)
+		tmp.mulHat(&cLambdaHat, &t0Hat[i])
 		tmp.invNTT()
 		ct0[i] = tmp
 		ct0[i].normalize()
