@@ -2,6 +2,11 @@
 
 **Status: submission-ready. No open items.**
 
+Forward-looking v1.2 extensions are tracked under
+`## Forward-looking (v1.2)` below; they are EXTENSIONS surfaced by the
+2026-06 fresh four-dimension audit (`AUDIT-2026-06.md`), not flaws in
+the v1.1.1 claims.
+
 This file is the closed-finding registry. New findings open under
 `## Open`; on fix they move to `## Closed` with commit + tag. IDs
 are cited from source-code comments and from
@@ -18,6 +23,85 @@ and the v1.0.7 sign-off.
 ## Open
 
 None.
+
+## Forward-looking (v1.2)
+
+These are EXTENSIONS surfaced by the 2026-06 fresh four-dimension audit
+(`AUDIT-2026-06.md`). Both are independent of every closed finding;
+both ship as decomplected hooks that do NOT touch existing wire form,
+ABI, or any FIPS 204 byte-equality contract. Neither is a flaw in the
+current claims — they are deferred-by-design forward-pointing items
+filed for the next minor.
+
+### PULSAR-V12-TEE-BIND — TEE-quote binding helper for permissionless quorum gating
+
+**Status**: SCAFFOLDED at audit time (commit pending). One pure
+function `AttestationContext(setup, msg)` in
+`ref/go/pkg/pulsar/attest.go` returning the canonical 32-byte TBS
+digest a validator's TEE quote should bind to when the host chain
+gates permissionless-quorum admission on attestation presence. Five
+unit tests pin stability + nil-input safety + full input-coverage
+sensitivity + customisation domain-separation
+(`ref/go/pkg/pulsar/attest_test.go`).
+
+**Why v1.2 not v1.1.x**: the audit treats the existing v1.1.1 claims
+(byte-equality, public-BFT safety, FIPS 204 §5.4 ctx-bound) as the
+single canonical home. The TEE-binding helper extends the surface
+without altering it; bundling under v1.2 keeps the v1.1.x cut focused
+on PULSAR-V04-CTX closure.
+
+**What this is NOT**: it is not a TEE attestation verifier. The
+chain-validating attestation verifier lives at
+`github.com/luxfi/mpc/cc/attest`. Pulsar's role is to declare the
+canonical TBS bytes; the verifier role belongs to the consensus
+envelope.
+
+**Custody-mode TEE path**: unchanged.
+`github.com/luxfi/threshold/protocols/mldsa-tee` already ships the
+SEV-SNP / TDX / NRAS-attested custody surface that materialises the
+master seed inside an attested TEE. The permissionless v0.3 path does
+NOT materialise sk at any party by construction, so attestation there
+is a policy gate, not a safety primitive.
+
+### PULSAR-V12-GPU-NTT-WIRE — route Round-2 NTTs through gpu-kernels batched dispatch
+
+**Status**: SPEC only. The substrate
+(`lux-private/gpu-kernels/ops/lattice/ntt_mldsa`, q = 8380417, R = 2^32,
+byte-equal to PQClean `MLDSA65_CLEAN_ntt`) ships across all five
+backends (CUDA, HIP, Metal, Vulkan, WGSL). The C ABI
+`lux_lattice_ntt_mldsa_batch` is the natural batched-NTT entry. The
+existing `pulsar/gpu.UseAccelerator` keeps the SubRing-dispatch
+threshold above pulsar's N=256 production ring so single-poly GPU
+dispatch is intentionally off (it loses to pure-Go at N=256 on every
+host). The batched dispatch (22 forward NTTs per Round-2-party-attempt
+on independent polys) is where the GPU win lives.
+
+**Three discrete pieces**:
+
+- **Substrate**: lift `lux_mldsa_verify_batch` and
+  `lux_lattice_ntt_mldsa_batch` from `ErrNotSupported` stub
+  (`luxfi/accel/internal/capi/capi.go:503-531`) to a real call.
+- **Pulsar batched NTT entry**: package-private `batchNTT(polys []poly)`
+  in `mldsa_lattice.go` that dispatches via accel iff
+  `pulsar/gpu.Enabled()` and `accel.Available()` and
+  `len(polys) >= batchThreshold`; otherwise falls back to the existing
+  per-poly pure-Go `ntt()`.
+- **Round-2 batched call sites**: replace per-poly loops in
+  `threshold_v03.go:680-913` with `batchNTT` calls per logical batch
+  (yHat, s1Hat, cs2-input, ct0-input).
+
+**Byte-equality contract**: enforced by the existing
+`TestPulsar_GPU_ByteEqual` regression guard
+(`threshold_v03_gpu_byte_eq_test.go`). Today it passes vacuously (both
+legs run pure-Go); after PULSAR-V12-GPU-NTT-WIRE lands it pins the
+accel-engaged leg byte-equal to the pure-Go leg.
+
+**Engine-layer batch verify**: pulsar's CPU
+`VerifyBatch` already defers GPU acceleration to the engine layer per
+`verify_batch.go:11-23`. The substrate (`MLDSAVerifyBatch`) is the
+forward-looking item, not pulsar code; engine wiring at
+`/Users/z/work/lux/consensus/engine/gpu_batch_pipeline.go` adds the
+MLDSA batch path once the substrate ships.
 
 ## Closed
 
