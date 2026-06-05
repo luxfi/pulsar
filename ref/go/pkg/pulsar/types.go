@@ -167,7 +167,7 @@ type KeyShare struct {
 // TEE attestation at THEIR layer using
 // github.com/luxfi/ai/pkg/attestation — Pulsar itself stays TEE-
 // agnostic so the same protocol works on the public chain (no
-// TEE) and on a confidential-compute subnet (with TEE), without
+// TEE) and on a confidential-compute chain (with TEE), without
 // bifurcating the wire format.
 type Signature struct {
 	Mode  Mode
