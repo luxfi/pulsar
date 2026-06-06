@@ -19,7 +19,7 @@ cut from a tag on `main` at NIST's deadline via
 patches land in this same repository so the artifact chain stays
 auditable.
 
-**Date stamp (this revision): 2026-05-18.**
+**Date stamp (this revision): 2026-06-05.**
 
 **Maturity stamp**: v0.1 ready. This submission is **not**
 NIST-ratified, **not** FIPS 140-3 validated, **not** ACVP-validated.
