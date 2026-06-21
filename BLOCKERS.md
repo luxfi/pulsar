@@ -22,7 +22,85 @@ and the v1.0.7 sign-off.
 
 ## Open
 
-None.
+### PULSAR-V13-HINT-LEAK (CRITICAL)
+
+The v0.3/v0.4 `AlgebraicAggregate*` path broadcasts `CS2 = c·λ_i·s_{2,i}`
+and `CT0 = c·λ_i·t_{0,i}` **unmasked** (`ref/go/pkg/pulsar/threshold_v03.go`
+round2EmitFull, ~:930-963) and reconstructs `c·s2_joint`, `c·t0_joint` at
+the aggregator (~:1131-1168). Both are secret-key-derived: `c`, `λ_i`
+public ⇒ `s_{2,i} = (c·λ_i)^{-1}·CS2` (one session when `c` invertible;
+else accumulate). Worse, `c·s2_joint = c·s2_master` (Shamir), so revealing
+the **aggregate** over varying public `c` leaks the long-term secret-key
+components `s2` (and likewise `t0`) via a linear system, plus the secret
+relation `A·s1 = (t1·2^d + t0) − s2`; whether or not this immediately
+recovers short `s1` (a lattice/preimage problem), threshold secrecy and
+transcript simulation are already broken. Leaderless ⇒ every
+quorum member aggregates ⇒ every corrupt validator learns it each round.
+The in-code `PUBLIC-BFT-SAFETY NOTE` claiming `(z_i,cs2_i,ct0_i)` are
+`(t−1)`-secret is **false** — it only covers the `y_i`-masked `z_i`.
+
+Confirmed by adversarial audit (`AUDIT-2026-06.md` re-audit) + direct code
+read. Masking the individual shares is necessary but **not** sufficient —
+the aggregate reconstruction still leaks the master key. The fix must
+never reconstruct `c·s2`/`c·t0`/`r0`.
+
+**Containment (landed, branch `fix/threshold-mldsa-hint-leak`):**
+`Round2Sign` now **fails closed** with `ErrUnsafeThresholdV03HintPath`
+unless `AllowUnsafeThresholdV03ForTests` is set (test
+`TestThresholdV03DisabledByDefault`). The dangerously-false `(t−1)`-secret
+note is corrected.
+
+**Replacement design + verified math core:** boundary-cleared nonces +
+carry elimination (`spec/threshold-mldsa-boundary-clearance.tex`,
+`threshold_bcc.go`). The hint is computed from the **public**
+`w' = A·z − c·t1·2^d` and `w1 = HighBits(w)` strictly via FIPS `UseHint`
+(`findHintToTarget`); boundary clearance (margin `2β`) keeps the small
+`c·s2` shift off the boundary; `c·t0` is structurally
+`‖c·t0‖∞ ≤ τ·2^{d-1} < γ2` for **ML-DSA-65/87 only** (param-guarded).
+Verified (`threshold_bcc_test.go`, all green): `FindHintToTarget↔UseHint`
+round-trip, `BoundaryClear ⇒ HighBits-stable + r0-bound`, exact off-by-one
+edges, offline yield ≈ **9.8 %**.
+
+**NOT RESOLVED.** The math is verified but the production path is not built.
+Resolution criteria (all required for NIST/consensus):
+- [x] `AlgebraicAggregate*` disabled in production builds (hard gate).
+- [x] Hint derived only via public `FindHintToTarget(w', w1)` (FIPS `UseHint`).
+- [x] No production code computes `c·s2`/`c·t0`/`r0`/`LowBits(residual)`.
+- [x] Boundary predicate proves the hidden `r0` bound; ML-DSA-65 scope enforced.
+- [ ] `CS2`/`CT0` and all hint-secret wire fields **deleted** from production messages (reflection test).
+- [ ] **Full `w` never public / reconstructible** (PULSAR-V13-W-LEAK) — needs the ZK clearance proof.
+- [ ] Partial-`z` correctness proof (PULSAR-V13-PARTIAL-Z-PROOF).
+- [ ] Canonical, non-grindable nonce selection.
+- [ ] DKG never reconstructs the master key / `t0`; certifies the `t0` bound.
+- [ ] Rejected attempts simulatable, not publicly leaked; coarse abort classes.
+- [ ] Tree aggregation (z-sums + bitmaps + proof roots) for ~1000 signers.
+- [ ] Two-certificate consensus artifact (ML-DSA sig + signer bitmap/transcript root).
+- [ ] Final sigs verify under ≥2 independent FIPS 204 verifiers on the BCC path.
+- [ ] External cryptographic review of the no-MPC leaderless instantiation.
+
+### PULSAR-V13-W-LEAK (CRITICAL — replacement-design hazard)
+
+The boundary-cleared nonce certificate must **not** publish the full
+commitment `w = A·y`. Once `z` is assembled, `w' = A·z − c·t1·2^d` is
+public, so anyone with full `w` computes `w' − w = c·t0 − c·s2 = Δ` — the
+same challenge-multiplied long-term-secret residual as PULSAR-V13-HINT-LEAK,
+in a different form. Production may publish only `w1 = HighBits(w)`, a
+commitment to `w`, and a **zero-knowledge boundary-clearance proof** (that a
+hidden `w = A·y` is boundary-clear), never full `w`, `w_i` shares that
+reconstruct it, `LowBits(w)`, or `w' − w`. The current `BoundaryClear(w)`
+Go predicate and `spec` are **debug-oracle/prototype**: production needs the
+ZK proof machinery, which does not yet exist ⇒ the BCC/CEF signing path is
+**prototype, not production**, even though the arithmetic tests pass.
+
+### PULSAR-V13-PARTIAL-Z-PROOF (HIGH — consensus robustness)
+
+BCC/CEF removes the hint-path leakage, but leaderless consensus also needs
+proof-carrying `z`-partials: each signer proves `z_i = λ_i·y_i + c·λ_i·s_{1,i}`
+bound to `(session_id, nonce_id, party_id, DKG share commitment, nonce
+commitment)` without revealing `y_i`/`s_{1,i}`. Otherwise one bad partial
+fails the aggregate with no clean blame path (leaderless DoS). Verify
+partials **without** `c·s2_i`/`c·t0_i`/`r0_i`/hint shares (those fields must
+not exist).
 
 ## Forward-looking (v1.2)
 
