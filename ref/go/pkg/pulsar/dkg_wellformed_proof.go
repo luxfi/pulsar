@@ -261,16 +261,28 @@ type DKGRangeProofVerifier interface {
 	VerifyDKGRange(st *DKGWellFormedStatement, proof []byte) error
 }
 
-// failClosedDKGRange is the default: a tight lattice range proof is novel
-// research crypto, not a linear sigma, so it is fail-closed.
+// failClosedDKGRange is the default. The fail-closed decision is DERIVED,
+// not asserted: the FIPS DKG bounds (‖s1‖∞,‖s2‖∞ ≤ η, ‖t0‖∞ ≤ 2^(d−1))
+// are ℓ∞ (per-coefficient) requirements, and the strongest range proof
+// faithfully available to this package (a BDLOP/LNS approximate Euclidean
+// proof, availableRangeProofClass) certifies an ℓ2 bound that cannot imply
+// any ℓ∞ bound here — rangeGateOpen computes exactly this from the live
+// parameters and returns false. See rangeproof.go for the full bound
+// argument and citations.
 //
-// REVIEW: novel lattice range proof (BDLOP / Lyubashevsky–Nguyen–Seiler),
-// not yet sound here. Do NOT replace with a hand-rolled construction;
-// register an externally-reviewed implementation via
-// RegisterDKGRangeProofVerifier.
+// REVIEW: the only family that WOULD imply the ℓ∞ bound is the LNS exact
+// range proof, which needs a Module-SIS-binding BDLOP commitment layer
+// that Pulsar does not have; do NOT hand-roll it. Register an externally-
+// reviewed exact-range implementation via RegisterDKGRangeProofVerifier.
 type failClosedDKGRange struct{}
 
-func (failClosedDKGRange) VerifyDKGRange(*DKGWellFormedStatement, []byte) error {
+func (failClosedDKGRange) VerifyDKGRange(st *DKGWellFormedStatement, _ []byte) error {
+	// Derive the gate from the bound arithmetic. For every real parameter
+	// set this is closed (an ℓ2 proof never implies these ℓ∞ bounds); the
+	// branch documents that the closure is computed, not assumed.
+	if rangeGateOpen(dkgRangeRequirements(st.Mode)) {
+		return nil
+	}
 	return ErrDKGRangeProofUnsound
 }
 
