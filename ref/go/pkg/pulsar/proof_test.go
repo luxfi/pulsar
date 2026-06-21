@@ -9,10 +9,10 @@ func TestProductionBCCSigningDisabledUntilSoundZK(t *testing.T) {
 	if ProductionBCCSigningReady() {
 		t.Fatal("production BCC signing must be disabled by default (no sound ZK proofs)")
 	}
-	if err := registeredClearanceVerifier.VerifyClearance(&BoundaryNonceCert{}); err != ErrClearanceProofUnsound {
+	if err := registeredClearanceVerifier.VerifyClearance(&NonceCert{}); err != ErrClearanceProofUnsound {
 		t.Fatalf("clearance verifier must fail closed, got %v", err)
 	}
-	if err := registeredPartialZVerifier.VerifyPartial(&BCCZPartial{}, nil, nil, nil); err != ErrPartialZProofUnsound {
+	if err := registeredPartialZVerifier.VerifyPartial(&Partial{}, nil, nil, nil); err != ErrPartialZProofUnsound {
 		t.Fatalf("partial-z verifier must fail closed, got %v", err)
 	}
 }

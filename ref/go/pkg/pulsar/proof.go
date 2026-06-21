@@ -40,24 +40,24 @@ var (
 // ClearanceVerifier verifies a boundary-clearance proof on a nonce cert
 // without learning the hidden w.
 type ClearanceVerifier interface {
-	VerifyClearance(cert *BoundaryNonceCert) error
+	VerifyClearance(cert *NonceCert) error
 }
 
 // PartialZVerifier verifies a z-partial's correctness proof without learning
 // y_i or s1_i.
 type PartialZVerifier interface {
-	VerifyPartial(p *BCCZPartial, challenge []byte, dkgShareCommit, nonceCommit []byte) error
+	VerifyPartial(p *Partial, challenge []byte, dkgShareCommit, nonceCommit []byte) error
 }
 
 // failClosedClearance is the default: no sound proof exists yet.
 type failClosedClearance struct{}
 
-func (failClosedClearance) VerifyClearance(*BoundaryNonceCert) error { return ErrClearanceProofUnsound }
+func (failClosedClearance) VerifyClearance(*NonceCert) error { return ErrClearanceProofUnsound }
 
 // failClosedPartialZ is the default: no sound proof exists yet.
 type failClosedPartialZ struct{}
 
-func (failClosedPartialZ) VerifyPartial(*BCCZPartial, []byte, []byte, []byte) error {
+func (failClosedPartialZ) VerifyPartial(*Partial, []byte, []byte, []byte) error {
 	return ErrPartialZProofUnsound
 }
 
