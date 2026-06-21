@@ -1,0 +1,13 @@
+# Unproven-assertion budget (max counts). Enforced by
+# ~/work/lux/proofs/framework/checks/axiom-budget.sh -- the gate FAILS if any
+# count drifts ABOVE these. The honest goal is to DECREASE them (discharge
+# axioms/admits into proved lemmas), never to raise the ceiling.
+#
+# Current surface (2026-06). The 87 axioms are dominated by EasyCrypt
+# memory-layout/encoding identities (Sign/Combine refinement) plus the
+# security-relevant combine_body_* specs that the open N1 reduction still
+# assumes; tracked for discharge in PROOF-CLAIMS / AXIOM-INVENTORY.
+SORRY=0
+ADMIT=12
+AXIOM=87
+VACUOUS=0
