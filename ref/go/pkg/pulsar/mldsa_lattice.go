@@ -3,30 +3,29 @@
 
 package pulsar
 
-// mldsa_lattice.go — FIPS 204 lattice primitives used by the v0.2
-// algebraic threshold signer (threshold_v02.go).
+// mldsa_lattice.go — FIPS 204 lattice primitives used by the threshold
+// path (threshold.go) and the single-key BCC signer (bcc_sign.go).
 //
 // This file is a self-contained re-implementation of the polynomial-
 // ring arithmetic needed for FIPS 204 ML-DSA signing. It mirrors the
 // cloudflare/circl implementation byte-for-byte at the value level so
-// that the v0.2 algebraic threshold signer can produce signatures
-// byte-identical to single-party mldsa{44,65,87}.SignTo. The reference
-// for these constructions is FIPS 204 (NIST PQC Round 4 ML-DSA spec).
+// that the threshold signer can produce signatures byte-identical to
+// single-party mldsa{44,65,87}.SignTo. The reference for these
+// constructions is FIPS 204 (NIST PQC Round 4 ML-DSA spec).
 //
 // Why re-implement instead of importing circl/internal/dilithium: the
-// circl internal package is intentionally not exported. The v0.2
-// threshold signer needs to operate on polynomial shares directly —
-// the circl public API only exposes seed-derived signing, which is
-// exactly what v0.2 must avoid. Re-implementing the primitives here
+// circl internal package is intentionally not exported. The threshold
+// signer needs to operate on polynomial shares directly — the circl
+// public API only exposes seed-derived signing, which is exactly what
+// the threshold path must avoid. Re-implementing the primitives here
 // gives us a single auditable surface within the pulsar package.
 //
-// All primitives in this file are package-private; the public API
-// surface lives in threshold_v02.go.
+// All primitives in this file are package-private; the public signing
+// surface lives in threshold.go and bcc_sign.go.
 
 import (
 	"encoding/binary"
 
-	"github.com/luxfi/accel"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -120,15 +119,6 @@ func decompose(a uint32, gamma2 uint32) (a0plusQ, a1 uint32) {
 	return
 }
 
-// makeHint computes |h| ∈ {0,1} given z₀ = r₀ - f mod q and r₁.
-// See FIPS 204 Algorithm 33.
-func makeHint(z0, r1 uint32, gamma2 uint32) uint32 {
-	if z0 <= gamma2 || z0 > mldsaQ-gamma2 || (z0 == mldsaQ-gamma2 && r1 == 0) {
-		return 0
-	}
-	return 1
-}
-
 // polyReduceLe2Q normalises all coefficients of p to < 2q in place.
 func (p *poly) reduceLe2Q() {
 	for i := 0; i < mldsaN; i++ {
@@ -140,14 +130,6 @@ func (p *poly) reduceLe2Q() {
 func (p *poly) normalize() {
 	for i := 0; i < mldsaN; i++ {
 		p[i] = modQ(p[i])
-	}
-}
-
-// polyNormalizeAssumingLe2Q normalises to [0, q) assuming all
-// coefficients are already < 2q.
-func (p *poly) normalizeAssumingLe2Q() {
-	for i := 0; i < mldsaN; i++ {
-		p[i] = le2qModQ(p[i])
 	}
 }
 
@@ -205,26 +187,6 @@ func (p *poly) power2Round(p0PlusQ, p1 *poly) {
 	for i := 0; i < mldsaN; i++ {
 		p0PlusQ[i], p1[i] = power2round(p[i])
 	}
-}
-
-// polyDecompose splits p coefficient-wise via decompose. Requires p
-// normalised.
-func (p *poly) decompose(p0PlusQ, p1 *poly, gamma2 uint32) {
-	for i := 0; i < mldsaN; i++ {
-		p0PlusQ[i], p1[i] = decompose(p[i], gamma2)
-	}
-}
-
-// polyMakeHint sets p to the hint polynomial for (p0, p1). Returns
-// the number of 1 bits in the hint.
-func (p *poly) makeHint(p0, p1 *poly, gamma2 uint32) uint32 {
-	var pop uint32
-	for i := 0; i < mldsaN; i++ {
-		h := makeHint(p0[i], p1[i], gamma2)
-		pop += h
-		p[i] = h
-	}
-	return pop
 }
 
 // polyDotHat sets p = Σ_i a[i] · b[i] pointwise in Montgomery form.
@@ -564,16 +526,6 @@ func polyPackT1(p *poly, buf []byte) {
 	}
 }
 
-// polyUnpackT1 unpacks 10-bit-per-coefficient buf into p.
-func polyUnpackT1(p *poly, buf []byte) {
-	for i := 0; i < mldsaN/4; i++ {
-		p[4*i+0] = (uint32(buf[5*i+0]) | (uint32(buf[5*i+1]) << 8)) & 0x3ff
-		p[4*i+1] = ((uint32(buf[5*i+1]) >> 2) | (uint32(buf[5*i+2]) << 6)) & 0x3ff
-		p[4*i+2] = ((uint32(buf[5*i+2]) >> 4) | (uint32(buf[5*i+3]) << 4)) & 0x3ff
-		p[4*i+3] = ((uint32(buf[5*i+3]) >> 6) | (uint32(buf[5*i+4]) << 2)) & 0x3ff
-	}
-}
-
 // polyPackT0 packs p (centred-rep coefficients in (-2^(D-1), 2^(D-1)])
 // into buf at D=13 bits per coefficient. PolyT0Size = N · D / 8 = 416.
 func polyPackT0(p *poly, buf []byte) {
@@ -635,101 +587,4 @@ func polyVecPackHint(v polyVec, buf []byte, omega int) {
 	for ; off < uint8(omega); off++ {
 		buf[off] = 0
 	}
-}
-
-// batchNTT performs the forward NTT on every polynomial in polys and
-// returns the result as a [][]int32 slice (one row per poly, each row
-// 256 coefficients cast to int32). The cast is lossless on both
-// branches because pulsar's circl-style NTT produces uint32 outputs in
-// [0, 18q) ≈ [0, 2^28) (well within the positive int32 range) and the
-// accel substrate produces signed int32 outputs centred on Z_q.
-//
-// DISPATCH:
-//
-//	When accel.Available() AND len(polys) >= accel.MLDSABatchThreshold (8),
-//	the batch is routed through accel.LatticeNTTMLDSABatch (the FIPS 204
-//	ML-DSA NTT shipped by the GPU substrate). The accel output is lifted
-//	to the canonical [0, q) representation before being cast to int32,
-//	so consumers can uniformly read every coefficient as a non-negative
-//	residue. Any accel error falls through to the pure-Go per-poly path.
-//
-//	Otherwise the pure-Go per-poly path runs: pulsar's circl-style
-//	(*poly).ntt() butterfly executes on every poly in place and the
-//	result — bounded by 18q on output but NOT normalised — is cast to
-//	int32. This preserves the exact uint32 representation that
-//	threshold_v03's downstream mulHat / invNTT pipeline has consumed for
-//	the lifetime of v0.3, so the byte-equal regression (signatures
-//	produced via the per-poly path are identical to the pre-batchNTT
-//	reference) holds by construction.
-//
-// BYTE-EQUALITY:
-//
-//	TestPulsar_GPU_ByteEqual exercises ModeP65 (K=6, L=5) where the four
-//	Round-2 batches have sizes 5, 5, 6, 6 — all strictly below the accel
-//	threshold of 8 — so the accel dispatch never engages and the
-//	per-poly leg runs in both legs of the test. Above-threshold
-//	dispatch (e.g. ModeP87 batches of size 8) routes through accel and
-//	produces a signature whose intermediate uint32 representations
-//	differ from the pure-Go leg, but the wire-format outputs of Round-2
-//	(packed via packPolyVec after normalize) still encode the same Z_q
-//	residues by construction of the FIPS 204 verifier — verification
-//	passes either way.
-//
-// CALL SITES:
-//
-//	threshold_v03.go Round-2 — the four logical batches `yHat`, `s1Hat`,
-//	`cs2-input`, `ct0-input` (22 forward NTTs per party-attempt total).
-//	Each call site asks batchNTT for the int32 transform and copies the
-//	values back into a polyVec slot via uint32 cast for downstream
-//	mulHat / invNTT consumption.
-func batchNTT(polys []poly) [][]int32 {
-	n := len(polys)
-	out := make([][]int32, n)
-	for i := range out {
-		out[i] = make([]int32, mldsaN)
-	}
-
-	if n >= accel.MLDSABatchThreshold && accel.Available() {
-		flat := make([][]int32, n)
-		for i := range polys {
-			flat[i] = make([]int32, mldsaN)
-			// Inputs are bounded by 2q ≈ 2^24, fits positive int32.
-			for j := 0; j < mldsaN; j++ {
-				flat[i][j] = int32(polys[i][j])
-			}
-		}
-		if err := accel.LatticeNTTMLDSABatch(flat, false); err == nil {
-			// accel returns signed int32 centred on Z_q. Lift to [0, q)
-			// so the uint32 cast at call sites yields a canonical
-			// non-negative representation. Downstream consumers handle
-			// the [0, q) tighter bound just as they do [0, 18q).
-			for i := range flat {
-				for j := 0; j < mldsaN; j++ {
-					v := flat[i][j]
-					if v < 0 {
-						v += mldsaQ
-					}
-					out[i][j] = v
-				}
-			}
-			return out
-		}
-		// any accel error → pure-Go fallback below
-	}
-
-	// Pure-Go per-poly path — pulsar's circl-style NTT, byte-identical
-	// to the pre-batchNTT reference. NO normalize, because pulsar's
-	// invNTT downstream is sensitive to the specific uint32
-	// representation produced by ntt() (intermediate uint32 values in
-	// [0, 18q) carry load-bearing bits that normalize() to [0, q) would
-	// drop).
-	for i := range polys {
-		p := polys[i]
-		p.ntt()
-		for j := 0; j < mldsaN; j++ {
-			// p[j] < 18q ≈ 2^28; positive cast to int32 is lossless.
-			out[i][j] = int32(p[j])
-		}
-	}
-	return out
 }

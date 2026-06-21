@@ -5,14 +5,10 @@ package gpu_test
 
 // bench_test.go — accelerator surface microbenchmarks.
 //
-// The v0.3 algebraic-threshold benches that exercise the
-// CPU-vs-accelerator wall-clock comparison at production sizes
-// (Pulsar-5of7, Pulsar-7of11) live in the pulsar package
-// (ref/go/pkg/pulsar/threshold_v03_gpu_byte_eq_test.go's companion
-// bench file would, but pulsar's bench_test.go already covers Sign
-// timings — the per-mode signing cost is what matters operationally,
-// since the accelerator flag has no semantic effect at N=256 on
-// the dispatcher today).
+// End-to-end signing timings live in the pulsar package's bench_test.go
+// (the per-mode signing cost is what matters operationally; the
+// accelerator flag has no semantic effect at N=256 on the dispatcher
+// today).
 //
 // The microbenches here exercise:
 //   BenchmarkUseAccelerator           — flag flip cost (atomic store)

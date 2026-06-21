@@ -53,13 +53,12 @@
 //     environment exercising both corona R-LWE and pulsar M-LWE
 //     against a shared lattice/v7 ring) opt in with one call.
 //
-//  2. BYTE-EQUALITY BY CONSTRUCTION. TestPulsar_GPU_ByteEqual asserts
-//     that signatures emitted with UseAccelerator() enabled are
-//     bit-identical to signatures emitted with the accelerator
-//     disabled. Today this holds vacuously (the dispatcher is not
-//     engaged) but the test is the load-bearing contract: when the
-//     v0.4 lift widens pulsar's NTT to a 64-bit Montgomery form
-//     routable through ring.SubRing, the test must continue to pass.
+//  2. BYTE-EQUALITY BY CONSTRUCTION. The contract is that signatures
+//     emitted with UseAccelerator() enabled are bit-identical to
+//     signatures emitted with the accelerator disabled. Today this
+//     holds vacuously (the dispatcher is not engaged); it becomes
+//     load-bearing if a future lift widens pulsar's NTT to a 64-bit
+//     Montgomery form routable through ring.SubRing.
 //
 //  3. STATS + DIAGNOSTICS. CurrentStats() reports the active backend
 //     (Metal / CUDA / CPU) so operators can confirm the lattice/v7

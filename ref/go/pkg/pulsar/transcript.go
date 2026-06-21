@@ -44,9 +44,6 @@ const (
 	// in threshold_test.go). The MAC tag is intentionally left
 	// undefined here so a stale rebase reusing the name catches
 	// the inconsistency at compile time.
-	tagSignPRNG    = "PULSAR-SIGN-PRNG-V1"
-	tagSignPRNGKey = "PULSAR-SIGN-PRNGKEY-V1"
-	tagSignPRF     = "PULSAR-SIGN-PRF-V1"
 	// tagSignMask: per-attempt Round-1 mask derivation. Mixes the
 	// raw RNG output with (sid || attempt || NodeID) so a caller
 	// who accidentally reuses the same deterministic RNG across

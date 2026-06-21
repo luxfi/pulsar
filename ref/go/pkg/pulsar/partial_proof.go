@@ -82,7 +82,31 @@ var (
 	// ErrPartialZeroLambda rejects λ_i = 0: the relation z_i = λ_i·(…)
 	// is degenerate (z_i ≡ 0) and carries no knowledge.
 	ErrPartialZeroLambda = errors.New("pulsar: partial-z lambda is zero (degenerate)")
+
+	// ErrChallengeNotInBall rejects a challenge c that is not a FIPS 204
+	// SampleInBall output (exactly τ coefficients ±1, rest 0). A degenerate
+	// c — c = 0 being the worst case — collapses z_i = λy_i + cλs1_i to
+	// z_i = λy_i, removing the s1 binding the proof is meant to certify.
+	ErrChallengeNotInBall = errors.New("pulsar: partial-z challenge is not a FIPS 204 SampleInBall (τ ±1 coefficients)")
 )
+
+// challengeIsBall reports whether c is a FIPS 204 SampleInBall challenge:
+// exactly tau coefficients are ±1 (1 or q−1 in [0,q) form) and the rest are 0.
+// polyDeriveUniformBall produces exactly this shape, so a verifier that
+// requires it cannot be fed a low-weight or zero c that weakens the s1 binding.
+func challengeIsBall(c *poly, tau int) bool {
+	nonzero := 0
+	for j := 0; j < mldsaN; j++ {
+		switch c[j] {
+		case 0:
+		case 1, mldsaQ - 1:
+			nonzero++
+		default:
+			return false
+		}
+	}
+	return nonzero == tau
+}
 
 // PartialWitness is the prover's secret input: the masking nonce share
 // y_i and the signing-key share s1_i, both in R_q^L (un-NTT'd, normalized
@@ -153,6 +177,10 @@ func ProvePartial(st *PartialStatement, w *PartialWitness, rng io.Reader) ([]byt
 	if st.Lambda%mldsaQ == 0 {
 		return nil, ErrPartialZeroLambda
 	}
+	tau, _, _, _ := modeTauOmega(st.Mode)
+	if !challengeIsBall(&st.C, tau) {
+		return nil, ErrChallengeNotInBall
+	}
 	_, L, _ := modeShape(st.Mode)
 	if len(w.Y) != L || len(w.S1) != L || len(st.Z) != L {
 		return nil, ErrPartialProofMalformed
@@ -192,6 +220,10 @@ func ProvePartial(st *PartialStatement, w *PartialWitness, rng io.Reader) ([]byt
 func VerifyPartialProof(st *PartialStatement, proof []byte) error {
 	if st.Lambda%mldsaQ == 0 {
 		return ErrPartialZeroLambda
+	}
+	tau, _, _, _ := modeTauOmega(st.Mode)
+	if !challengeIsBall(&st.C, tau) {
+		return ErrChallengeNotInBall
 	}
 	_, L, _ := modeShape(st.Mode)
 	if len(st.Z) != L {

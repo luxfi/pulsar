@@ -17,8 +17,10 @@
 // W1 = HighBits(w)); online signing aggregates only z shares (Partial); and
 // the hint is recovered publicly from w' = A*z - c*t1*2^d and W1. The wire
 // protocol never carries full w, LowBits(w), c*s2, c*t0, r0, or hint shares.
-// A ConsensusCert binds the signer bitmap and transcript roots. The legacy
-// AlgebraicAggregate path leaked c*s2/c*t0 and is hard-disabled.
+// A ConsensusCert binds the signer bitmap and transcript roots to the
+// signature via an accountability quorum certificate. The legacy v0.3
+// AlgebraicAggregate path leaked c*s2/c*t0 (PULSAR-V13-HINT-LEAK) and has
+// been removed — there is no backward-compatible re-entry.
 //
 // All cryptographic operations route through:
 //
