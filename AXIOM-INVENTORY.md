@@ -29,25 +29,66 @@
   computation/reflection *only after the abstract op/constant is
   concretized*; otherwise a faithful wire-format model.
 - **C — OPEN SECURITY ASSUMPTION.** Carries security-relevant content the
-  reduction has NOT closed. **MUST stay open and disclosed.** These are the
-  byte-walk `*_body_*_spec`, the section-local module contracts, and the
-  v0.4 ctx aggregator axiom — all of which assume the extracted/aggregated
-  code equals the centralised signer on the **Lagrange-reconstructed
-  master secret** (reconstruct-then-sign). Tracked in `BLOCKERS.md`.
+  reduction has NOT closed. **MUST stay open and disclosed.** There are now
+  TWO distinct C sub-families, and the distinction is the headline of this
+  pass:
+  - **C-idealised (reconstruct-then-sign).** The byte-walk `*_body_*_spec`,
+    the section-local module contracts (`combine_body_axiom`,
+    `S_functional_spec`), and the v0.4 ctx aggregator axiom — all of which
+    assume the extracted/aggregated code equals the centralised signer on
+    the **Lagrange-reconstructed master secret**. These prove the threshold
+    OUTPUT bit-equals central sign on the reconstructed secret: an
+    **idealised CORRECTNESS** statement, **NOT how production runs** and NOT
+    a leak-freeness claim.
+  - **C-standard (no-leak reduction).** `no_leak_reduction` in
+    `Pulsar_N1_NoLeak.ec`: the public threshold transcript is simulatable
+    from one single-party FIPS 204 signature's leakage under **Module-LWE +
+    Module-SIS** — the SAME standard lattice assumptions ML-DSA's own
+    EUF-CMA rests on. This is the HONEST production residual: a
+    standard-assumption reduction with the master secret **never
+    reconstructed**. Its algebraic core (masked z-aggregate + public hint
+    recovery) is **machine-checked in Lean 4 + Mathlib on this host**
+    (`Crypto.Pulsar.NoLeakAggregate`, `Crypto.Pulsar.BoundaryClearance`,
+    `Crypto.Threshold_Lagrange`; `lake build` green, 0 sorry).
 
-## Histogram (78 real axiom declarations)
+  Tracked in `BLOCKERS.md` (PULSAR-EC-RECON-MODEL).
+
+## Histogram (80 real axiom declarations)
 
 | Bucket | Count | Discharged this pass | Remaining |
 |---|---:|---:|---:|
-| A — standard-math-fact | 16 | 0 (all over abstract algebra / Lean-bridged) | 16 |
-| B — serialization/layout | 41 | 0 (all over abstract ops/decoders) | 41 |
-| C — open security assumption | 21 | 0 (must stay open) | 21 |
-| **Total** | **78** | **0** | **78** |
+| A — standard-math-fact | 16 | 0 (all over abstract algebra / Lean-bridged; see "A is machine-checked in Lean" below) | 16 |
+| B — serialization/layout | 42 | 0 (all over abstract ops/decoders; +1 `public_hint_roundtrip`) | 42 |
+| C — open security assumption | 22 | 0 discharged; **+1 `no_leak_reduction`** is the new STANDARD-assumption (M-LWE/M-SIS) production residual replacing reconstruct-then-sign as the load-bearing path | 22 |
+| **Total** | **80** | **0** | **80** |
 
-> **Discharged this pass: 0 new.** Reason (honest): there is no EasyCrypt
-> toolchain on this host (no `easycrypt`/`alt-ergo`/`why3`), so a
-> hand-written discharge cannot be machine-rechecked; and every axiom that
-> was dischargeable *from in-file material* has already been converted to a
+> **A IS MACHINE-CHECKED IN LEAN ON THIS HOST.** The bridge in
+> `proofs/lean-easycrypt-bridge.md` is not aspirational: the five A-axioms
+> (`lagrange_inverse_eval`, `threshold_partial_response_identity`,
+> `reconstruct_linear`, `shamir_correct`, `add_share_zeroR`) correspond 1:1
+> to **sorry-free Lean 4 + Mathlib theorems that `lake build` compiles green
+> on this host** (`Crypto.Threshold_Lagrange`, `Crypto.Pulsar.Shamir`). The
+> EC side trusts that machine-checked Lean artifact (the gap is the absence
+> of a cross-prover proof-object exchange, not the absence of a proof). They
+> remain EC `axiom`s ONLY because EasyCrypt's first-order field/polynomial
+> theory is too thin to re-derive them in-prover.
+
+> **Discharged into machine-checked Lean this pass: the no-leak CORRECTNESS
+> CORE.** The reconstruct-then-sign C cone is not the only model anymore.
+> `Pulsar_N1_NoLeak.ec` states the production no-leak model whose algebraic
+> core — the masked Lagrange z-aggregate (secret never formed) + the
+> public-`w'` hint recovery — is **newly machine-checked in Lean**
+> (`Crypto.Pulsar.NoLeakAggregate`: `z_aggregate_no_reconstruct`,
+> `hint_is_fips_hint`, `no_leak_under_standard_assumptions`;
+> `Crypto.Pulsar.BoundaryClearance`: `boundary_clearance`,
+> `findHintCoeff_unique`). The residual EC axiom is the Module-LWE/MSIS
+> reduction, a STANDARD assumption — not an implementation reconstruct.
+>
+> **EC axioms discharged this pass: 0 new.** Reason (honest): there is no
+> EasyCrypt toolchain on this host (no `easycrypt`/`alt-ergo`/`why3`), so a
+> hand-written EC discharge cannot be machine-rechecked here; and every EC
+> axiom that was dischargeable *from in-file material* has already been
+> converted to a
 > proved lemma by prior work — `encode_sk_len`, `encode_signature_len`,
 > `pack_n1_signature_injective`, `fresh_sharing_zero_is_zero`,
 > `combine_body_{mu,mu_input,w,w1,c_tilde,h,z,compute_sig}_spec`,
@@ -237,3 +278,56 @@ security lemma is part of the trust surface and is disclosed as such — even
 though `circular-proof.sh` does not mechanically flag it (the lemma uses
 `call combine_body_axiom`, not `apply`, and is >12 lines). Honesty over the
 narrow mechanical trigger.
+
+> **These C-idealised axioms are NOT the production residual.** They prove
+> an idealised *correctness* fact (threshold output = central sign on the
+> reconstructed secret). They are deliberately **not** the abstraction the
+> production leaderless path instantiates. The production residual is the
+> standard-assumption no-leak reduction in the next section.
+
+---
+
+## Bucket C-standard — NO-LEAK REDUCTION (`Pulsar_N1_NoLeak.ec`) — the HONEST production residual
+
+This is the headline of the de-misdirection pass. `Pulsar_N1_NoLeak.ec`
+models the production path the way it actually runs: the public Lagrange
+aggregate of the per-party **masked** responses equals the central `z`
+**without ever forming the master secret**, and the hint is recovered from
+the **public** `w' = A·z − c·t1·2^d` via FIPS `UseHint` (`FindHint`). The
+only open content is then a STANDARD-assumption reduction, NOT a
+reconstruct.
+
+| # | Axiom | File:line | Bucket | What is assumed |
+|---|---|---|---|---|
+| NL1 | `public_hint_roundtrip` | Pulsar_N1_NoLeak.ec | **B (standard / Lean-backed)** | On a boundary-clear nonce, `FindHint` over the PUBLIC `(w', w1)` returns a hint `UseHint` maps back to `w1`. Procedure-level lift of the **machine-checked Lean** `Crypto.Pulsar.Boundary.boundary_clearance` + `findHintCoeff_sound/_unique`. References ONLY public quantities — no `c·s2`/`c·t0`/`r0`. |
+| NL2 | `no_leak_reduction` | Pulsar_N1_NoLeak.ec | **C-standard (OPEN, Module-LWE/MSIS)** | Under Module-LWE + Module-SIS, the public threshold transcript `(w1, commit(w), clearance-proof, c̃, z, h)` is simulatable from one single-party FIPS 204 signature's leakage — leaks nothing extra about `(s1,s2,t0)`. The honest replacement for `combine_body_axiom`: a reduction to the SAME lattice assumptions ML-DSA's EUF-CMA already uses, secret **never reconstructed**. EC mirror of the **machine-checked Lean** `Crypto.Pulsar.NoLeak.NoLeakReduction`. Full simulation proof = v0.8 artifact. |
+
+What is **machine-checked in Lean** under NL1/NL2 (on this host, `lake build`
+green, 0 sorry):
+
+- `Crypto.Pulsar.NoLeak.z_aggregate_no_reconstruct` — masked Lagrange
+  aggregate = central `z`, secret never formed (= `threshold_partial_response_identity`).
+- `Crypto.Pulsar.NoLeak.z_aggregate_depends_only_on_secret` — the aggregate
+  is a function of `f.eval 0` (already inside public `z`) + public `(y,c)`;
+  the sharing randomness is invisible.
+- `Crypto.Pulsar.Boundary.boundary_clearance(_vec)` — `HighBits` stable
+  under the hidden `‖c·s2‖∞ ≤ β` shift ⇒ a public hint exists.
+- `Crypto.Pulsar.Boundary.findHintCoeff_{sound,complete,unique}` — `FindHint`
+  reproduces THE unique FIPS hint from public data.
+- `Crypto.Pulsar.NoLeak.no_leak_under_standard_assumptions` — packaged
+  residual: under M-LWE/M-SIS, every transcript is the simulator's output.
+
+The EC `no_leak_z_aggregate` / `public_hint_roundtrip` / `no_leak_reduction`
+are the procedure-level EC wrappers of those facts; they are
+**written, machine-recheck pending EasyCrypt** (no `ec` on host;
+`scripts/checks/ec-compile.sh` is the CI authority).
+
+### The net assurance change of this pass
+
+- **Before:** the headline residual was reconstruct-then-sign
+  (`combine_body_axiom` cone) — an implementation reconstruct.
+- **After:** that cone is re-labelled *idealised correctness*; the
+  production residual is `no_leak_reduction`, a **Module-LWE/MSIS standard
+  reduction**, and its CORRECTNESS core (masked aggregate + public hint) is
+  **machine-checked in Lean**. Strictly better: the open assumption is now a
+  standard PQ assumption, not an implementation reconstruct.

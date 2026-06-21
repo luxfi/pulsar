@@ -21,7 +21,21 @@ reconstruct_linear  A -- reconstruction is linear over share-list addition (Line
 shamir_correct  A -- reconstruction is a left inverse of fresh sharing (Lagrange-at-zero). Lean-bridged. Load-bearing for honest_reshare_reconstructs / reshare_preserves_secret_honest (N4).
 add_share_zeroR  A -- additive identity on share_t (AddCommMonoid). Lean-bridged. Load-bearing for the N4 reshare zero-sharing argument.
 
-# --- C: OPEN security assumptions in the byte-equality cone (reconstruct-then-sign). DISCLOSED, NOT closed. See BLOCKERS.md. ---
-combine_body_axiom  C -- OPEN. declare axiom: T.combine ~ CombineAbs.combine on honest-quorum inputs == the extracted threshold combine equals the centralised ML-DSA sign of the LAGRANGE-RECONSTRUCTED secret. Module-contract form of the whole byte-walk; pulsar_n1_byte_equality rests on it via `call combine_body_axiom`. Closure = the Jasmin byte-walk (issue #4). NOT proven.
+# --- C: OPEN security assumptions in the IDEALISED-CORRECTNESS byte-equality cone
+#        (reconstruct-then-sign). DISCLOSED, NOT closed. These prove the threshold
+#        OUTPUT bit-equals central sign on the reconstructed secret -- an idealised
+#        CORRECTNESS statement, NOT how production runs. The production no-leak
+#        path's residual is the STANDARD-ASSUMPTION reduction in the next block
+#        (Pulsar_N1_NoLeak.ec), not these. See BLOCKERS.md PULSAR-EC-RECON-MODEL. ---
+combine_body_axiom  C -- OPEN. declare axiom: T.combine ~ CombineAbs.combine on honest-quorum inputs == the extracted threshold combine equals the centralised ML-DSA sign of the LAGRANGE-RECONSTRUCTED secret. Module-contract form of the whole byte-walk; pulsar_n1_byte_equality rests on it via `call combine_body_axiom`. IDEALISED CORRECTNESS model only. Closure = the Jasmin byte-walk (issue #4). NOT proven.
 S_functional_spec  C -- OPEN. declare axiom: S.sign ~ FIPS204Sign.sign on accepted inputs == the single-party module is a faithful FIPS 204 signer. pulsar_n1_byte_equality rests on it via single_party_run_refines_fips204. Closure = the libjade byte-walk (issue #3). NOT proven.
 algebraic_aggregate_ctx_body_axiom  C -- OPEN. The v0.4 reconstruct-then-sign axiom: AlgebraicAggregateCtx output = FIPS 204 SignCtx(sk_master, ctx, M) where sk_master is the existentially-quantified RECONSTRUCTED master secret. threshold_sign_ctx_equiv_fips204_sign_with_ctx rests on it. Go-discharged by test + AST sweep, NOT by EC. NOT proven.
+
+# --- The NO-LEAK model (Pulsar_N1_NoLeak.ec) -- the HONEST production residual.
+#     Replaces reconstruct-then-sign as the load-bearing path: the masked Lagrange
+#     aggregate equals central z WITHOUT forming the master secret, the hint is
+#     recovered from PUBLIC w', and the ONLY open assumption is a STANDARD
+#     Module-LWE/MSIS reduction (no implementation reconstruct). The algebraic core
+#     is MACHINE-CHECKED in Lean (Crypto.Pulsar.NoLeak / .Boundary; lake build green). ---
+public_hint_roundtrip  B -- standard/Lean-backed. Procedure-level lift of the MACHINE-CHECKED (Lean) Crypto.Pulsar.Boundary.boundary_clearance + findHintCoeff_sound/_unique: on a boundary-clear nonce, FindHint over the PUBLIC (w', w1) returns a hint UseHint maps back to w1. References ONLY public quantities (w'=A*z-c*t1*2^d, w1) -- no c*s2/c*t0/r0. Load-bearing for no-leak hint correctness. Recheck pending ec-compile.
+no_leak_reduction  C -- OPEN, but STANDARD-ASSUMPTION (NOT reconstruct-then-sign). Under Module-LWE + Module-SIS the public threshold transcript (w1, commit(w), clearance proof, c_tilde, z, h) is simulatable from one single-party FIPS 204 signature's leakage == leaks nothing extra about (s1,s2,t0). The honest replacement for combine_body_axiom: a reduction to the SAME lattice assumptions ML-DSA's EUF-CMA already uses, with the secret NEVER reconstructed. no_leak_under_standard_assumptions rests on it. EC mirror of MACHINE-CHECKED Lean Crypto.Pulsar.NoLeak.NoLeakReduction. Full simulation proof = v0.8 artifact. NOT proven (but a standard reduction, not an impl reconstruct).
