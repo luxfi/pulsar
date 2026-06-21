@@ -94,6 +94,41 @@ func TestPartialProofValidAccepted(t *testing.T) {
 	}
 }
 
+// TestPartialProofRejectsDegenerateChallenge: a challenge that is not a real
+// SampleInBall (c = 0, or a low-weight c) strips the s1 binding — z_i = λy_i +
+// cλs1_i collapses toward z_i = λy_i — so both proving and verifying must
+// refuse it (PULSAR-V13-PARTIAL-Z, Fix 5).
+func TestPartialProofRejectsDegenerateChallenge(t *testing.T) {
+	st, w := partialFixture(t, ModeP65, "degenc")
+	proof := proveFixture(t, st, w, "degenc")
+
+	// c = 0: zero-weight challenge.
+	zero := *st
+	zero.C = poly{}
+	if _, err := ProvePartial(&zero, w, newBCCDeterministicRNG("x")); err != ErrChallengeNotInBall {
+		t.Fatalf("ProvePartial must refuse c=0, got %v", err)
+	}
+	if err := VerifyPartialProof(&zero, proof); err != ErrChallengeNotInBall {
+		t.Fatalf("VerifyPartialProof must refuse c=0, got %v", err)
+	}
+
+	// Low-weight c: a single ±1 coefficient (weight 1 ≠ τ).
+	low := *st
+	low.C = poly{}
+	low.C[0] = 1
+	if err := VerifyPartialProof(&low, proof); err != ErrChallengeNotInBall {
+		t.Fatalf("VerifyPartialProof must refuse a low-weight c, got %v", err)
+	}
+
+	// An out-of-range coefficient (not 0/±1) is also refused.
+	bad := *st
+	bad.C = st.C
+	bad.C[0] = 2
+	if err := VerifyPartialProof(&bad, proof); err != ErrChallengeNotInBall {
+		t.Fatalf("VerifyPartialProof must refuse a non-±1 coefficient, got %v", err)
+	}
+}
+
 // TestPartialProofBadZRejected: corrupting z_i (so the relation no longer
 // holds) must be rejected — this is the soundness core.
 func TestPartialProofBadZRejected(t *testing.T) {

@@ -35,6 +35,15 @@ var (
 		"pulsar: partial-z correctness proof not implemented " +
 			"(PULSAR-V13-PARTIAL-Z-PROOF); production BCC signing is DISABLED " +
 			"until a sound, externally-reviewed proof is registered")
+
+	// ErrQuorumSigVerifierUnregistered is returned by the default quorum-
+	// signature verifier: cert verification fails closed until the consensus
+	// layer registers a real validator-set signature verifier. Without it,
+	// a forged QuorumCert that merely carries the right payload root and a
+	// full bitmap would be accepted (PULSAR-V13 cert-verification seam).
+	ErrQuorumSigVerifierUnregistered = errors.New(
+		"pulsar: no quorum-signature verifier registered; QuorumCert " +
+			"signatures cannot be checked — nonce and consensus certs fail closed")
 )
 
 // ClearanceVerifier verifies a boundary-clearance proof on a nonce cert
@@ -49,6 +58,16 @@ type PartialZVerifier interface {
 	VerifyPartial(p *Partial, challenge []byte, dkgShareCommit, nonceCommit []byte) error
 }
 
+// QuorumSigVerifier verifies that a QuorumCert carries valid validator
+// signatures over payloadRoot. Validator-set resolution is the consensus
+// layer's job (qc.CommitteeID selects it); this module defines only the
+// fail-closed seam. Both NonceCert clearance QCs and ConsensusCert
+// accountability QCs verify through this ONE surface — there is exactly one
+// place that checks a quorum of validator signatures over a bound root.
+type QuorumSigVerifier interface {
+	VerifyQuorum(payloadRoot [32]byte, qc QuorumCert) error
+}
+
 // failClosedClearance is the default: no sound proof exists yet.
 type failClosedClearance struct{}
 
@@ -61,11 +80,20 @@ func (failClosedPartialZ) VerifyPartial(*Partial, []byte, []byte, []byte) error 
 	return ErrPartialZProofUnsound
 }
 
+// failClosedQuorumSig is the default: no validator-set verifier is wired, so
+// every QuorumCert is rejected (a missing verifier must never read as "valid").
+type failClosedQuorumSig struct{}
+
+func (failClosedQuorumSig) VerifyQuorum([32]byte, QuorumCert) error {
+	return ErrQuorumSigVerifierUnregistered
+}
+
 // Registered verifiers. Production must replace these with sound,
 // externally-reviewed implementations before enabling BCC signing.
 var (
 	registeredClearanceVerifier ClearanceVerifier = failClosedClearance{}
 	registeredPartialZVerifier  PartialZVerifier  = failClosedPartialZ{}
+	registeredQuorumSigVerifier QuorumSigVerifier = failClosedQuorumSig{}
 )
 
 // RegisterClearanceVerifier installs a sound boundary-clearance verifier.
@@ -73,6 +101,17 @@ func RegisterClearanceVerifier(v ClearanceVerifier) { registeredClearanceVerifie
 
 // RegisterPartialZVerifier installs a sound partial-z verifier.
 func RegisterPartialZVerifier(v PartialZVerifier) { registeredPartialZVerifier = v }
+
+// RegisterQuorumSigVerifier installs the consensus validator-set signature
+// verifier used to check NonceCert and ConsensusCert quorum certificates.
+func RegisterQuorumSigVerifier(v QuorumSigVerifier) { registeredQuorumSigVerifier = v }
+
+// QuorumSigVerificationReady reports whether a real quorum-signature verifier
+// is registered. Until true, all cert verification fails closed.
+func QuorumSigVerificationReady() bool {
+	_, unregistered := registeredQuorumSigVerifier.(failClosedQuorumSig)
+	return !unregistered
+}
 
 // ProductionBCCSigningReady reports whether BOTH required ZK proofs have
 // sound verifiers registered. Until true, production BCC signing must not

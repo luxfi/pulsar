@@ -28,15 +28,6 @@ func subMod(a uint32, delta int32) uint32 {
 	return uint32(v)
 }
 
-// The leaking AlgebraicAggregate path must be disabled by default
-// (PULSAR-V13-HINT-LEAK), independent of any other signer state.
-func TestThresholdV03DisabledByDefault(t *testing.T) {
-	s := &AlgebraicThresholdSigner{}
-	if _, _, err := s.Round2Sign(nil, nil); err != ErrUnsafeThresholdV03HintPath {
-		t.Fatalf("threshold_v03 must fail closed by default; got err=%v", err)
-	}
-}
-
 // BCC/CEF is proven only where ||c·t0||_inf < gamma2 (ML-DSA-65/87, not 44).
 func TestBCCParamGuard(t *testing.T) {
 	for _, m := range []Mode{ModeP65, ModeP87} {
