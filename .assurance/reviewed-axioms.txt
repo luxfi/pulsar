@@ -2,7 +2,7 @@
 # Format: AXIOM_NAME  <bucket> -- <justification>
 #
 # An entry here is an explicit, disclosed trust assumption. The framework
-# (~/work/lux/proofs/framework/checks/circular-proof.sh) HARD-requires only
+# (~/work/lux/luxfi/security/framework/checks/circular-proof.sh) HARD-requires only
 # the axioms that a load-bearing-named lemma discharges via apply/exact in a
 # <=12-line proof; today that is `lagrange_inverse_eval` alone. We list MORE
 # than the mechanical minimum on purpose: every axiom in the dependency cone
