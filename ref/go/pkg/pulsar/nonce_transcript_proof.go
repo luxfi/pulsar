@@ -308,6 +308,55 @@ func NonceBoundaryMPCReady() bool {
 	return !unsound
 }
 
+// ---- fail-closed w0 small-norm range verifier (mirrors the DKG one) ----
+
+// NonceRangeProofVerifier verifies the w0 boundary-margin range proof
+// (‖w0‖∞ ≤ γ2 − 2β − slack) on the committed low part without learning it.
+type NonceRangeProofVerifier interface {
+	VerifyNonceRange(st *NonceConsistencyStatement, proof []byte) error
+}
+
+// failClosedNonceRange is the default. As with the DKG range gate, the
+// fail-closed decision is DERIVED, not asserted: ‖w0‖∞ ≤ γ2 − 2β − slack is
+// an ℓ∞ requirement, and the strongest faithfully-available range proof
+// (a BDLOP/LNS approximate ℓ2 proof) cannot imply it — rangeGateOpen
+// computes this from the live parameters. For w0 the implied ℓ∞ bound even
+// exceeds q (vacuous). See rangeproof.go for the bound argument.
+//
+// REVIEW: an exact ℓ∞ range proof for w0 would need a BDLOP commitment +
+// digit-decomposition over a 5·10^5-wide range — the full LNS toolbox,
+// which Pulsar does not have; do NOT hand-roll it. Register an externally-
+// reviewed implementation via RegisterNonceRangeProofVerifier.
+type failClosedNonceRange struct{}
+
+func (failClosedNonceRange) VerifyNonceRange(st *NonceConsistencyStatement, _ []byte) error {
+	req, ok := nonceRangeRequirement(st.Mode)
+	if !ok {
+		// Outside the BCC-proven parameter scope there is no defined w0
+		// margin to gate on; refuse rather than silently accept.
+		return ErrNonceRangeProofUnsound
+	}
+	if rangeGateOpen([]fipsRangeRequirement{req}) {
+		return nil
+	}
+	return ErrNonceRangeProofUnsound
+}
+
+var registeredNonceRangeVerifier NonceRangeProofVerifier = failClosedNonceRange{}
+
+// RegisterNonceRangeProofVerifier installs a sound, externally-reviewed w0
+// boundary-margin range verifier.
+func RegisterNonceRangeProofVerifier(v NonceRangeProofVerifier) {
+	registeredNonceRangeVerifier = v
+}
+
+// NonceRangeProofReady reports whether a sound w0 range verifier is
+// registered (false ⇒ the range gate is fail-closed).
+func NonceRangeProofReady() bool {
+	_, unsound := registeredNonceRangeVerifier.(failClosedNonceRange)
+	return !unsound
+}
+
 // ---- proof serialization: sigmaReps × (T_r(K) ‖ u_{r,0..t-1}(L) ‖ x_r(K)) ----
 
 func marshalNonceProof(ts []polyVec, us [][]polyVec, xs []polyVec, t int) []byte {
