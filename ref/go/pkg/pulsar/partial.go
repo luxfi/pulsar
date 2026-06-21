@@ -12,7 +12,7 @@ import (
 // correctness check is delegated to the registered (fail-closed)
 // PartialZVerifier. Do not tree-aggregate until a sound verifier is registered.
 
-type ZPartialPublicInput struct {
+type PartialInput struct {
 	PartyID         uint32
 	Lambda          []byte
 	Challenge       []byte
@@ -32,7 +32,7 @@ var (
 
 // VerifyZPartial enforces the public bindings, then delegates the ZK
 // correctness check to the registered PartialZVerifier (fail-closed default).
-func VerifyZPartial(p *Partial, in ZPartialPublicInput) error {
+func VerifyZPartial(p *Partial, in PartialInput) error {
 	if p.PartyID != in.PartyID {
 		return ErrWrongParty
 	}

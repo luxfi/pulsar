@@ -10,10 +10,10 @@ type acceptAllPartialZ struct{}
 
 func (acceptAllPartialZ) VerifyPartial(*Partial, []byte, []byte, []byte) error { return nil }
 
-func validZPartial() (*Partial, ZPartialPublicInput) {
+func validZPartial() (*Partial, PartialInput) {
 	z := []byte{1, 2, 3, 4}
 	p := &Partial{PartyID: 3, SessionID: [32]byte{9}, NonceID: [32]byte{7}, ZShare: z}
-	in := ZPartialPublicInput{PartyID: 3, SessionID: [32]byte{9}, NonceID: [32]byte{7},
+	in := PartialInput{PartyID: 3, SessionID: [32]byte{9}, NonceID: [32]byte{7},
 		Challenge: []byte{0xc}, DKGCommitment: []byte{0xd}, NonceCommitment: []byte{0xe}, ZShare: z}
 	return p, in
 }
@@ -43,10 +43,10 @@ func TestZPartialBindsSessionNoncePartyChallenge(t *testing.T) {
 	old := registeredPartialZVerifier
 	RegisterPartialZVerifier(acceptAllPartialZ{})
 	defer func() { registeredPartialZVerifier = old }()
-	for i, mut := range []func(*ZPartialPublicInput){
-		func(in *ZPartialPublicInput) { in.SessionID[0] ^= 1 },
-		func(in *ZPartialPublicInput) { in.NonceID[0] ^= 1 },
-		func(in *ZPartialPublicInput) { in.PartyID++ },
+	for i, mut := range []func(*PartialInput){
+		func(in *PartialInput) { in.SessionID[0] ^= 1 },
+		func(in *PartialInput) { in.NonceID[0] ^= 1 },
+		func(in *PartialInput) { in.PartyID++ },
 	} {
 		p, in := validZPartial()
 		mut(&in)

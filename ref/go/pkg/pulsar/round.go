@@ -1,179 +1,73 @@
-// Copyright (C) 2025-2026, Lux Industries Inc. All rights reserved.
-// See the file LICENSE for licensing terms.
-
 package pulsar
 
-// round.go -- Wave-driven metastable threshold signing.
-//
-// For validator pools above the GF(257) Pulsar cap of n=256, the
-// canonical Lux deployment does NOT run one large Pulsar ceremony.
-// It runs Pulsar (3, 2) at the per-Lux-round committee level. Each
-// Lux round (one Wave Tick) samples K validators via prism.Cut, the
-// K members emit Pulsar Round-1 commits over the value under vote,
-// Wave decides agreement (alpha-of-K), Pulsar Round-2 reveals are
-// collected, and after Focus.Tracker reaches the beta-confidence
-// threshold the accumulator combines all collected (3, 2) signatures
-// into a single FIPS 204 ML-DSA proof via the P3Q STARK rollup at
-// the Z-Chain layer.
-//
-// The result: a 1.1M-validator pool reaches finality with constant
-// per-Lux-round cost (K=3 Pulsar ceremonies in flight) and
-// constant final-certificate size (one P3Q proof).
-//
-// This file provides the helper primitives that the
-// consensus/protocol/quasar Wave-driver calls during each Lux round.
-// The Wave / Focus / Cut wiring itself lives in
-// consensus/protocol/quasar/wave_signer.go (out of pulsar's scope).
-
 import (
-	"encoding/binary"
-	"math"
+	"errors"
+	"sort"
 )
 
-// RoundContext is the per-Lux-round binding context. Each Wave Tick
-// produces a fresh context whose bytes are committed into every
-// Pulsar transcript-hash so cross-round Round-1 commits cannot be
-// replayed against a different Wave round.
-type RoundContext struct {
-	// Epoch is the validator-set epoch identifier (e.g. block height
-	// divided by the epoch length).
-	Epoch uint64
-	// Round is the within-epoch Lux-round counter, incremented by the
-	// Wave protocol at every Tick.
-	Round uint64
-	// Item is the canonical hash of the value being signed (FIPS 204
-	// message-hash binding mu).
-	Item [32]byte
-	// CommitteeRoot is the canonical 32-byte digest of the Wave-
-	// sampled K-committee for this round (sorted ascending NodeID).
-	CommitteeRoot [32]byte
+// Ringtail-style two-round online signing. Pulsar is consumed as a Quasar
+// certificate profile inside luxfi/consensus: consensus owns orchestration
+// (validator set, metastable sampling, session binding, QC aggregation,
+// networking, retries, slashing); this package owns the crypto primitives and
+// the round shape. NonceCerts come from a BACKGROUND validator NonceTranscript
+// subprotocol (not the block hot path). Hot path: Round1 binds the canonical
+// nonce; Round2 broadcasts a proof-carrying z partial; Finalize aggregates z,
+// recovers the public hint, and emits an ordinary ML-DSA signature.
+
+type CertProfile uint8
+
+const (
+	ProfileBLS CertProfile = iota
+	ProfileCorona
+	ProfilePulsar
+	ProfileMagnetar
+)
+
+// SignRound1 binds the canonical nonce cert to the consensus session.
+type SignRound1 struct {
+	SessionID [32]byte
+	NonceID   [32]byte
+	NonceCert NonceCert
 }
 
-// Encode returns the canonical wire encoding of a RoundContext. The
-// encoding is consumed by transcripts; changing the layout
-// invalidates every KAT pinned at this version.
-func (c RoundContext) Encode() []byte {
-	out := make([]byte, 0, 8+8+32+32)
-	var u [8]byte
-	binary.BigEndian.PutUint64(u[:], c.Epoch)
-	out = append(out, u[:]...)
-	binary.BigEndian.PutUint64(u[:], c.Round)
-	out = append(out, u[:]...)
-	out = append(out, c.Item[:]...)
-	out = append(out, c.CommitteeRoot[:]...)
-	return out
+// SignRound2 carries one signer's proof-carrying z partial.
+type SignRound2 struct {
+	SessionID [32]byte
+	NonceID   [32]byte
+	Partial   Partial
 }
 
-// RoundSessionID derives a deterministic per-Lux-round Pulsar
-// SessionID from a RoundContext. The session-id binds the Pulsar
-// per-round PRNG (PULSAR-SIGN-PRNG-V1 customisation tag in
-// transcript.go) to the unique (epoch, round, item, committee) tuple,
-// closing the CRIT-1 replay vector that del Pino-Niot's PRNGKeyForRound
-// addresses in the small-committee path.
-func RoundSessionID(ctx RoundContext) [16]byte {
-	digest := cshake256(ctx.Encode(), 16, tagSignPRNG)
-	var out [16]byte
-	copy(out[:], digest)
-	return out
+// RoundSigner is the Quasar cert-profile interface that consensus calls.
+// Pulsar implements it; Pulsar never calls consensus.
+type RoundSigner interface {
+	Profile() CertProfile
+	Round1(sessionID, nonceID [32]byte, cert NonceCert) (SignRound1, error)
+	Round2(r1 SignRound1, in PartialInput) (Partial, error)
+	Finalize(r1 SignRound1, partials []Partial) (Aggregate, ConsensusCert, error)
 }
 
-// RoundCommitteeRoot returns the canonical 32-byte digest of a
-// Wave-sampled K-committee (sorted ascending NodeID). Both the
-// per-round Pulsar transcript and the Wave protocol's per-round
-// commitments bind to this digest.
-func RoundCommitteeRoot(committee []NodeID) [32]byte {
-	sorted := make([]NodeID, len(committee))
-	copy(sorted, committee)
-	for i := 1; i < len(sorted); i++ {
-		for j := i; j > 0 && nodeIDLess(sorted[j], sorted[j-1]); j-- {
-			sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+var ErrInsufficientSigners = errors.New("pulsar: fewer valid partials than threshold")
+
+// CanonicalSignerSet picks the deterministic first-threshold valid partials
+// (sorted by PartyID) so an aggregator cannot grind the signer subset — hence
+// z, the hint, and the final signature bytes — by choosing among valid sets.
+// Returns the chosen partials and the signer bitmap.
+func CanonicalSignerSet(valid []Partial, threshold int) ([]Partial, []byte, error) {
+	if len(valid) < threshold {
+		return nil, nil, ErrInsufficientSigners
+	}
+	cp := append([]Partial(nil), valid...)
+	sort.Slice(cp, func(i, j int) bool { return cp[i].PartyID < cp[j].PartyID })
+	chosen := cp[:threshold]
+	maxID := uint32(0)
+	for _, p := range chosen {
+		if uint32(p.PartyID) > maxID {
+			maxID = uint32(p.PartyID)
 		}
 	}
-	parts := make([][]byte, 0, len(sorted)+1)
-	parts = append(parts, []byte("PULSAR-ROUND-COMMITTEE-V1"))
-	for _, id := range sorted {
-		parts = append(parts, id[:])
+	bitmap := make([]byte, maxID/8+1)
+	for _, p := range chosen {
+		bitmap[uint32(p.PartyID)/8] |= 1 << (uint32(p.PartyID) % 8)
 	}
-	return transcriptHash32(tagDKGCommit, parts...)
-}
-
-// RoundSigShare is the per-validator Pulsar signature contribution
-// emitted in one Lux round. It rides alongside the validator's Wave
-// preference vote on the Photon wire. The aggregator at the Quasar
-// layer collects β rounds worth of these, passes them to LargeCombine
-// (or the small-committee Combine), and emits one FIPS 204 ML-DSA
-// signature that the P3Q rollup attests to as part of the final
-// block certificate.
-type RoundSigShare struct {
-	// Context binds the share to its Lux round.
-	Context RoundContext
-	// Round1 is the per-round Pulsar Round-1 commit message.
-	Round1 *Round1Message
-	// Round2 is the per-round Pulsar Round-2 reveal message.
-	// Filled in after the Wave alpha-of-K agreement check passes.
-	Round2 *Round2Message
-}
-
-// RoundQuorumPolicy bundles the (alpha, beta) parameters Wave uses to
-// drive Lux-round agreement. These are exposed here so the
-// consensus-layer Wave-driver can synchronise them with the Pulsar
-// combiner's expectations.
-//
-// alpha is the within-Lux-round agreement threshold (yes-votes among
-// K samples that count this round as "successful"). beta is the
-// number of consecutive successful Lux rounds before the Focus
-// tracker fires "decided" -- at which point the aggregator combines
-// β·alpha Pulsar shares into one FIPS 204 signature.
-type RoundQuorumPolicy struct {
-	K     int
-	Alpha int
-	Beta  int
-}
-
-// DefaultRoundQuorumPolicy matches consensus/protocol/quasar's
-// grouped-threshold defaults (DefaultGroupSize=3, DefaultGroupThreshold=2)
-// extended to a metastable K-sample of 21 (Wave's typical K) with a
-// 15-of-21 alpha and 12-round beta. These are starting points; the
-// Quasar config layer (config/pq_mode.go) is the source of truth.
-var DefaultRoundQuorumPolicy = RoundQuorumPolicy{
-	K:     21,
-	Alpha: 15,
-	Beta:  12,
-}
-
-// ApproxRoundSecurity returns an approximation of the per-round
-// adversary advantage given a corruption ratio rho and policy
-// (K, alpha). Used by the Quasar config layer to pin alpha and beta
-// per security target; see proofs/pulsar-m/lux-round-metastable.tex
-// for the formal statement.
-//
-// The formula computes 2^(-bits-of-security) where bits is the
-// binomial tail bound for {alpha-of-K} from a rho-fraction-corrupted
-// pool: Pr[X >= alpha when X ~ Bin(K, rho)]. We return the natural
-// logarithm to avoid floating-point precision loss; callers convert
-// to log2 as needed.
-func ApproxRoundSecurity(rho float64, policy RoundQuorumPolicy) float64 {
-	logFactorial := func(n int) float64 {
-		acc := 0.0
-		for i := 2; i <= n; i++ {
-			acc += math.Log(float64(i))
-		}
-		return acc
-	}
-	logChoose := func(n, k int) float64 {
-		if k < 0 || k > n {
-			return -1e308
-		}
-		return logFactorial(n) - logFactorial(k) - logFactorial(n-k)
-	}
-
-	sum := 0.0
-	for x := policy.Alpha; x <= policy.K; x++ {
-		// Pr[X=x] = C(K, x) * rho^x * (1-rho)^(K-x)
-		logp := logChoose(policy.K, x) +
-			float64(x)*math.Log(rho) +
-			float64(policy.K-x)*math.Log(1.0-rho)
-		sum += math.Exp(logp)
-	}
-	return sum
+	return chosen, bitmap, nil
 }
