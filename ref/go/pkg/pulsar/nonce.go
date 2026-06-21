@@ -9,7 +9,7 @@ import (
 
 // NonceMPC is a validator-run consensus subprotocol (not a separate service):
 // validators jointly compute w1 = HighBits(w) and BoundaryClear(w, 2β) over
-// their hidden w = A·y shares and sign a NonceCertVote; a quorum forms the
+// their hidden w = A·y shares and sign a NonceVote; a quorum forms the
 // ClearanceQC. Full w is never opened. Public chain verifiers check the QC,
 // never the hidden w (PULSAR-V13-W-LEAK).
 
@@ -26,9 +26,9 @@ func (qc QuorumCert) IsEmpty() bool {
 	return len(qc.SignerBitmap) == 0 && len(qc.Signatures) == 0 && qc.PayloadRoot == [32]byte{}
 }
 
-// NonceCertVote is one validator's signed attestation that the NonceMPC
+// NonceVote is one validator's signed attestation that the NonceMPC
 // transcript proves a boundary-clear hidden w with the given w1.
-type NonceCertVote struct {
+type NonceVote struct {
 	Epoch             uint64
 	CommitteeID       [32]byte
 	NonceID           [32]byte
@@ -36,12 +36,12 @@ type NonceCertVote struct {
 	Margin            uint32
 	CommitRoot        [32]byte
 	RegionRoot        [32]byte
-	MPCTranscriptRoot [32]byte
+	NonceTranscriptRoot [32]byte
 	Signature         []byte
 }
 
-// ZAggregate is a tree-aggregation node: z-sums + bitmaps + proof roots only.
-type ZAggregate struct {
+// Aggregate is a tree-aggregation node: z-sums + bitmaps + proof roots only.
+type Aggregate struct {
 	SessionID    [32]byte
 	NonceID      [32]byte
 	SignerBitmap []byte
@@ -62,7 +62,7 @@ var (
 // nonce cert. Any mutation changes the root, so a QC over the old root no
 // longer matches — the cert is tamper-evident. (Full w is NOT bound; it is
 // never available to public verifiers.)
-func nonceCertPayloadRoot(cert *BoundaryNonceCert) [32]byte {
+func nonceCertPayloadRoot(cert *NonceCert) [32]byte {
 	h := sha3.NewShake256()
 	_, _ = h.Write([]byte("PULSAR-BCC-CEF/nonce-cert/v1"))
 	_, _ = h.Write(cert.NonceID[:])
@@ -76,18 +76,18 @@ func nonceCertPayloadRoot(cert *BoundaryNonceCert) [32]byte {
 	_, _ = h.Write(u[:4])
 	_, _ = h.Write(cert.CommitRoot[:])
 	_, _ = h.Write(cert.RegionRoot[:])
-	_, _ = h.Write(cert.MPCTranscriptRoot[:])
+	_, _ = h.Write(cert.NonceTranscriptRoot[:])
 	var out [32]byte
 	_, _ = h.Read(out[:])
 	return out
 }
 
-// VerifyBoundaryNonceCert performs the structural consensus check: the
+// VerifyNonceCert performs the structural consensus check: the
 // clearance QC is present, binds the cert payload, meets quorum, and selects
 // only validators. The per-validator QC signatures are verified by the
 // consensus layer's registered validator-set verifier (out of this module's
 // structural scope). Without a valid QC there is no signing — fail closed.
-func VerifyBoundaryNonceCert(cert *BoundaryNonceCert, quorum, validatorSetSize int) error {
+func VerifyNonceCert(cert *NonceCert, quorum, validatorSetSize int) error {
 	if cert.ClearanceQC.IsEmpty() {
 		return ErrMissingClearanceQC
 	}
@@ -107,9 +107,9 @@ func VerifyBoundaryNonceCert(cert *BoundaryNonceCert, quorum, validatorSetSize i
 
 // ---- NonceMPC transcript + voting (debug-oracle compute path) ----
 
-// NonceMPCTranscript models the validator NonceMPC output. debugFullW is
+// NonceTranscript models the validator NonceMPC output. debugFullW is
 // TEST-ONLY and never enters the public view or the transcript root.
-type NonceMPCTranscript struct {
+type NonceTranscript struct {
 	debugFullW  polyVec // DEBUG ONLY — never serialized, never bound
 	Epoch       uint64
 	CommitteeID [32]byte
@@ -122,7 +122,7 @@ type NonceMPCTranscript struct {
 }
 
 // Root binds only the public outputs (w1, clear, margin, roots) — never w.
-func (tr *NonceMPCTranscript) Root() [32]byte {
+func (tr *NonceTranscript) Root() [32]byte {
 	h := sha3.NewShake256()
 	_, _ = h.Write([]byte("PULSAR-BCC-CEF/nonce-mpc/v1"))
 	_, _ = h.Write(tr.NonceID[:])
@@ -144,7 +144,7 @@ func (tr *NonceMPCTranscript) Root() [32]byte {
 
 // PublicView returns only the public outputs (w1 + clear + root). It NEVER
 // contains full w or its low bits.
-func (tr *NonceMPCTranscript) PublicView() []byte {
+func (tr *NonceTranscript) PublicView() []byte {
 	out := append([]byte{}, tr.W1...)
 	if tr.Clear {
 		out = append(out, 1)
@@ -160,22 +160,22 @@ func (tr *NonceMPCTranscript) PublicView() []byte {
 // validator MPC would, producing a cert with a quorum-signed bound payload.
 // The public view never reveals w. (A production NonceMPC replaces the direct
 // w with secret-shared MPC; the public API is identical.)
-func RunNonceMPCDebug(w polyVec, mode Mode, nonceID [32]byte) (*BoundaryNonceCert, *NonceMPCTranscript) {
+func RunNonceMPCDebug(w polyVec, mode Mode, nonceID [32]byte) (*NonceCert, *NonceTranscript) {
 	gamma2, beta, _, _ := bccParams(mode)
-	tr := &NonceMPCTranscript{
+	tr := &NonceTranscript{
 		debugFullW: w,
 		NonceID:    nonceID,
 		W1:         packPolyVec(highBitsVec(w, gamma2)),
 		Margin:     2 * beta,
 		Clear:      BoundaryClear(w, gamma2, beta),
 	}
-	cert := &BoundaryNonceCert{
+	cert := &NonceCert{
 		NonceID:           nonceID,
 		W1:                tr.W1,
 		Margin:            tr.Margin,
 		CommitRoot:        tr.CommitRoot,
 		RegionRoot:        tr.RegionRoot,
-		MPCTranscriptRoot: tr.Root(),
+		NonceTranscriptRoot: tr.Root(),
 	}
 	payload := nonceCertPayloadRoot(cert)
 	cert.ClearanceQC = QuorumCert{
@@ -189,14 +189,14 @@ func RunNonceMPCDebug(w polyVec, mode Mode, nonceID [32]byte) (*BoundaryNonceCer
 // ValidateAndVoteNonceCert is the validator voting rule: refuse to vote unless
 // the transcript outputs ONLY w1 + a clear bit (never full w) and the nonce is
 // boundary-clear.
-func ValidateAndVoteNonceCert(tr *NonceMPCTranscript) (*NonceCertVote, error) {
+func ValidateAndVoteNonceCert(tr *NonceTranscript) (*NonceVote, error) {
 	if len(tr.W1) == 0 {
 		return nil, ErrBadNonceMPCOutput
 	}
 	if !tr.Clear {
 		return nil, ErrNonceNotBoundaryClear
 	}
-	return &NonceCertVote{
+	return &NonceVote{
 		Epoch:             tr.Epoch,
 		CommitteeID:       tr.CommitteeID,
 		NonceID:           tr.NonceID,
@@ -204,7 +204,7 @@ func ValidateAndVoteNonceCert(tr *NonceMPCTranscript) (*NonceCertVote, error) {
 		Margin:            tr.Margin,
 		CommitRoot:        tr.CommitRoot,
 		RegionRoot:        tr.RegionRoot,
-		MPCTranscriptRoot: tr.Root(),
+		NonceTranscriptRoot: tr.Root(),
 	}, nil
 }
 

@@ -15,14 +15,14 @@ import (
 
 // ---- Wire types (no hint-secret fields, no full w) ----
 
-// BoundaryNonceCert is a boundary-cleared nonce certificate. It carries only
+// NonceCert is a boundary-cleared nonce certificate. It carries only
 // w1 = HighBits(w) (public, used in the challenge), a hiding commitment to w,
-// and a validator-run NonceMPC clearance certificate (MPCTranscriptRoot +
+// and a validator-run NonceMPC clearance certificate (NonceTranscriptRoot +
 // ClearanceQC) — NEVER full w, w_i shares, LowBits(w), boundary distances, or
 // hint-secret material (PULSAR-V13-W-LEAK). The production clearance backend
 // is the quorum-certified validator transcript; ClearanceProof is retained
 // only for an optional pluggable ZK backend.
-type BoundaryNonceCert struct {
+type NonceCert struct {
 	NonceID           [32]byte
 	PKEpoch           uint64
 	CommitteeID       [32]byte
@@ -32,26 +32,20 @@ type BoundaryNonceCert struct {
 	Margin            uint32
 	RegionRoot        [32]byte
 	CommitRoot        [32]byte
-	MPCTranscriptRoot [32]byte    // root of the validator NonceMPC transcript
+	NonceTranscriptRoot [32]byte    // root of the validator NonceMPC transcript
 	ClearanceQC       QuorumCert  // quorum of validators that verified the transcript
 	ClearanceProof    []byte      // optional pluggable ZK backend (unused for the NonceMPC path)
 	Consumed          bool
 }
 
-// BCCZPartial is a proof-carrying z-share. No CS2/CT0/r0/LowBits/hint fields.
-type BCCZPartial struct {
+// Partial is a proof-carrying z-share. No CS2/CT0/r0/LowBits/hint fields.
+type Partial struct {
 	PartyID   uint32
 	NonceID   [32]byte
 	SessionID [32]byte
 	ZShare    []byte // packed z_i
 	Proof     []byte // partial-correctness proof (PROTOTYPE)
 	MAC       []byte
-}
-
-// BCCSignature is a final, unmodified FIPS 204 ML-DSA signature.
-type BCCSignature struct {
-	Mode  Mode
-	Bytes []byte // sigEncode(c, z, h)
 }
 
 // ConsensusCert is the two-certificate consensus artifact: the ML-DSA
@@ -65,7 +59,7 @@ type ConsensusCert struct {
 	JointPKID      [32]byte
 	SignerBitmap   []byte
 	TranscriptRoot [32]byte
-	Signature      BCCSignature
+	Signature      Signature
 }
 
 // ---- Canonical, non-grindable nonce selection ----
@@ -197,13 +191,12 @@ func (c *ConsensusCert) VerifyStructure(quorum, validatorSetSize int) error {
 
 func productionWireTypes() []reflect.Type {
 	return []reflect.Type{
-		reflect.TypeOf(BoundaryNonceCert{}),
-		reflect.TypeOf(BCCZPartial{}),
-		reflect.TypeOf(BCCSignature{}),
+		reflect.TypeOf(NonceCert{}),
+		reflect.TypeOf(Partial{}),
 		reflect.TypeOf(ConsensusCert{}),
 		reflect.TypeOf(QuorumCert{}),
-		reflect.TypeOf(NonceCertVote{}),
-		reflect.TypeOf(ZAggregate{}),
+		reflect.TypeOf(NonceVote{}),
+		reflect.TypeOf(Aggregate{}),
 	}
 }
 

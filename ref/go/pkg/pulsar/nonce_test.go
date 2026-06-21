@@ -26,54 +26,54 @@ func boundaryClearW(rng *rand.Rand, k int, gamma2, beta uint32) polyVec {
 }
 
 // The production cert carries w1 + clearance QC, never full w.
-func TestBoundaryNonceCertHasNoFullW(t *testing.T) {
-	typ := reflect.TypeOf(BoundaryNonceCert{})
+func TestNonceCertHasNoFullW(t *testing.T) {
+	typ := reflect.TypeOf(NonceCert{})
 	for _, f := range []string{"W", "FullW", "WPolyVec", "LowBitsW", "BoundaryDistance", "R0", "CS2", "CT0", "D2", "D0"} {
 		if hasFieldNamed(typ, f) {
-			t.Fatalf("BoundaryNonceCert contains forbidden field %q", f)
+			t.Fatalf("NonceCert contains forbidden field %q", f)
 		}
 	}
-	for _, f := range []string{"W1", "CommitRoot", "RegionRoot", "MPCTranscriptRoot", "ClearanceQC"} {
+	for _, f := range []string{"W1", "CommitRoot", "RegionRoot", "NonceTranscriptRoot", "ClearanceQC"} {
 		if !hasFieldNamed(typ, f) {
-			t.Fatalf("BoundaryNonceCert missing required field %q", f)
+			t.Fatalf("NonceCert missing required field %q", f)
 		}
 	}
 }
 
-func TestBoundaryNonceCertRequiresClearanceQC(t *testing.T) {
+func TestNonceCertRequiresClearanceQC(t *testing.T) {
 	gamma2, beta, _, _ := bccParams(ModeP65)
 	k, _, _ := modeShape(ModeP65)
 	w := boundaryClearW(rand.New(rand.NewSource(11)), k, gamma2, beta)
 	cert, _ := RunNonceMPCDebug(w, ModeP65, [32]byte{1})
 	cert.ClearanceQC = QuorumCert{} // strip the QC
-	if err := VerifyBoundaryNonceCert(cert, 5, 8); err != ErrMissingClearanceQC {
+	if err := VerifyNonceCert(cert, 5, 8); err != ErrMissingClearanceQC {
 		t.Fatalf("expected missing-QC, got %v", err)
 	}
 }
 
-func TestBoundaryNonceCertBindsAllConsensusFields(t *testing.T) {
+func TestNonceCertBindsAllConsensusFields(t *testing.T) {
 	gamma2, beta, _, _ := bccParams(ModeP65)
 	k, _, _ := modeShape(ModeP65)
 	w := boundaryClearW(rand.New(rand.NewSource(12)), k, gamma2, beta)
 	base, _ := RunNonceMPCDebug(w, ModeP65, [32]byte{2})
-	if err := VerifyBoundaryNonceCert(base, 5, 8); err != nil {
+	if err := VerifyNonceCert(base, 5, 8); err != nil {
 		t.Fatalf("base cert should verify, got %v", err)
 	}
-	mutations := []func(*BoundaryNonceCert){
-		func(c *BoundaryNonceCert) { c.PKEpoch++ },
-		func(c *BoundaryNonceCert) { c.CommitteeID[0] ^= 1 },
-		func(c *BoundaryNonceCert) { c.SignerSetRoot[0] ^= 1 },
-		func(c *BoundaryNonceCert) { c.CommitRoot[0] ^= 1 },
-		func(c *BoundaryNonceCert) { c.RegionRoot[0] ^= 1 },
-		func(c *BoundaryNonceCert) { c.MPCTranscriptRoot[0] ^= 1 },
-		func(c *BoundaryNonceCert) { c.Margin++ },
-		func(c *BoundaryNonceCert) { c.W1[0] ^= 1 },
+	mutations := []func(*NonceCert){
+		func(c *NonceCert) { c.PKEpoch++ },
+		func(c *NonceCert) { c.CommitteeID[0] ^= 1 },
+		func(c *NonceCert) { c.SignerSetRoot[0] ^= 1 },
+		func(c *NonceCert) { c.CommitRoot[0] ^= 1 },
+		func(c *NonceCert) { c.RegionRoot[0] ^= 1 },
+		func(c *NonceCert) { c.NonceTranscriptRoot[0] ^= 1 },
+		func(c *NonceCert) { c.Margin++ },
+		func(c *NonceCert) { c.W1[0] ^= 1 },
 	}
 	for i, mut := range mutations {
 		bad := *base
 		bad.W1 = append([]byte{}, base.W1...)
 		mut(&bad)
-		if err := VerifyBoundaryNonceCert(&bad, 5, 8); err == nil {
+		if err := VerifyNonceCert(&bad, 5, 8); err == nil {
 			t.Fatalf("mutation %d not detected (QC must bind all fields)", i)
 		}
 	}
@@ -142,18 +142,18 @@ func TestNonceCertQCVerifies(t *testing.T) {
 	k, _, _ := modeShape(ModeP65)
 	w := boundaryClearW(rand.New(rand.NewSource(16)), k, gamma2, beta)
 	cert, _ := RunNonceMPCDebug(w, ModeP65, [32]byte{7})
-	if err := VerifyBoundaryNonceCert(cert, 5, 8); err != nil {
+	if err := VerifyNonceCert(cert, 5, 8); err != nil {
 		t.Fatalf("valid NonceMPC cert should verify, got %v", err)
 	}
 }
 
-func TestBadNonceMPCTranscriptRootRejected(t *testing.T) {
+func TestBadNonceTranscriptRootRejected(t *testing.T) {
 	gamma2, beta, _, _ := bccParams(ModeP65)
 	k, _, _ := modeShape(ModeP65)
 	w := boundaryClearW(rand.New(rand.NewSource(17)), k, gamma2, beta)
 	cert, _ := RunNonceMPCDebug(w, ModeP65, [32]byte{8})
-	cert.MPCTranscriptRoot[0] ^= 1 // tamper → payload root no longer matches the QC
-	if err := VerifyBoundaryNonceCert(cert, 5, 8); err != ErrBadClearanceQC {
+	cert.NonceTranscriptRoot[0] ^= 1 // tamper → payload root no longer matches the QC
+	if err := VerifyNonceCert(cert, 5, 8); err != ErrBadClearanceQC {
 		t.Fatalf("tampered transcript root must be rejected, got %v", err)
 	}
 }
