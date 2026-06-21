@@ -32,28 +32,45 @@
 > — Lemma `pulsar_n1_byte_equality_extracted`
 > (`proofs/easycrypt/Pulsar_N1_Extracted.ec`).
 
-**Assurance: machine-checked (EC structure, 0 admits) MODULO an
-asserted-axiom trust cone — and that cone is reconstruct-then-sign.**
+**Assurance: there are now TWO models, and the distinction is the headline.**
 
-Read this carefully:
+> **Model 1 — idealised correctness (reconstruct-then-sign).** The EC
+> `pulsar_n1_byte_equality_extracted` is structurally complete (no
+> `admit.` / `sorry`) **relative to** the C-idealised axioms
+> (`combine_body_axiom`, `S_functional_spec`, per-stage
+> `combine_body_*_spec` / `sign_body_*_spec`). These assert the threshold
+> output equals the centralised signer **applied to the
+> Lagrange-reconstructed master secret** — a **reconstruct-then-sign**
+> *correctness* statement. That is exactly the abstraction `BLOCKERS.md`
+> § PULSAR-V13-HINT-LEAK says the **production leaderless path must never
+> instantiate** (reconstructing `c·s2`/`c·t0`/the master leaks the key). So
+> Model 1 is an idealised centralised-equivalent signer, NOT a proof the
+> production path is leak-free.
 
-- The EC lemma is structurally complete (no `admit.` / `sorry`). But it is
-  proved **relative to** the axioms bucketed C in `AXIOM-INVENTORY.md`. The
-  central ones (`combine_body_axiom`, `S_functional_spec`, and the per-stage
-  `combine_body_*_spec` / `sign_body_*_spec`) assert that the extracted
-  threshold/libjade code equals the centralised signer **applied to the
-  Lagrange-reconstructed master secret**. That is a **reconstruct-then-sign
-  model**.
-- Reconstruct-then-sign is exactly the abstraction that `BLOCKERS.md`
-  § PULSAR-V13-HINT-LEAK says the **production leaderless path must never
-  instantiate** (reconstructing `c·s2`/`c·t0`/the master secret leaks the
-  long-term key). So the EC byte-equality is a statement about an
-  *idealised centralised-equivalent signer*, NOT a proof that the no-leak
-  (BCC/CEF) production path is correct or leak-free.
-- The production no-leak property is **interop-tested**: the BCC single-key
-  signature verifies **byte-for-byte under CIRCL + pq-crystals**
-  (ML-DSA-65/87), per the BLOCKERS V13-HINT-LEAK resolution criteria. It is
-  **NOT EC-proven**. The novel ZK boundary-clearance / partial-z parts are
+> **Model 2 — the HONEST production residual (no-leak, standard
+> assumption).** `proofs/easycrypt/Pulsar_N1_NoLeak.ec` states the
+> production path the way it runs: the public Lagrange aggregate of the
+> per-party **masked** responses equals the central `z` **without ever
+> forming the master secret**, and the hint is recovered from the **public**
+> `w' = A·z − c·t1·2^d` via FIPS `UseHint`. The CORRECTNESS core of Model 2
+> is **machine-checked in Lean 4 + Mathlib on this host** (`lake build`
+> green, 0 sorry): `Crypto.Pulsar.NoLeakAggregate`
+> (`z_aggregate_no_reconstruct`, `hint_is_fips_hint`,
+> `no_leak_under_standard_assumptions`) + `Crypto.Pulsar.BoundaryClearance`
+> (`boundary_clearance`, `findHintCoeff_unique`) +
+> `Crypto.Threshold_Lagrange`. The ONLY open assumption is
+> `no_leak_reduction`: under **Module-LWE + Module-SIS** the public
+> transcript leaks nothing about `(s1,s2,t0)` beyond one single-party FIPS
+> 204 signature. That is a STANDARD PQ assumption — the SAME lattice
+> hardness ML-DSA's own EUF-CMA rests on — **not** an implementation
+> reconstruct. The EC side of Model 2 is **written, machine-recheck pending
+> EasyCrypt** (no `ec` on the authoring host; `scripts/checks/ec-compile.sh`
+> is the CI authority); its Lean core is machine-checked now.
+
+- The production no-leak property is ALSO **interop-tested**: the BCC
+  single-key signature verifies **byte-for-byte under CIRCL + pq-crystals**
+  (ML-DSA-65/87), per the BLOCKERS V13-HINT-LEAK resolution criteria. The
+  novel ZK boundary-clearance / partial-z parts are
   **fail-closed-pending-review**.
 
 ## §2 Claim-by-claim assurance table
@@ -62,7 +79,10 @@ Read this carefully:
 |---|---|---|
 | EC threshold↔centralised refinement (`pulsar_n1_byte_equality`) | machine-checked modulo C-cone (asserted-axiom) | lemma in the N1 theory; 0 real `admit.` tactics (`scripts/checks/ec-admits.sh`); cone in AXIOM-INVENTORY.md §C |
 | Class N4 reshare preserves `(rho,t1)` group key | machine-checked modulo A-cone | lemma in the N4 theory; 0 real `admit.` tactics; rests on `shamir_correct`/`reconstruct_linear`/`add_share_zeroR` (Lean-bridged) |
-| The byte-walk = centralised signer on reconstructed secret (C-cone) | asserted-axiom (OPEN) | `combine_body_axiom`, `S_functional_spec`, `*_body_*_spec` — reconstruct-then-sign; BLOCKERS.md |
+| The byte-walk = centralised signer on reconstructed secret (C-idealised cone) | asserted-axiom (OPEN; idealised CORRECTNESS only) | `combine_body_axiom`, `S_functional_spec`, `*_body_*_spec` — reconstruct-then-sign; NOT the production residual; BLOCKERS.md |
+| No-leak masked-aggregate = central z, secret never formed | **machine-checked (Lean 4 + Mathlib, this host)** | `Crypto.Pulsar.NoLeakAggregate.z_aggregate_no_reconstruct`; EC mirror `Pulsar_N1_NoLeak.no_leak_z_aggregate` (recheck pending ec-compile) |
+| No-leak hint recovered from public `w'`, unique FIPS hint | **machine-checked (Lean 4 + Mathlib, this host)** | `Crypto.Pulsar.BoundaryClearance.{boundary_clearance,findHintCoeff_unique}`; EC mirror `Pulsar_N1_NoLeak.public_hint_roundtrip` (recheck pending ec-compile) |
+| Production no-leak residual (transcript leaks nothing extra) | **sound-by-reduction (STANDARD: Module-LWE + Module-SIS)** | `no_leak_reduction` (Pulsar_N1_NoLeak.ec); EC mirror of machine-checked Lean `Crypto.Pulsar.NoLeak.NoLeakReduction`; full simulation = v0.8 artifact |
 | Final BCC signature interchangeable with FIPS 204 | interop-tested | 19/19 N1 subtests vs CIRCL; BCC no-leak sig byte-equal under CIRCL + pq-crystals (`test/interoperability/`, BLOCKERS V13) |
 | Production no-leak (no `c·s2`/`c·t0`/master reconstruction) | interop-tested (single-key) + fail-closed-pending-review (threshold ZK) | BLOCKERS.md V13-HINT-LEAK / V13-W-LEAK / V13-PARTIAL-Z-PROOF |
 | Constant-time, threshold layer | sound-by-reduction (jasmin-CT) + fail-closed on dudect-submission-grade | jasmin-ct 3/3; dudect 10⁹-sample run open-research |
@@ -83,17 +103,23 @@ Read this carefully:
 
 ## §4 The honest one-paragraph version
 
-> Pulsar's EasyCrypt artifact is a structurally-complete (0-admit)
-> refinement showing the threshold combine is bit-identical to single-party
-> FIPS 204 ML-DSA-65 sign on the Lagrange-reconstructed group secret —
-> **relative to a trust cone of asserted axioms that model
-> reconstruct-then-sign** (bucketed in AXIOM-INVENTORY.md). That model is
-> deliberately NOT the production leaderless path, which must never
-> reconstruct the secret (BLOCKERS.md V13). The production no-leak signature
-> is **interop-tested** byte-equal under CIRCL + pq-crystals, not EC-proven;
-> the novel threshold-ZK parts are **fail-closed-pending-review**. The proof
-> says nothing about ML-DSA's post-quantum hardness, which inheres in NIST's
-> FIPS 204 analysis.
+> Pulsar carries TWO models. Model 1 (the EC `pulsar_n1_byte_equality`
+> refinement) is a structurally-complete (0-admit) proof that the threshold
+> combine is bit-identical to single-party FIPS 204 ML-DSA-65 sign on the
+> **Lagrange-reconstructed** group secret — an idealised CORRECTNESS
+> statement relative to reconstruct-then-sign axioms (bucketed C-idealised),
+> deliberately NOT the production path. Model 2 (`Pulsar_N1_NoLeak.ec`) is
+> the HONEST production residual: the masked Lagrange aggregate equals
+> central `z` **without forming the master secret** and the hint comes from
+> the **public** `w'` — its CORRECTNESS core is **machine-checked in Lean
+> on this host** (`Crypto.Pulsar.NoLeakAggregate` / `.BoundaryClearance`;
+> `lake build` green), and the ONLY open assumption is a **Module-LWE +
+> Module-SIS** reduction (a STANDARD PQ assumption, the same hardness
+> ML-DSA's EUF-CMA uses), **not** an implementation reconstruct. The
+> production no-leak signature is ALSO **interop-tested** byte-equal under
+> CIRCL + pq-crystals; the novel threshold-ZK parts are
+> **fail-closed-pending-review**. ML-DSA's post-quantum hardness itself
+> inheres in NIST's FIPS 204 analysis.
 
 ---
 - Name: `PROOF-CLAIMS.md` (root; gate-read) · supersedes the scope summary

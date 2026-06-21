@@ -28,47 +28,67 @@ and the v1.0.7 sign-off.
 
 ## Open
 
-### PULSAR-EC-RECON-MODEL (HIGH — proof-scope disclosure)
+### PULSAR-EC-RECON-MODEL (HIGH — proof-scope disclosure; RE-SCOPED this pass)
 
-**Status: OPEN. Disclosed, not closed.** The EasyCrypt Class N1
-byte-equality theorem (`pulsar_n1_byte_equality` /
-`pulsar_n1_byte_equality_extracted`) is machine-checked structurally
-(0 admits) but proved **relative to** the bucket-C asserted axioms in
-`AXIOM-INVENTORY.md` §C. The central ones —
-`combine_body_axiom`, `S_functional_spec`, the per-stage
-`combine_body_*_spec` / `sign_body_*_spec`, and the v0.4
-`algebraic_aggregate_ctx_body_axiom` — assert the extracted/aggregated
-code equals the centralised FIPS 204 signer applied to the
-**Lagrange-reconstructed master secret**. The EC model therefore
-**reconstructs the master key and signs with it** (reconstruct-then-sign).
+**Status: OPEN, but RE-SCOPED — reconstruct-then-sign is no longer the
+load-bearing production residual.** Two distinct models now exist:
 
-This is intentionally NOT the production leaderless instantiation, which
-must never reconstruct `c·s2`/`c·t0`/the master (PULSAR-V13-HINT-LEAK).
-Consequences, all OPEN:
+**Model 1 — idealised correctness (reconstruct-then-sign).** The EC
+`pulsar_n1_byte_equality` / `_extracted` is machine-checked structurally (0
+admits) **relative to** the bucket-C-idealised axioms (`combine_body_axiom`,
+`S_functional_spec`, per-stage `combine_body_*_spec` / `sign_body_*_spec`,
+v0.4 `algebraic_aggregate_ctx_body_axiom`), which assert the
+extracted/aggregated code equals the centralised FIPS 204 signer applied to
+the **Lagrange-reconstructed master secret**. This is an idealised
+*correctness* model; it **reconstructs the master key and signs with it**,
+intentionally NOT the production instantiation.
 
-- The EC byte-equality does NOT certify the production no-leak (BCC/CEF)
-  path. That path's correctness is **interop-tested** (BCC single-key sig
-  byte-equal under CIRCL + pq-crystals, ML-DSA-65/87) and its novel ZK
-  parts are **fail-closed-pending-review** — see V13-W-LEAK / V13-PARTIAL-
-  Z-PROOF.
-- Closing the C-cone is the Jasmin/libjade byte-walk (issues #3, #4): when
-  the extracted byte-walk lands, `combine_body_axiom` / `S_functional_spec`
-  become lemmas and the per-stage axioms close against the Jasmin
-  operational semantics. Until then they are asserted.
+**Model 2 — the production no-leak residual (added this pass).**
+`proofs/easycrypt/Pulsar_N1_NoLeak.ec` states the production path the way it
+runs: the public Lagrange aggregate of the per-party **masked** responses
+equals the central `z` **without ever forming the master secret**
+(`no_leak_z_aggregate`), and the hint is recovered from the **public**
+`w' = A·z − c·t1·2^d` via FIPS `UseHint` (`public_hint_roundtrip`). The ONLY
+open assumption is `no_leak_reduction`: under **Module-LWE + Module-SIS**
+the public transcript leaks nothing about `(s1,s2,t0)` beyond one
+single-party FIPS 204 signature. That is a STANDARD PQ assumption — the same
+hardness ML-DSA's EUF-CMA uses — **not** an implementation reconstruct.
+
+**What is machine-checked NOW (this host, `lake build` green, 0 sorry):**
+the CORRECTNESS core of Model 2 — `Crypto.Pulsar.NoLeakAggregate`
+(`z_aggregate_no_reconstruct`, `hint_is_fips_hint`,
+`no_leak_under_standard_assumptions`), `Crypto.Pulsar.BoundaryClearance`
+(`boundary_clearance`, `findHintCoeff_unique`), `Crypto.Threshold_Lagrange`.
+The EC side of Model 2 is **written, machine-recheck pending EasyCrypt** (no
+`ec` on the authoring host; `scripts/checks/ec-compile.sh` is the CI gate).
+
+Remaining OPEN:
+
+- The production no-leak path is ALSO **interop-tested** (BCC single-key sig
+  byte-equal under CIRCL + pq-crystals, ML-DSA-65/87); its novel ZK parts
+  are **fail-closed-pending-review** — see V13-W-LEAK / V13-PARTIAL-Z-PROOF.
+- `no_leak_reduction`'s full simulation-soundness proof (the v0.8 EC/paper
+  artifact) is not written; it is disclosed as a Module-LWE/MSIS reduction.
+- Model 1's C-idealised cone closure is still the Jasmin/libjade byte-walk
+  (issues #3, #4) — but Model 1 is now explicitly *not* the safety-relevant
+  residual, so its closure is a correctness nicety, not a leak-freeness gate.
 
 **Resolution criteria:**
-- [ ] Jasmin combine byte-walk lands ⇒ `combine_body_{spec,matrix_a,mask_y,
-      z_via_aggregation,partial_responses,w_low}_spec` become lemmas (issue #4).
-- [ ] libjade sign byte-walk lands ⇒ `sign_body_*_spec` become lemmas (issue #3).
-- [ ] Wrapper bridges discharge `combine_body_axiom` / `S_functional_spec`
-      to lemmas against the extracted modules.
-- [ ] A separate EC/sound-by-reduction artifact for the PRODUCTION no-leak
-      path (not reconstruct-then-sign) is written, OR the no-leak path's
-      interop+fail-closed posture is accepted by external review.
-- [ ] **External cryptographic review** signs off that the
-      reconstruct-then-sign EC model is an acceptable *correctness*
-      idealisation given the *separate* no-leak evidence (cross-ref:
-      the external-review gate shared with V13-HINT-LEAK below).
+- [x] A separate (non-reconstruct) model of the PRODUCTION no-leak path is
+      written, with its CORRECTNESS core machine-checked (Lean, this host)
+      and its residual stated as a STANDARD Module-LWE/MSIS reduction
+      (`Pulsar_N1_NoLeak.ec` + `Crypto.Pulsar.NoLeakAggregate`).
+- [ ] `Pulsar_N1_NoLeak.ec` passes `scripts/checks/ec-compile.sh` in CI
+      (machine-recheck pending EasyCrypt; cannot run on the authoring host).
+- [ ] `no_leak_reduction` discharged to a full M-LWE/M-SIS simulation proof
+      (v0.8 EC/paper artifact), OR accepted by external review as a standard
+      reduction.
+- [ ] Jasmin/libjade byte-walk lands ⇒ Model 1's C-idealised axioms become
+      lemmas (correctness nicety; issues #3, #4).
+- [ ] **External cryptographic review** signs off that (a) Model 2's
+      standard-reduction residual is the correct production posture and (b)
+      Model 1 is an acceptable correctness idealisation (cross-ref: the
+      external-review gate shared with V13-HINT-LEAK below).
 
 ### PULSAR-V13-HINT-LEAK (CRITICAL)
 
