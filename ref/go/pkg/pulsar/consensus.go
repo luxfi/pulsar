@@ -1,6 +1,7 @@
 package pulsar
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"reflect"
@@ -23,19 +24,20 @@ import (
 // is the quorum-certified validator transcript; ClearanceProof is retained
 // only for an optional pluggable ZK backend.
 type NonceCert struct {
-	NonceID           [32]byte
-	PKEpoch           uint64
-	CommitteeID       [32]byte
-	SignerSetRoot     [32]byte
-	W1                []byte // packed HighBits(w) — public
-	WCommitment       []byte // hiding commitment to w
-	Margin            uint32
-	RegionRoot        [32]byte
-	CommitRoot        [32]byte
-	NonceTranscriptRoot [32]byte    // root of the validator NonceMPC transcript
-	ClearanceQC       QuorumCert  // quorum of validators that verified the transcript
-	ClearanceProof    []byte      // optional pluggable ZK backend (unused for the NonceMPC path)
-	Consumed          bool
+	Mode                Mode // FIPS 204 parameter set; gates the proven BCC scope (65/87)
+	NonceID             [32]byte
+	PKEpoch             uint64
+	CommitteeID         [32]byte
+	SignerSetRoot       [32]byte
+	W1                  []byte // packed HighBits(w) — public
+	WCommitment         []byte // hiding commitment to w
+	Margin              uint32
+	RegionRoot          [32]byte
+	CommitRoot          [32]byte
+	NonceTranscriptRoot [32]byte   // root of the validator NonceMPC transcript
+	ClearanceQC         QuorumCert // quorum of validators that verified the transcript
+	ClearanceProof      []byte     // optional pluggable ZK backend (unused for the NonceMPC path)
+	Consumed            bool
 }
 
 // Partial is a proof-carrying z-share. No CS2/CT0/r0/LowBits/hint fields.
@@ -50,16 +52,22 @@ type Partial struct {
 
 // ConsensusCert is the two-certificate consensus artifact: the ML-DSA
 // signature proves the joint key signed; the bitmap + transcript root prove
-// which validators participated (BLS-like accountability).
+// which validators participated. Unlike BLS, a threshold-ML-DSA signature
+// does NOT encode its signer set (the joint key is fixed for any t-of-n), so
+// accountability needs its own binding: AccountabilityQC is a quorum of
+// validator signatures over a payload root that commits to SignerBitmap,
+// TranscriptRoot, and the signature bytes. Rewriting the bitmap changes the
+// root, so the QC no longer verifies (PULSAR-V13 accountability-forgery fix).
 type ConsensusCert struct {
-	Epoch          uint64
-	Height         uint64
-	Round          uint64
-	BlockHash      [32]byte
-	JointPKID      [32]byte
-	SignerBitmap   []byte
-	TranscriptRoot [32]byte
-	Signature      Signature
+	Epoch            uint64
+	Height           uint64
+	Round            uint64
+	BlockHash        [32]byte
+	JointPKID        [32]byte
+	SignerBitmap     []byte
+	TranscriptRoot   [32]byte
+	Signature        Signature
+	AccountabilityQC QuorumCert
 }
 
 // ---- Canonical, non-grindable nonce selection ----
@@ -159,7 +167,40 @@ var (
 	ErrQuorumNotMet      = errors.New("pulsar: consensus cert bitmap weight below quorum")
 	ErrSignerOutOfSet    = errors.New("pulsar: consensus cert bitmap selects a non-validator")
 	ErrNonCanonicalNonce = errors.New("pulsar: non-canonical nonce for session")
+	ErrBitmapNotAttested = errors.New("pulsar: consensus cert signer bitmap is not bound to an accountability QC over the signature")
 )
+
+// consensusCertPayloadRoot binds every accountability-relevant field —
+// crucially SignerBitmap and the signature bytes — so the AccountabilityQC
+// attests "exactly these validators produced exactly this signature for this
+// block". Mutating the bitmap (or splicing a different signature) changes the
+// root and invalidates the QC. Variable-length fields are length-prefixed for
+// canonical, unambiguous encoding.
+func consensusCertPayloadRoot(c *ConsensusCert) [32]byte {
+	h := sha3.NewShake256()
+	_, _ = h.Write([]byte("PULSAR-BCC-CEF/consensus-cert/v1"))
+	var u [8]byte
+	writeField := func(b []byte) {
+		binary.BigEndian.PutUint64(u[:], uint64(len(b)))
+		_, _ = h.Write(u[:])
+		_, _ = h.Write(b)
+	}
+	binary.BigEndian.PutUint64(u[:], c.Epoch)
+	_, _ = h.Write(u[:])
+	binary.BigEndian.PutUint64(u[:], c.Height)
+	_, _ = h.Write(u[:])
+	binary.BigEndian.PutUint64(u[:], c.Round)
+	_, _ = h.Write(u[:])
+	_, _ = h.Write(c.BlockHash[:])
+	_, _ = h.Write(c.JointPKID[:])
+	writeField(c.SignerBitmap)
+	_, _ = h.Write(c.TranscriptRoot[:])
+	_, _ = h.Write([]byte{byte(c.Signature.Mode)})
+	writeField(c.Signature.Bytes)
+	var out [32]byte
+	_, _ = h.Read(out[:])
+	return out
+}
 
 func bitmapWeight(bm []byte) int {
 	w := 0
@@ -172,10 +213,13 @@ func bitmapWeight(bm []byte) int {
 	return w
 }
 
-// VerifyStructure checks consensus-layer accountability: bitmap weight meets
-// quorum and every set bit indexes a validator. The ML-DSA signature itself
-// is verified separately by an unmodified FIPS 204 verifier.
-func (c *ConsensusCert) VerifyStructure(quorum, validatorSetSize int) error {
+// Verify checks consensus-layer accountability: the bitmap meets quorum, every
+// set bit indexes a validator, the accountable bitmap is exactly the attesting
+// quorum, and that quorum signed a payload binding the bitmap to the signature.
+// The ML-DSA signature over the block is verified separately by an unmodified
+// FIPS 204 verifier; this method binds WHO signed to WHAT was signed so the
+// signer set cannot be forged after the fact.
+func (c *ConsensusCert) Verify(quorum, validatorSetSize int) error {
 	if bitmapWeight(c.SignerBitmap) < quorum {
 		return ErrQuorumNotMet
 	}
@@ -184,7 +228,17 @@ func (c *ConsensusCert) VerifyStructure(quorum, validatorSetSize int) error {
 			return ErrSignerOutOfSet
 		}
 	}
-	return nil
+	// The accountable signer set must be exactly the attesting quorum.
+	if !bytes.Equal(c.SignerBitmap, c.AccountabilityQC.SignerBitmap) {
+		return ErrBitmapNotAttested
+	}
+	payloadRoot := consensusCertPayloadRoot(c)
+	if c.AccountabilityQC.PayloadRoot != payloadRoot {
+		return ErrBitmapNotAttested
+	}
+	// Fail-closed: the registered validator-set verifier checks the actual
+	// quorum signatures over the bound payload root.
+	return registeredQuorumSigVerifier.VerifyQuorum(payloadRoot, c.AccountabilityQC)
 }
 
 // ---- Reflection guard: production wire types carry no hint-secret fields ----

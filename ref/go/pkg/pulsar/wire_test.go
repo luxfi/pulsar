@@ -119,9 +119,9 @@ func TestPulsar_Wire_GroupKeyRoundtrip(t *testing.T) {
 //
 // For every mode we run the single-party deterministic Sign path
 // (the production threshold path emits a bit-identical signature,
-// proved by TestAlgebraic_FullCycle_n5_t3 and TestAlgebraic_ByteValid;
-// the relevant property here is that the WIRE FORMAT preserves the
-// FIPS 204 bytes verbatim, which is mode-agnostic and orthogonal to
+// proved by TestN1_ByteEquality_ThresholdMatchesCentralized; the
+// relevant property here is that the WIRE FORMAT preserves the FIPS
+// 204 bytes verbatim, which is mode-agnostic and orthogonal to
 // whether the signer was single-party or threshold).
 func TestPulsar_Wire_FIPS204Verifiable(t *testing.T) {
 	for _, mode := range []Mode{ModeP44, ModeP65, ModeP87} {

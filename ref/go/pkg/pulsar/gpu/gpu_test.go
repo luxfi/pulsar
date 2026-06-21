@@ -10,14 +10,11 @@ package gpu_test
 // UnregisterRing round-trip on a synthetic lattice/v7 ring, the
 // MaybeRegister no-op-when-disabled behaviour, and stats shape.
 //
-// The byte-equality contract — TestPulsar_GPU_ByteEqual — lives in the
-// pulsar package (ref/go/pkg/pulsar/threshold_v03_gpu_byte_eq_test.go)
-// because driving a full v0.3 algebraic threshold ceremony requires
-// the package-private polyVec / unpackPolyVec helpers that
-// Round2Sign's peer-W map consumes. The pulsar package's TEST import
-// graph is allowed to reference gpu (and thus lattice/v7) — the
-// non-test reference compile (go build ./ref/go/pkg/pulsar) does NOT
-// pull lattice/v7.
+// FIPS 204 byte-equality is asserted in the pulsar package itself
+// (it needs the package-private polyVec helpers). The pulsar package's
+// TEST import graph is allowed to reference gpu (and thus lattice/v7);
+// the non-test reference compile (go build ./ref/go/pkg/pulsar) does
+// NOT pull lattice/v7.
 
 import (
 	"testing"

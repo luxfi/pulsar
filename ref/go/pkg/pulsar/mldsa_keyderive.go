@@ -5,15 +5,14 @@ package pulsar
 
 // mldsa_keyderive.go — FIPS 204 ML-DSA KeyGen from a 32-byte seed.
 //
-// This file is used by the v0.2 algebraic threshold signer
-// (threshold_v02.go) to derive the (s1, s2, t0, A, tr, key, ρ) tuple
-// from the master seed during a TRUSTED setup. The output (s1, s2, t0)
-// is then polynomial-Shamir-shared across the committee via
-// shamir_poly.go. The master seed is destroyed before any signing.
+// Derives the (s1, s2, t0, A, tr, key, ρ) tuple from a seed during a
+// TRUSTED setup, for the threshold path (threshold.go) and single-key
+// signing (bcc_sign.go). The master seed is destroyed before any
+// signing.
 //
 // Byte-for-byte compatible with cloudflare/circl's NewKeyFromSeed: any
-// signature produced by the v0.2 threshold path against the resulting
-// (ρ, t1) public key verifies under unmodified mldsa{44,65,87}.Verify.
+// signature produced against the resulting (ρ, t1) public key verifies
+// under unmodified mldsa{44,65,87}.Verify.
 
 import (
 	"golang.org/x/crypto/sha3"
@@ -21,7 +20,7 @@ import (
 
 // mldsaKeyMaterial is the full FIPS 204 ML-DSA private key state
 // expanded from a 32-byte seed. After expansion, the seed itself is
-// no longer needed; the v0.2 threshold protocol shares (s1, s2, t0)
+// no longer needed; the threshold protocol shares (s1, s2, t0)
 // over the committee and the (ρ, key, tr) tuple is broadcast as
 // public per-party data so every party can derive the matrix A and
 // the message-binding hash μ identically.
@@ -87,7 +86,7 @@ func modeCTildeSize(mode Mode) int {
 // circl's NewKeyFromSeed; runs once per (seed, mode) pair during the
 // trusted DKG ceremony tail.
 //
-// This function is the ONLY place v0.2 touches the master seed.
+// This function is the ONLY place the master seed is expanded.
 // Callers MUST zeroize the seed argument and the returned key material
 // once polynomial shares are derived and distributed.
 func deriveKeyMaterial(mode Mode, seed *[SeedSize]byte) (*mldsaKeyMaterial, error) {
@@ -170,7 +169,7 @@ func deriveKeyMaterial(mode Mode, seed *[SeedSize]byte) (*mldsaKeyMaterial, erro
 	_, _ = h.Write(km.pub[:])
 	_, _ = h.Read(km.tr[:])
 
-	// Pack private key. The pulsar v0.2 path does NOT need the packed
+	// Pack private key. The threshold path does NOT need the packed
 	// sk wire form, but compute it for cross-check + key-equality tests.
 	polyLeqEtaSize := (mldsaN * 4) / 8 // matches Eta-2 and Eta-4 (DoubleEtaBits=3 or 4)
 	if eta == 2 {
@@ -202,13 +201,11 @@ func deriveKeyMaterial(mode Mode, seed *[SeedSize]byte) (*mldsaKeyMaterial, erro
 	// (PolyDeriveUniform output == circl's stored A matrix).
 	//
 	// A previous version of this file NTT'd km.a once more here; that
-	// produced double-NTT'd values which caused v0.3 AlgebraicAggregate
-	// signatures to fail mldsa{44,65,87}.Verify even though keygen pub
-	// was byte-equal (because keygen uses A correctly while signing
-	// consumed setup.A = km.a in its double-NTT'd form). See
-	// PULSAR-V03-1 in BLOCKERS.md. Guarded by
-	// TestAMatrix_IsAlreadyInNTTDomain (compares km.a vs circl.pk.A at
-	// [0][0] and [K-1][L-1] byte-for-byte).
+	// produced double-NTT'd values which caused threshold signatures to
+	// fail mldsa{44,65,87}.Verify even though the keygen public key was
+	// byte-equal (keygen uses A correctly while signing consumed the
+	// double-NTT'd km.a). ExpandA already returns NTT-domain A — no extra
+	// forward NTT is correct.
 
 	return &km, nil
 }
@@ -240,38 +237,6 @@ func polyPackLeqEta(p *poly, buf []byte, eta uint32) {
 				(byte(mldsaQ+eta-p[j+6]) << 2) |
 				(byte(mldsaQ+eta-p[j+7]) << 5)
 			j += 8
-		}
-	}
-}
-
-// zeroizeKeyMaterial overwrites every secret-bearing field of km.
-// Public fields (rho, t1, pub, A) are not touched — they are not
-// secret-bearing.
-func zeroizeKeyMaterial(km *mldsaKeyMaterial) {
-	if km == nil {
-		return
-	}
-	for i := range km.key {
-		km.key[i] = 0
-	}
-	for i := range km.s1 {
-		for j := range km.s1[i] {
-			km.s1[i][j] = 0
-		}
-	}
-	for i := range km.s2 {
-		for j := range km.s2[i] {
-			km.s2[i][j] = 0
-		}
-	}
-	for i := range km.t0 {
-		for j := range km.t0[i] {
-			km.t0[i][j] = 0
-		}
-	}
-	if km.prv != nil {
-		for i := range km.prv {
-			km.prv[i] = 0
 		}
 	}
 }

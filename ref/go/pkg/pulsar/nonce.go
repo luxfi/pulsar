@@ -29,15 +29,15 @@ func (qc QuorumCert) IsEmpty() bool {
 // NonceVote is one validator's signed attestation that the NonceMPC
 // transcript proves a boundary-clear hidden w with the given w1.
 type NonceVote struct {
-	Epoch             uint64
-	CommitteeID       [32]byte
-	NonceID           [32]byte
-	W1                []byte
-	Margin            uint32
-	CommitRoot        [32]byte
-	RegionRoot        [32]byte
+	Epoch               uint64
+	CommitteeID         [32]byte
+	NonceID             [32]byte
+	W1                  []byte
+	Margin              uint32
+	CommitRoot          [32]byte
+	RegionRoot          [32]byte
 	NonceTranscriptRoot [32]byte
-	Signature         []byte
+	Signature           []byte
 }
 
 // Aggregate is a tree-aggregation node: z-sums + bitmaps + proof roots only.
@@ -60,38 +60,62 @@ var (
 
 // nonceCertPayloadRoot binds every consensus-relevant field of a boundary
 // nonce cert. Any mutation changes the root, so a QC over the old root no
-// longer matches — the cert is tamper-evident. (Full w is NOT bound; it is
-// never available to public verifiers.)
+// longer matches — the cert is tamper-evident. This includes the Mode (so an
+// out-of-scope parameter set cannot be swapped in), the hiding WCommitment (so
+// a different hidden w cannot be bound to the same cert), the ClearanceProof
+// bytes, and the Consumed anti-replay flag. (Full w is NOT bound; it is never
+// available to public verifiers — PULSAR-V13-W-LEAK.) Variable-length byte
+// fields are length-prefixed for canonical, unambiguous encoding.
 func nonceCertPayloadRoot(cert *NonceCert) [32]byte {
 	h := sha3.NewShake256()
 	_, _ = h.Write([]byte("PULSAR-BCC-CEF/nonce-cert/v1"))
-	_, _ = h.Write(cert.NonceID[:])
 	var u [8]byte
+	writeField := func(b []byte) {
+		binary.BigEndian.PutUint64(u[:], uint64(len(b)))
+		_, _ = h.Write(u[:])
+		_, _ = h.Write(b)
+	}
+	_, _ = h.Write([]byte{byte(cert.Mode)})
+	_, _ = h.Write(cert.NonceID[:])
 	binary.BigEndian.PutUint64(u[:], cert.PKEpoch)
 	_, _ = h.Write(u[:])
 	_, _ = h.Write(cert.CommitteeID[:])
 	_, _ = h.Write(cert.SignerSetRoot[:])
-	_, _ = h.Write(cert.W1)
+	writeField(cert.W1)
+	writeField(cert.WCommitment)
 	binary.BigEndian.PutUint32(u[:4], cert.Margin)
 	_, _ = h.Write(u[:4])
 	_, _ = h.Write(cert.CommitRoot[:])
 	_, _ = h.Write(cert.RegionRoot[:])
 	_, _ = h.Write(cert.NonceTranscriptRoot[:])
+	writeField(cert.ClearanceProof)
+	if cert.Consumed {
+		_, _ = h.Write([]byte{1})
+	} else {
+		_, _ = h.Write([]byte{0})
+	}
 	var out [32]byte
 	_, _ = h.Read(out[:])
 	return out
 }
 
-// VerifyNonceCert performs the structural consensus check: the
-// clearance QC is present, binds the cert payload, meets quorum, and selects
-// only validators. The per-validator QC signatures are verified by the
-// consensus layer's registered validator-set verifier (out of this module's
-// structural scope). Without a valid QC there is no signing — fail closed.
+// VerifyNonceCert checks a boundary nonce cert: the parameter set is in the
+// proven BCC scope, the clearance QC is present, binds the cert payload, meets
+// quorum, selects only validators, and carries valid validator signatures
+// (verified by the registered, fail-closed QuorumSigVerifier). Without a valid,
+// quorum-signed QC there is no signing — fail closed.
 func VerifyNonceCert(cert *NonceCert, quorum, validatorSetSize int) error {
+	// Refuse parameter sets outside the proven ‖c·t0‖∞ < γ2 scope (e.g.
+	// ML-DSA-44), where boundary clearance is vacuous. Independent of the
+	// minter — a public verifier must not bless an out-of-scope cert.
+	if _, _, _, ok := bccParams(cert.Mode); !ok {
+		return ErrBCCParamSet
+	}
 	if cert.ClearanceQC.IsEmpty() {
 		return ErrMissingClearanceQC
 	}
-	if cert.ClearanceQC.PayloadRoot != nonceCertPayloadRoot(cert) {
+	payloadRoot := nonceCertPayloadRoot(cert)
+	if cert.ClearanceQC.PayloadRoot != payloadRoot {
 		return ErrBadClearanceQC
 	}
 	if cert.ClearanceQC.Weight() < quorum {
@@ -102,7 +126,9 @@ func VerifyNonceCert(cert *NonceCert, quorum, validatorSetSize int) error {
 			return ErrSignerOutOfSet
 		}
 	}
-	return nil
+	// Verify the actual validator signatures over the bound payload root
+	// (fail-closed until the consensus layer registers a real verifier).
+	return registeredQuorumSigVerifier.VerifyQuorum(payloadRoot, cert.ClearanceQC)
 }
 
 // ---- NonceMPC transcript + voting (debug-oracle compute path) ----
@@ -159,9 +185,13 @@ func (tr *NonceTranscript) PublicView() []byte {
 // sets W1 = HighBits(w) and Clear = BoundaryClear(w, 2β) exactly as a sound
 // validator MPC would, producing a cert with a quorum-signed bound payload.
 // The public view never reveals w. (A production NonceMPC replaces the direct
-// w with secret-shared MPC; the public API is identical.)
-func RunNonceMPCDebug(w polyVec, mode Mode, nonceID [32]byte) (*NonceCert, *NonceTranscript) {
-	gamma2, beta, _, _ := bccParams(mode)
+// w with secret-shared MPC; the public API is identical.) It refuses any
+// parameter set outside the proven BCC scope (ErrBCCParamSet).
+func RunNonceMPCDebug(w polyVec, mode Mode, nonceID [32]byte) (*NonceCert, *NonceTranscript, error) {
+	gamma2, beta, _, ok := bccParams(mode)
+	if !ok {
+		return nil, nil, ErrBCCParamSet
+	}
 	tr := &NonceTranscript{
 		debugFullW: w,
 		NonceID:    nonceID,
@@ -170,20 +200,27 @@ func RunNonceMPCDebug(w polyVec, mode Mode, nonceID [32]byte) (*NonceCert, *Nonc
 		Clear:      BoundaryClear(w, gamma2, beta),
 	}
 	cert := &NonceCert{
-		NonceID:           nonceID,
-		W1:                tr.W1,
-		Margin:            tr.Margin,
-		CommitRoot:        tr.CommitRoot,
-		RegionRoot:        tr.RegionRoot,
+		Mode:                mode,
+		NonceID:             nonceID,
+		W1:                  tr.W1,
+		Margin:              tr.Margin,
+		CommitRoot:          tr.CommitRoot,
+		RegionRoot:          tr.RegionRoot,
 		NonceTranscriptRoot: tr.Root(),
 	}
 	payload := nonceCertPayloadRoot(cert)
-	cert.ClearanceQC = QuorumCert{
-		SignerBitmap: []byte{0xFF}, // a debug quorum of 8 validators
-		PayloadRoot:  payload,
-		Signatures:   [][]byte{{1}},
+	bitmap := []byte{0xFF} // a debug quorum of 8 validators
+	sigs := make([][]byte, bitmapWeight(bitmap))
+	for i := range sigs {
+		sigs[i] = []byte{1}
 	}
-	return cert, tr
+	cert.ClearanceQC = QuorumCert{
+		CommitteeID:  cert.CommitteeID,
+		SignerBitmap: bitmap,
+		PayloadRoot:  payload,
+		Signatures:   sigs,
+	}
+	return cert, tr, nil
 }
 
 // ValidateAndVoteNonceCert is the validator voting rule: refuse to vote unless
@@ -197,13 +234,13 @@ func ValidateAndVoteNonceCert(tr *NonceTranscript) (*NonceVote, error) {
 		return nil, ErrNonceNotBoundaryClear
 	}
 	return &NonceVote{
-		Epoch:             tr.Epoch,
-		CommitteeID:       tr.CommitteeID,
-		NonceID:           tr.NonceID,
-		W1:                tr.W1,
-		Margin:            tr.Margin,
-		CommitRoot:        tr.CommitRoot,
-		RegionRoot:        tr.RegionRoot,
+		Epoch:               tr.Epoch,
+		CommitteeID:         tr.CommitteeID,
+		NonceID:             tr.NonceID,
+		W1:                  tr.W1,
+		Margin:              tr.Margin,
+		CommitRoot:          tr.CommitRoot,
+		RegionRoot:          tr.RegionRoot,
 		NonceTranscriptRoot: tr.Root(),
 	}, nil
 }

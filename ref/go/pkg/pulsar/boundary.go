@@ -16,13 +16,6 @@ import "errors"
 // UseHint primitive (no informal "±1 corrector").
 
 var (
-	// ErrUnsafeThresholdV03HintPath gates the disabled, leaking
-	// AlgebraicAggregate path (PULSAR-V13-HINT-LEAK).
-	ErrUnsafeThresholdV03HintPath = errors.New(
-		"pulsar: threshold_v03 AlgebraicAggregate path is disabled " +
-			"(PULSAR-V13-HINT-LEAK: broadcasts c*s2/c*t0 hint-path secret " +
-			"material); use the BCC/CEF signing path")
-
 	// ErrBCCParamSet rejects parameter sets outside the proven scope.
 	ErrBCCParamSet = errors.New(
 		"pulsar: Pulsar-BCC/CEF is proven for ML-DSA-65/87 only; this " +
@@ -60,7 +53,19 @@ func bccParams(mode Mode) (gamma2, beta, omega uint32, ok bool) {
 // γ2 − β stays in range) — high-bit stability alone is insufficient.
 const bccSlack = 16 // one-coefficient safety slack against edge ambiguity
 
-func boundaryThreshold(gamma2 uint32, beta uint32) uint32 { return gamma2 - 2*beta - bccSlack }
+// boundaryThreshold saturates at 0: if the margin 2β+slack meets or exceeds
+// γ2 (a degenerate or out-of-scope parameter set, e.g. the γ2=0 returned by
+// bccParams for ML-DSA-44), NOTHING is boundary-clear. Without this guard the
+// uint32 subtraction would underflow to a near-2³² threshold and mark every
+// coefficient "clear" — a silent fail-OPEN. Callers MUST still gate on
+// bccParams ok; this is defense in depth on the arithmetic itself.
+func boundaryThreshold(gamma2 uint32, beta uint32) uint32 {
+	margin := 2*beta + bccSlack
+	if gamma2 <= margin {
+		return 0
+	}
+	return gamma2 - margin
+}
 
 // centeredLowBits returns the FIPS Decompose low part of a, centered into
 // (−γ2, γ2]. a must be normalized to [0, q).

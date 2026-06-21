@@ -13,8 +13,7 @@ package pulsar
 // FIPS 204 UseHint primitive (boundary.go FindHint), exactly as a
 // public verifier would, rather than from the secret residual.
 //
-// Why this matters. A standard FIPS 204 signer (and the leaking v0.3
-// AlgebraicAggregate path) computes the hint as
+// Why this matters. A standard FIPS 204 signer computes the hint as
 //
 //	h = MakeHint(w0 − c·s2 + c·t0, w1)
 //
@@ -81,12 +80,12 @@ var ErrBCCExhausted = errors.New(
 // that the public transcript bytes do not contain them.
 type bccTranscript struct {
 	// Public quantities — these are what a real BCC transcript carries.
-	wPrime polyVec // A·z − c·t1·2^d   (public; = w + c·t0 − c·s2)
-	w1     polyVec // HighBits(w)       (public; in the challenge hash)
-	z      polyVec // y + c·s1          (public; in the signature)
-	cTilde []byte  // H(μ, w1)          (public; in the signature)
-	hint   polyVec // UseHint-recovered (public; in the signature)
-	clear  bool    // offline BoundaryClear(w) flag (public predicate)
+	wPrime   polyVec // A·z − c·t1·2^d   (public; = w + c·t0 − c·s2)
+	w1       polyVec // HighBits(w)       (public; in the challenge hash)
+	z        polyVec // y + c·s1          (public; in the signature)
+	cTilde   []byte  // H(μ, w1)          (public; in the signature)
+	hint     polyVec // UseHint-recovered (public; in the signature)
+	clear    bool    // offline BoundaryClear(w) flag (public predicate)
 	attempts int
 
 	// TEST-ONLY witnesses (never serialized; the no-leak oracle asserts
@@ -314,4 +313,29 @@ func expandMaskPoly(p *poly, seed *[64]byte, nonce uint16, gamma1Bits uint32) {
 	buf := make([]byte, polyLeGamma1Size)
 	_, _ = h.Read(buf)
 	polyUnpackLeGamma1(p, buf, gamma1Bits)
+}
+
+// polyVecExceeds reports whether any coefficient of v exceeds bound in
+// centered (FIPS 204 ‖·‖∞) magnitude — the rejection-sampling norm gate.
+func polyVecExceeds(v polyVec, bound uint32) bool {
+	for i := range v {
+		if v[i].exceeds(bound) {
+			return true
+		}
+	}
+	return false
+}
+
+// deriveMuCtx computes μ = SHAKE256(tr ‖ 0x00 ‖ len(ctx) ‖ ctx ‖ msg, 64) per
+// FIPS 204 §5.4 — the message representative both the single-key signer here
+// and the threshold path bind their challenge to.
+func deriveMuCtx(tr [64]byte, ctx, msg, out []byte) {
+	h := sha3.NewShake256()
+	_, _ = h.Write(tr[:])
+	_, _ = h.Write([]byte{0x00, byte(len(ctx))})
+	if len(ctx) > 0 {
+		_, _ = h.Write(ctx)
+	}
+	_, _ = h.Write(msg)
+	_, _ = h.Read(out[:64])
 }
