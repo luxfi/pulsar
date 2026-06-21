@@ -439,6 +439,12 @@ type AlgebraicThresholdSigner struct {
 	NodeID NodeID
 	Share  *AlgebraicKeyShare
 
+	// AllowUnsafeThresholdV03ForTests opts INTO the disabled, leaking
+	// AlgebraicAggregate hint path (PULSAR-V13-HINT-LEAK). Default false ⇒
+	// Round2Sign fails closed with ErrUnsafeThresholdV03HintPath. Set only
+	// in tests exercising the legacy vector; NEVER in production.
+	AllowUnsafeThresholdV03ForTests bool
+
 	SessionID [16]byte
 	Attempt   uint32
 
@@ -754,15 +760,25 @@ func (s *AlgebraicThresholdSigner) Round2W(round1 []*AlgebraicRound1Message) (*A
 // (This party's own w_i is taken from local state — do not include it
 // in peerW.)
 //
-// PUBLIC-BFT-SAFETY NOTE: this party's contribution (z_i, cs2_i, ct0_i)
-// is INFORMATION-THEORETICALLY (t-1)-secret about its share material —
-// the per-party arithmetic is z_i = y_i + c·λ_i·s_{1,i} where y_i is
-// fresh randomness from this party's RNG and c is a public challenge.
-// An adversary that obtains t-1 such contributions cannot recover any
-// single party's s_{1,i} because the y_i mask hides it (each y_i is
-// drawn from the FIPS 204 (-γ_1', γ_1'] uniform distribution, which
-// is sufficient to mask under the M-LWE assumption).
+// ⚠️ SECURITY-CRITICAL — PULSAR-V13-HINT-LEAK (see BLOCKERS.md).
+// The y_i mask hides s_{1,i} in z_i = y_i + c·λ_i·s_{1,i} (correct). But
+// the cs2_i = c·λ_i·s_{2,i} and ct0_i = c·λ_i·t_{0,i} fields emitted by
+// round2EmitFull below carry NO mask. Since c and λ_i are public,
+// s_{2,i} = (c·λ_i)^{-1}·cs2_i is recoverable; and the aggregate
+// Σ cs2_i = c·s2_master (likewise ct0_i → t0) leaks long-term ML-DSA
+// secret-key material over varying-c sessions plus the secret relation
+// A·s1 = (t1·2^d + t0) − s2 — breaking threshold secrecy and transcript
+// simulation. The prior claim that (z_i, cs2_i, ct0_i) are
+// (t-1)-secret was FALSE — it only held for z_i. This path is being
+// replaced by boundary-cleared nonces + carry elimination
+// (spec/threshold-mldsa-boundary-clearance.tex), which never forms
+// c·s2/c·t0/r0. Do NOT rely on this path for production secrecy.
 func (s *AlgebraicThresholdSigner) Round2Sign(round1 []*AlgebraicRound1Message, peerW map[NodeID]polyVec) (*AlgebraicRound2Message, *AbortEvidence, error) {
+	// PULSAR-V13-HINT-LEAK: this path broadcasts c*s2/c*t0 hint-path secret
+	// material; fail closed in production. Opt in only for legacy tests.
+	if !s.AllowUnsafeThresholdV03ForTests {
+		return nil, nil, ErrUnsafeThresholdV03HintPath
+	}
 	return s.round2EmitFull(round1, peerW)
 }
 

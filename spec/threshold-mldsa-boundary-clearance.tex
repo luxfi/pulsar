@@ -1,0 +1,250 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage[margin=1in]{geometry}
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\newtheorem{definition}{Definition}
+\theoremstyle{remark}\newtheorem{remark}{Remark}
+\title{Pulsar Threshold ML-DSA via Boundary-Cleared Nonces and Carry
+Elimination\\(No MPC, No TEE) --- BCC0 / BCC+}
+\author{Lux Core Team --- \texttt{github.com/luxfi/pulsar}}
+\date{}
+\begin{document}
+\maketitle
+
+\section{The leak this replaces}
+The v0.3/v0.4 \texttt{AlgebraicAggregate} path reconstructs $c\,\mathbf
+s_2^{\mathrm{joint}}$ and $c\,\mathbf t_0^{\mathrm{joint}}$ at the
+aggregator to form the FIPS hint. But $\mathbf s_2^{\mathrm{joint}}$ is
+the master $\mathbf s_2$ (Shamir reconstruction) and $c$ is public and
+varies per session, so revealing $c\,\mathbf s_2^{\mathrm{joint}}$ over
+sessions is a linear system in the fixed $\mathbf s_2$ --- one invertible
+$c$ recovers it; then $A\mathbf s_1 = \mathbf t - \mathbf s_2$ recovers
+$\mathbf s_1$, a total key break. In the leaderless model every quorum
+member aggregates, so every corrupt validator learns it. \textbf{Masking
+the per-party shares does not help: the masks cancel in the aggregate the
+protocol must reconstruct.} The cure is never to form the secret residual.
+
+\section{The invariant and the whole game}
+With $\mathbf w = A\mathbf y$, $\mathbf z = \mathbf y + c\,\mathbf s_1$,
+$\mathbf t = A\mathbf s_1 + \mathbf s_2 = \mathbf t_1 2^d + \mathbf t_0$,
+the verifier recomputes
+\[
+  \mathbf w' \;=\; A\mathbf z - c\,\mathbf t_1 2^d
+  \;=\; \mathbf w + c\,\mathbf t_0 - c\,\mathbf s_2
+  \;=\; \mathbf w + \Delta, \qquad \Delta := c\,\mathbf t_0 - c\,\mathbf
+  s_2,
+\]
+and accepts iff $\mathrm{UseHint}(\mathbf h, \mathbf w') = \mathbf w_1$
+where $\mathbf w_1 = \mathrm{HighBits}(\mathbf w)$ fixed $c = H(\mu \| \mathbf
+w_1)$.
+\begin{theorem}[No-leak target]
+Produce a public $\mathbf h$ with $\mathrm{UseHint}(\mathbf h, \mathbf w +
+\Delta) = \mathrm{HighBits}(\mathbf w)$ \emph{without} revealing $\Delta$,
+$\mathrm{LowBits}(\mathbf w + \Delta)$, $c\,\mathbf s_2$, $c\,\mathbf
+t_0$, or $r_0$.
+\end{theorem}
+
+\section{Conformance rule (central invariant)}
+\label{sec:rule}
+\textbf{The final hint $\mathbf h$ must be determined by public
+nonce-region certificates and the public challenge --- never by
+reconstructing the secret residual.} For BCC0 the certificate guarantees
+$\mathbf h = 0$; for BCC+ it guarantees a publicly-determined hint
+pattern. \emph{Any implementation that computes $\mathbf h$ by first
+forming $c\,\mathbf s_2$, $c\,\mathbf t_0$, $r_0$, or
+$\mathrm{LowBits}(\mathbf w + \Delta)$ is non-conformant.} Note $\mathbf
+w' = A\mathbf z - c\,\mathbf t_1 2^d$ is itself \emph{public} (computable
+by the verifier from $A,\mathbf z,c,\mathbf t_1$); reading $\mathbf h$ off
+$(\mathbf w', \mathbf w_1)$ reveals only $\mathbf h$, which is in the
+signature anyway --- it is \emph{not} residual reconstruction.
+
+\subsection{Full $\mathbf w$ must be hidden (PULSAR-V13-W-LEAK)}
+The full commitment $\mathbf w = A\mathbf y$ must \emph{never} be public or
+reconstructible by a $t-1$ coalition. Since $\mathbf w' = A\mathbf z -
+c\,\mathbf t_1 2^d$ becomes public once $\mathbf z$ is assembled, anyone
+holding full $\mathbf w$ computes $\mathbf w' - \mathbf w = c\,\mathbf t_0
+- c\,\mathbf s_2 = \Delta$ --- the same long-term-secret residual as the
+original leak. \textbf{Public:} $\mathbf w_1$, a commitment to $\mathbf w$,
+a \emph{zero-knowledge} boundary-clearance proof, and the final $(\mathbf
+z,\mathbf h,\text{sig})$. \textbf{Forbidden:} full $\mathbf w$, $\mathbf
+w_i$ shares reconstructing it, $\mathrm{LowBits}(\mathbf w)$, $\mathbf w' -
+\mathbf w$. Hence $\textsc{BoundaryClear}(\mathbf w)$ on \emph{public}
+$\mathbf w$ is \textbf{debug-oracle only}; production replaces it with a ZK
+proof that a hidden $\mathbf w = A\mathbf y$ satisfies the predicate,
+revealing none of $\mathbf w$, $\mathrm{LowBits}(\mathbf w)$, or per-
+coefficient distances. \textbf{Until that ZK machinery exists the BCC/CEF
+signing path is prototype, not production.}
+
+\section{Profiles}
+\subsection{BCC0 --- conservative $\mathbf h = 0$}
+Use only nonces whose hidden shift cannot move any coefficient across a
+high-bit boundary: $\mathrm{HighBits}(\mathbf w + \Delta) =
+\mathrm{HighBits}(\mathbf w)$, so $\mathbf h = 0$.
+\begin{lemma}[BCC0 stability]\label{lem:bcc0}
+$\textsc{BoundaryClear}(\mathbf w, B_\Delta) \wedge \|\Delta\|_\infty \le
+B_\Delta \;\Rightarrow\; \mathrm{HighBits}(\mathbf w + \Delta) =
+\mathrm{HighBits}(\mathbf w)$, whence $\mathrm{UseHint}(0, \mathbf w') =
+\mathbf w_1$ and unmodified FIPS 204 accepts.
+\end{lemma}
+\textbf{BCC0 is infeasible for ML-DSA-65} (\S\ref{sec:bounds}): the worst-
+case $B_\Delta$ exceeds $\gamma_2$, so no coefficient can clear. Retained
+as a definition / fallback profile only, not used.
+
+\subsection{BCC+ --- carry elimination, nonzero $\mathbf h$}
+Allow $\mathbf h \neq 0$, but derive it from public data. The shift splits
+into a \emph{small} part $-c\,\mathbf s_2$ and a \emph{large} part
+$c\,\mathbf t_0$. Boundary-clear \emph{only} the small part; the large
+part is resolved by the public hint.
+\begin{definition}[Per-coefficient region]
+For coefficient $w_j$ and margin $B$ (covering $\|c\,\mathbf
+s_2\|_\infty$), classify by FIPS \texttt{Decompose}:
+$\textsc{SafeZeroCarry}$ if $\mathrm{dist}(w_j) > B$ and the $c\,\mathbf
+t_0$ carry cannot cross; $\textsc{SafeKnownCarry}$ if the carry is
+resolvable to a single public bit from $\mathbf w'$; $\textsc{Unsafe}$
+otherwise. Accept a nonce iff no coefficient is $\textsc{Unsafe}$.
+\end{definition}
+\begin{lemma}[BCC+ correctness]\label{lem:bccplus}
+If $\textsc{BoundaryClear}(\mathbf w, 2\beta)$ (clears $c\,\mathbf s_2$)
+and $\|c\,\mathbf t_0\|_\infty < \alpha$ (so each coefficient's high bits
+move by at most $\pm 1$), then (i) $\mathrm{HighBits}(\mathbf w -
+c\,\mathbf s_2) = \mathbf w_1$ and $\|\mathrm{LowBits}(\mathbf w -
+c\,\mathbf s_2)\|_\infty < \gamma_2 - \beta$ (the FIPS $r_1{=}\mathbf
+w_1$, $r_0$-norm conditions); and (ii) the public hint $h_j := [\,
+\mathrm{HighBits}(w'_j) \neq w_{1,j}\,]$ equals the FIPS hint
+$\mathrm{MakeHint}(-c\,\mathbf t_0, \mathbf w - c\,\mathbf s_2)$ and
+satisfies $\mathrm{UseHint}(\mathbf h, \mathbf w') = \mathbf w_1$.
+\end{lemma}
+\emph{Reconciliation with ``region-derived'':} the $c\,\mathbf t_0$ carry
+depends on the secret $\mathbf t_0$ and the online $c$, so it cannot be
+fixed fully offline; the \emph{offline} certificate clears $c\,\mathbf
+s_2$ and bounds the carry to $\pm 1$, and the \emph{online} step reads the
+carry bit off the public $\mathbf w'$. Both inputs ($\mathbf w'$, $\mathbf
+w_1$) are public; no residual is formed. This is BCC+ \S2A realised.
+
+\section{Concrete bounds (ML-DSA-65)}
+\label{sec:bounds}
+$q{=}8380417,\ d{=}13,\ \tau{=}49,\ \eta{=}4,\ \gamma_2{=}261888,\
+\alpha{=}2\gamma_2{=}523776,\ \beta{=}\tau\eta{=}196,\ \omega{=}55$.
+\begin{itemize}
+\item $\|c\,\mathbf s_2\|_\infty \le B_{s_2} = \tau\eta = 196$.
+\item $\|c\,\mathbf t_0\|_\infty \le \tau\,2^{d-1} = 49\cdot4096 = 200704
+  < \gamma_2 < \alpha$: the FIPS $\|c\,\mathbf t_0\|<\gamma_2$ check is
+  \emph{vacuous} (always holds), and the carry moves $\mathrm{HighBits}$
+  by at most $\pm1$ per coefficient. No check, no reconstruction.
+\item \textbf{BCC0 infeasible:} needs clearance $> B_\Delta = B_{s_2} +
+  \tau\,2^{d-1} \approx 401555 > \gamma_2 = 261888$ (max possible
+  clearance). Yield $0$.
+\item \textbf{BCC+ feasible:} clear only $c\,\mathbf s_2$ with margin $B =
+  2\beta = 392$ (covers the $\mathrm{HighBits}$ boundary and the $r_0 <
+  \gamma_2-\beta$ edge). Per-coefficient clear prob $\approx 1 -
+  B/\gamma_2 = 0.9985$; all-$256{\cdot}6$ yield $\approx 0.10$ (measure;
+  raise margin only, never lower). $c\,\mathbf t_0$ contributes the
+  nonzero, $\omega$-sparse public hint.
+\end{itemize}
+
+\section{Proof obligations}
+\paragraph{BCC0 chain (Lemma~\ref{lem:bcc0}).} $\mathbf w{=}A\mathbf y$;
+$\mathbf z{=}\mathbf y{+}c\mathbf s_1$; $A\mathbf z{-}c\mathbf t_1 2^d
+{=}\mathbf w{+}\Delta$; $\|\Delta\|_\infty\le B_\Delta$;
+$\textsc{BoundaryClear}(\mathbf w,B_\Delta)$ $\Rightarrow$
+$\mathrm{HighBits}(\mathbf w{+}\Delta){=}\mathbf w_1$ $\Rightarrow$
+$\mathrm{UseHint}(0,\cdot){=}\mathbf w_1$ $\Rightarrow$ accept.
+\paragraph{BCC+ / CEF chain (Lemma~\ref{lem:bccplus}).} as above with the
+public hint; $h$ region/public-$\mathbf w'$-derived; for all $\Delta$ with
+$\|\Delta\|_\infty\le B_\Delta$, $\mathrm{UseHint}(\mathbf h,\mathbf w{+}
+\Delta){=}\mathbf w_1$.
+\paragraph{Soundness.} A malicious signer's bad $\mathbf z_i$ yields a
+wrong $\mathbf w'$ and a wrong $\mathbf h$ $\Rightarrow$ the mandatory
+final unmodified-FIPS verify \emph{fails} (identifiable abort via the
+per-party $\mathbf z_i$ proof/MAC). \textbf{Never fall back to forming
+$c\,\mathbf s_2$/$c\,\mathbf t_0$/$r_0$.}
+\paragraph{Transcript privacy / simulatability.} The transcript holds
+$\{\mathbf w,\mathbf w_1,c,\mathbf z,\mathbf h,\text{commitments},
+\text{proofs}\}$ and \emph{not} $c\,\mathbf s_{2,i}$, $c\,\mathbf
+t_{0,i}$, $c\,\mathbf s_2^{\mathrm{joint}}$, $c\,\mathbf
+t_0^{\mathrm{joint}}$, $\Delta$, $r_0$, $\mathrm{LowBits}(\mathbf
+w{+}\Delta)$. A simulator reproduces it from $(pk, m, \text{final sig},
+\text{signer bitmap}, \text{corrupt shares})$ without honest shares.
+\paragraph{Conditioned-nonce security (hardest).} Conditioning the pool on
+the public predicate $\textsc{BoundaryClear}(\mathbf w, 2\beta)$ (resp.\
+$\textsc{AllRegionsSafe}$) must not weaken EUF-CMA: $\mathbf w = A\mathbf
+y$ is independent of the key, and the surviving $\mathbf y$ distribution
+must remain a valid rejection-sampled nonce distribution (or the signature
+distribution must remain simulatable). \emph{This is a required proof, not
+an assumption; if \textsc{2B nonce shaping} is used, the distribution
+proof is mandatory before deployment.}
+
+\section{Wire format (deletion audit)}
+\textbf{Remove} \texttt{CS2}, \texttt{CT0} (and any \texttt{cs2},
+\texttt{ct0}, \texttt{D2}, \texttt{D0}, \texttt{R0Share},
+\texttt{LowBitsShare}, \texttt{HintInput}, \texttt{HintShare}) from the
+Round-2 message and the $\tau_2$ transcript. Old fields fail
+deserialization outside an explicit legacy-test parser.
+\begin{verbatim}
+type BoundaryNonceCert struct {
+    NonceID [32]byte; PKEpoch uint64; CommitteeID [32]byte
+    SignerSetRoot [32]byte; W1 PackedHighBits; WCommitment []byte
+    ClearanceProof []byte; Margin uint32; CommitRoot [32]byte; Consumed bool }
+    // NO full W field (PULSAR-V13-W-LEAK); W is debug-oracle only.
+type ZPartial struct {
+    PartyID PartyID; NonceID [32]byte; SessionID [32]byte
+    ZShare PackedPolyVecL; Proof []byte; MAC []byte }
+type PulsarSignature struct { C PackedChallenge; Z PackedPolyVecL; H PackedHint }
+\end{verbatim}
+No \texttt{CS2/CT0/D2/D0/R0Share/LowBitsShare/HintInput/HintShare}.
+
+\section{Protocol}
+\paragraph{Offline (message-independent) nonce pool.} Sample $\mathbf
+y_i$; commit. The aggregate $\mathbf w = \sum\lambda_i\mathbf w_i$ is
+\emph{hidden}: in production each signer proves in zero knowledge that the
+hidden $\mathbf w$ is boundary-clear, publishing only $\mathbf w_1$, a
+commitment to $\mathbf w$, and the clearance proof (PULSAR-V13-W-LEAK; the
+debug oracle may form $\mathbf w$ to classify regions vs $B$). If
+\textsc{AllRegionsSafe}, store the cert ($\mathbf w_1,\text{WCommitment},
+\text{ClearanceProof},\text{CommitRoot}$); else discard. Run continuously off
+the consensus path.
+\paragraph{Online sign.} Pick an unused cert; $\mu = H(pk\|ctx\|m)$, $c =
+H(\mu\|\mathbf w_1)$; collect $\mathbf z_i = \lambda_i\mathbf y_i +
+c\lambda_i\mathbf s_{1,i}$; $\mathbf z = \sum\mathbf z_i$; reject to a
+fresh nonce if $\|\mathbf z\|_\infty \ge \gamma_1-\beta$; compute public
+$\mathbf w' = A\mathbf z - c\mathbf t_1 2^d$ and $\mathbf h$ (BCC0:
+$\mathbf 0$; BCC+: $h_j=[\mathrm{HighBits}(w'_j)\neq w_{1,j}]$); reject if
+$\mathrm{wt}(\mathbf h) > \omega$; emit $\textsc{sigEncode}(\tilde
+c,\mathbf z,\mathbf h)$; assert unmodified FIPS 204 verify (failure $=$
+bug).
+
+\section{Fallback (Option 3)}
+If unmodified-FIPS-204-byte-equality is not mandatory, use the
+Raccoon/Ringtail-style threshold-friendly hint scheme --- this is exactly
+the \textbf{Corona} route (\texttt{luxfi/corona}, LP-4440): public
+threshold signature, leaderless, no MPC/TEE, but \emph{not} FIPS-byte-
+equal.
+
+\section{Scale / consensus notes}
+For $\sim$1000+ validators: generate boundary-safe nonce certs
+continuously offline; online consensus only tree-aggregates $\mathbf z$
+shares; the final signature is ordinary ML-DSA; the QC carries the signer
+bitmap $+$ transcript root. Do \emph{not} boundary-filter online per
+message.
+
+\section{Practical risks}
+(1) usable safe-nonce rate; (2) the conditioned-nonce distribution proof;
+(3) exact FIPS boundary classification (against \texttt{Decompose}, not
+integer rounding); (4) keeping the margin small enough for yield while
+covering $c\,\mathbf s_2$. If BCC+ yield is poor, prefer \textsc{2B nonce
+shaping} (with its distribution proof) over weakening the margin.
+
+\section{Phased plan + TALUS alignment}
+\textbf{Phase 1:} BCC+ as above --- this spec, Lemmas~\ref{lem:bcc0},
+\ref{lem:bccplus} machine-checked (\texttt{Crypto/Pulsar/Boundary\-
+Clearance.lean}) against the FIPS \texttt{Decompose}/\texttt{HighBits}/
+\texttt{MakeHint}/\texttt{UseHint} definitions, Go impl reusing the
+existing \texttt{decompose}/\texttt{power2Round} primitives, the
+regression / no-residual / distribution / CIRCL$+$pq-crystals interop
+tests on the BCC path, and the offline-yield measurement.
+\textbf{Phase 2:} \textsc{2B nonce shaping} if yield demands, with the
+distribution proof. \textbf{Phase 3:} align terminology and proof
+obligations with the TALUS boundary-clearance / carry-elimination
+construction.
+\end{document}
