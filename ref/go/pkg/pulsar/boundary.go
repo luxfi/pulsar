@@ -58,7 +58,9 @@ func bccParams(mode Mode) (gamma2, beta, omega uint32, ok bool) {
 // margin covers BOTH the HighBits boundary (the ±β shift c·s2 cannot
 // change HighBits) AND the FIPS r0 rejection edge (‖LowBits(w − c·s2)‖∞ <
 // γ2 − β stays in range) — high-bit stability alone is insufficient.
-func boundaryThreshold(gamma2 uint32, beta uint32) uint32 { return gamma2 - 2*beta }
+const bccSlack = 16 // one-coefficient safety slack against edge ambiguity
+
+func boundaryThreshold(gamma2 uint32, beta uint32) uint32 { return gamma2 - 2*beta - bccSlack }
 
 // centeredLowBits returns the FIPS Decompose low part of a, centered into
 // (−γ2, γ2]. a must be normalized to [0, q).
