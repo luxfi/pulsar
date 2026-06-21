@@ -39,8 +39,9 @@ const (
 	mldsaROver256     = 41978      // (256)⁻¹ · R² mod q, R = 2³²
 	mldsaD            = 13         // dropped low bits
 	mldsaTRSize       = 64         // FIPS 204 ML-DSA SHAKE-256 hash of pk
-	mldsaCTildeSize   = 48         // ML-DSA-65 c̃ length (also 87)
-	mldsaCTildeSize44 = 32         // ML-DSA-44 c̃ length
+	mldsaCTildeSize   = 48         // ML-DSA-65 c̃ length (λ=192 ⇒ λ/4)
+	mldsaCTildeSize44 = 32         // ML-DSA-44 c̃ length (λ=128 ⇒ λ/4)
+	mldsaCTildeSize87 = 64         // ML-DSA-87 c̃ length (λ=256 ⇒ λ/4)
 	mldsaGamma2P65    = 261888     // (q-1)/32 for ML-DSA-65/87
 	mldsaGamma2P44    = 95232      // (q-1)/88 for ML-DSA-44
 )
