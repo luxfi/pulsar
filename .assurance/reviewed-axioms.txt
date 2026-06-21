@@ -1,0 +1,9 @@
+# Axioms that a LOAD-BEARING lemma rests on, reviewed and justified.
+# Format: AXIOM_NAME  <justification>
+# An entry here is an explicit, disclosed trust assumption. It MUST be a cited
+# standard fact or a layout/encoding identity -- NEVER a restatement of a
+# security conclusion (that is the cheat the gate exists to stop).
+#
+# Enforced by ~/work/lux/proofs/framework/checks/circular-proof.sh.
+
+lagrange_inverse_eval  Standard Lagrange interpolation: the constant term P(0) is recovered from any t distinct evaluations P(i) over a field of order > committee size (spec/pulsar.tex eq. 476). A field-theory primitive EasyCrypt lacks built-in; candidate for discharge against Mathlib `lagrange`. NOT a security conclusion -- it is the algebraic core that the threshold reduction *uses*, not the threshold security claim itself.
