@@ -67,13 +67,17 @@ func modeTauOmega(mode Mode) (tau, omega int, gamma1Bits, gamma2 uint32) {
 	return 0, 0, 0, 0
 }
 
-// modeCTildeSize returns the FIPS 204 challenge-hash length for mode.
+// modeCTildeSize returns the FIPS 204 challenge-hash (c̃) length for
+// mode: λ/4 bytes, where λ is the parameter set's collision strength
+// (ML-DSA-44 λ=128 ⇒ 32, ML-DSA-65 λ=192 ⇒ 48, ML-DSA-87 λ=256 ⇒ 64).
 func modeCTildeSize(mode Mode) int {
 	switch mode {
 	case ModeP44:
 		return mldsaCTildeSize44
-	case ModeP65, ModeP87:
+	case ModeP65:
 		return mldsaCTildeSize
+	case ModeP87:
+		return mldsaCTildeSize87
 	}
 	return 0
 }
