@@ -1,5 +1,5 @@
 # Unproven-assertion budget (max counts). Enforced by
-# ~/work/lux/proofs/framework/checks/axiom-budget.sh -- the gate FAILS if any
+# ~/work/lux/luxfi/security/framework/checks/axiom-budget.sh -- the gate FAILS if any
 # count drifts ABOVE these. The honest goal is to DECREASE them (discharge
 # axioms/admits into proved lemmas), never to raise the ceiling.
 #
