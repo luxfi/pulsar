@@ -134,7 +134,7 @@ func useHint(hbit, r, gamma2 uint32) uint32 {
 	return (r1 + m - 1) % m
 }
 
-// findHintToTarget derives the ML-DSA hint from PUBLIC data only — the
+// FindHint derives the ML-DSA hint from PUBLIC data only — the
 // public reconstructed wPrime = A·z − c·t1·2^d and the public target w1 =
 // HighBits(w). It NEVER forms c·s2, c·t0, or r0. The hint bit is not a
 // signed correction: a coefficient takes h_j = 0 when HighBits already
@@ -142,9 +142,9 @@ func useHint(hbit, r, gamma2 uint32) uint32 {
 // valid FIPS hint (boundary/region violated) and signing must consume the
 // nonce and retry. Returns the hint and ok; ok=false ⇒ ErrNoFIPSHint.
 //
-// Theorem: findHintToTarget(wPrime, w1) = (h, true) iff
+// Theorem: FindHint(wPrime, w1) = (h, true) iff
 // UseHint(h, wPrime) = w1 and weight(h) ≤ omega.
-func findHintToTarget(wPrime, targetW1 polyVec, gamma2, omega uint32) (polyVec, bool) {
+func FindHint(wPrime, targetW1 polyVec, gamma2, omega uint32) (polyVec, bool) {
 	h := make(polyVec, len(wPrime))
 	var weight uint32
 	for i := range wPrime {

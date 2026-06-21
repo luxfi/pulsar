@@ -56,7 +56,7 @@ func TestBCCParamGuard(t *testing.T) {
 	}
 }
 
-// Theorem: findHintToTarget(w', target) = (h, true) implies
+// Theorem: FindHint(w', target) = (h, true) implies
 // UseHint(h, w') = target coefficient-wise. The hint bit is validated via
 // FIPS UseHint, never an informal ±1 corrector.
 func TestFindHintToTargetMatchesUseHint(t *testing.T) {
@@ -76,7 +76,7 @@ func TestFindHintToTargetMatchesUseHint(t *testing.T) {
 			j := rng.Intn(mldsaN)
 			target[i][j] = useHint(1, wPrime[i][j], gamma2)
 		}
-		h, ok := findHintToTarget(wPrime, target, gamma2, omega)
+		h, ok := FindHint(wPrime, target, gamma2, omega)
 		if !ok {
 			continue // weight > omega for random targets; skip
 		}
@@ -92,7 +92,7 @@ func TestFindHintToTargetMatchesUseHint(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no reachable targets exercised")
 	}
-	t.Logf("verified UseHint(findHintToTarget(w',t),w')==t on %d vectors", checked)
+	t.Logf("verified UseHint(FindHint(w',t),w')==t on %d vectors", checked)
 }
 
 // Core BCC+ lemma (debug oracle): a boundary-clear w keeps HighBits stable
