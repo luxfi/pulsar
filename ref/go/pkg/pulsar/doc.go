@@ -11,6 +11,15 @@
 // up to the spec encoding freeze (target end of August 2026). After
 // freeze the API is fixed and a v0.1 tag will be cut.
 //
+// Production threshold signing (PULSAR-V13) uses boundary-cleared nonce
+// transcripts and public hint recovery: validators certify a hidden nonce
+// commitment with a quorum certificate (NonceCert, exposing only
+// W1 = HighBits(w)); online signing aggregates only z shares (Partial); and
+// the hint is recovered publicly from w' = A*z - c*t1*2^d and W1. The wire
+// protocol never carries full w, LowBits(w), c*s2, c*t0, r0, or hint shares.
+// A ConsensusCert binds the signer bitmap and transcript roots. The legacy
+// AlgebraicAggregate path leaked c*s2/c*t0 and is hard-disabled.
+//
 // All cryptographic operations route through:
 //
 //   - sub-package "hash"        — NIST SP 800-185 (cSHAKE256/KMAC256/TupleHash256) only
