@@ -3,10 +3,25 @@
 # count drifts ABOVE these. The honest goal is to DECREASE them (discharge
 # axioms/admits into proved lemmas), never to raise the ceiling.
 #
-# Current surface (2026-06). The 87 axioms are dominated by EasyCrypt
-# memory-layout/encoding identities (Sign/Combine refinement) plus the
-# security-relevant combine_body_* specs that the open N1 reduction still
-# assumes; tracked for discharge in PROOF-CLAIMS / AXIOM-INVENTORY.
+# Current surface (reclassified, not reduced, this pass). The axioms are
+# fully bucketed in AXIOM-INVENTORY.md:
+#   A standard-math-fact (16/17) | B serialization/layout (41) |
+#   C OPEN security assumption (21, reconstruct-then-sign; see BLOCKERS.md).
+# 0 NEW discharges this pass: no EasyCrypt toolchain on host (cannot machine-
+# recheck a hand proof) and every in-file-derivable axiom is already a lemma;
+# the residual A/B axioms are over abstract types/ops (not dischargeable
+# without a verify-gated concretization) and the C axioms MUST stay open.
+#
+# COUNT NOTE: AXIOM=87 is what axiom-budget.sh's regex counts, but only 78
+# are real `axiom`/`declare axiom` DECLARATIONS -- the regex also matches 9
+# comment lines inside (* ... *) blocks that begin with the word "axiom"
+# (sample refactor signatures + prose like "axiom uses ctx implicitly").
+# Budget held at the gate-counted 87 (the true declaration count is 78); the
+# gate only fails on an INCREASE, so this neither hides nor inflates.
+#
+# Real `admit.` tactics = 0 (the repo's own scripts/checks/ec-admits.sh, which
+# matches ^admit.$, is authoritative). ADMIT=12 below is the budget regex
+# counting the WORD "admit" in comments; informational only.
 SORRY=0
 ADMIT=12
 AXIOM=87

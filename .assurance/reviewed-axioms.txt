@@ -1,9 +1,27 @@
 # Axioms that a LOAD-BEARING lemma rests on, reviewed and justified.
-# Format: AXIOM_NAME  <justification>
-# An entry here is an explicit, disclosed trust assumption. It MUST be a cited
-# standard fact or a layout/encoding identity -- NEVER a restatement of a
-# security conclusion (that is the cheat the gate exists to stop).
+# Format: AXIOM_NAME  <bucket> -- <justification>
 #
-# Enforced by ~/work/lux/proofs/framework/checks/circular-proof.sh.
+# An entry here is an explicit, disclosed trust assumption. The framework
+# (~/work/lux/proofs/framework/checks/circular-proof.sh) HARD-requires only
+# the axioms that a load-bearing-named lemma discharges via apply/exact in a
+# <=12-line proof; today that is `lagrange_inverse_eval` alone. We list MORE
+# than the mechanical minimum on purpose: every axiom in the dependency cone
+# of the headline byte-equality lemma is part of the trust surface and is
+# written down here with its bucket. This is full disclosure, NOT a blanket
+# allow -- only load-bearing / security-cone axioms appear; the pure
+# layout/length B-axioms and the standard-fact A-axioms that feed only
+# structural lemmas are inventoried in AXIOM-INVENTORY.md, not blanket-listed
+# here. Buckets: A standard-math-fact | B serialization/layout | C OPEN
+# security assumption (reconstruct-then-sign; see BLOCKERS.md).
 
-lagrange_inverse_eval  Standard Lagrange interpolation: the constant term P(0) is recovered from any t distinct evaluations P(i) over a field of order > committee size (spec/pulsar.tex eq. 476). A field-theory primitive EasyCrypt lacks built-in; candidate for discharge against Mathlib `lagrange`. NOT a security conclusion -- it is the algebraic core that the threshold reduction *uses*, not the threshold security claim itself.
+# --- A: load-bearing standard-math-fact (mechanically flagged) ---
+lagrange_inverse_eval  A -- Lagrange interpolation: P(0) recovered from any t distinct evaluations over a field of order > committee size (spec/pulsar.tex eq. 476). EasyCrypt lacks this over abstract share_t; Lean-bridged to Crypto.Pulsar.Shamir.shamir_correct_at_target (Mathlib polynomial-Lagrange). The algebraic core the threshold reduction USES, NOT the threshold security claim. Used by reconstruct_of_share via `exact:`.
+threshold_partial_response_identity  A -- Lagrange-aggregation of per-party partial responses = centralised z on the reconstructed share. Lean-bridged. Load-bearing for combine_body_z_spec (the z-stage derived lemma) -> pulsar_n1_byte_equality.
+reconstruct_linear  A -- reconstruction is linear over share-list addition (LinearMap.map_add). Lean-bridged. Load-bearing for the N4 reshare-preservation lemmas.
+shamir_correct  A -- reconstruction is a left inverse of fresh sharing (Lagrange-at-zero). Lean-bridged. Load-bearing for honest_reshare_reconstructs / reshare_preserves_secret_honest (N4).
+add_share_zeroR  A -- additive identity on share_t (AddCommMonoid). Lean-bridged. Load-bearing for the N4 reshare zero-sharing argument.
+
+# --- C: OPEN security assumptions in the byte-equality cone (reconstruct-then-sign). DISCLOSED, NOT closed. See BLOCKERS.md. ---
+combine_body_axiom  C -- OPEN. declare axiom: T.combine ~ CombineAbs.combine on honest-quorum inputs == the extracted threshold combine equals the centralised ML-DSA sign of the LAGRANGE-RECONSTRUCTED secret. Module-contract form of the whole byte-walk; pulsar_n1_byte_equality rests on it via `call combine_body_axiom`. Closure = the Jasmin byte-walk (issue #4). NOT proven.
+S_functional_spec  C -- OPEN. declare axiom: S.sign ~ FIPS204Sign.sign on accepted inputs == the single-party module is a faithful FIPS 204 signer. pulsar_n1_byte_equality rests on it via single_party_run_refines_fips204. Closure = the libjade byte-walk (issue #3). NOT proven.
+algebraic_aggregate_ctx_body_axiom  C -- OPEN. The v0.4 reconstruct-then-sign axiom: AlgebraicAggregateCtx output = FIPS 204 SignCtx(sk_master, ctx, M) where sk_master is the existentially-quantified RECONSTRUCTED master secret. threshold_sign_ctx_equiv_fips204_sign_with_ctx rests on it. Go-discharged by test + AST sweep, NOT by EC. NOT proven.

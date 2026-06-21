@@ -1,6 +1,12 @@
-# Closed-finding registry — luxfi/pulsar
+# Finding registry — luxfi/pulsar
 
-**Status: submission-ready. No open items.**
+**Status: OPEN items present (see `## Open`).** The v1.1.1 byte-equality /
+ctx-bound / public-BFT claims are submission-ready, but the v0.3/v0.4
+leaderless threshold path has CRITICAL open findings (PULSAR-V13-*), and
+the EasyCrypt byte-equality proof rests on an OPEN reconstruct-then-sign
+axiom cone (PULSAR-EC-RECON-MODEL). None blocks the single-party / N4 /
+interop-tested BCC claims; all block any "production threshold path is
+proven" statement.
 
 Forward-looking v1.2 extensions are tracked under
 `## Forward-looking (v1.2)` below; they are EXTENSIONS surfaced by the
@@ -21,6 +27,48 @@ v1.0.7 sign-off); the canonical narrative lives in `CHANGELOG.md`
 and the v1.0.7 sign-off.
 
 ## Open
+
+### PULSAR-EC-RECON-MODEL (HIGH — proof-scope disclosure)
+
+**Status: OPEN. Disclosed, not closed.** The EasyCrypt Class N1
+byte-equality theorem (`pulsar_n1_byte_equality` /
+`pulsar_n1_byte_equality_extracted`) is machine-checked structurally
+(0 admits) but proved **relative to** the bucket-C asserted axioms in
+`AXIOM-INVENTORY.md` §C. The central ones —
+`combine_body_axiom`, `S_functional_spec`, the per-stage
+`combine_body_*_spec` / `sign_body_*_spec`, and the v0.4
+`algebraic_aggregate_ctx_body_axiom` — assert the extracted/aggregated
+code equals the centralised FIPS 204 signer applied to the
+**Lagrange-reconstructed master secret**. The EC model therefore
+**reconstructs the master key and signs with it** (reconstruct-then-sign).
+
+This is intentionally NOT the production leaderless instantiation, which
+must never reconstruct `c·s2`/`c·t0`/the master (PULSAR-V13-HINT-LEAK).
+Consequences, all OPEN:
+
+- The EC byte-equality does NOT certify the production no-leak (BCC/CEF)
+  path. That path's correctness is **interop-tested** (BCC single-key sig
+  byte-equal under CIRCL + pq-crystals, ML-DSA-65/87) and its novel ZK
+  parts are **fail-closed-pending-review** — see V13-W-LEAK / V13-PARTIAL-
+  Z-PROOF.
+- Closing the C-cone is the Jasmin/libjade byte-walk (issues #3, #4): when
+  the extracted byte-walk lands, `combine_body_axiom` / `S_functional_spec`
+  become lemmas and the per-stage axioms close against the Jasmin
+  operational semantics. Until then they are asserted.
+
+**Resolution criteria:**
+- [ ] Jasmin combine byte-walk lands ⇒ `combine_body_{spec,matrix_a,mask_y,
+      z_via_aggregation,partial_responses,w_low}_spec` become lemmas (issue #4).
+- [ ] libjade sign byte-walk lands ⇒ `sign_body_*_spec` become lemmas (issue #3).
+- [ ] Wrapper bridges discharge `combine_body_axiom` / `S_functional_spec`
+      to lemmas against the extracted modules.
+- [ ] A separate EC/sound-by-reduction artifact for the PRODUCTION no-leak
+      path (not reconstruct-then-sign) is written, OR the no-leak path's
+      interop+fail-closed posture is accepted by external review.
+- [ ] **External cryptographic review** signs off that the
+      reconstruct-then-sign EC model is an acceptable *correctness*
+      idealisation given the *separate* no-leak evidence (cross-ref:
+      the external-review gate shared with V13-HINT-LEAK below).
 
 ### PULSAR-V13-HINT-LEAK (CRITICAL)
 
@@ -44,39 +92,42 @@ read. Masking the individual shares is necessary but **not** sufficient —
 the aggregate reconstruction still leaks the master key. The fix must
 never reconstruct `c·s2`/`c·t0`/`r0`.
 
-**Containment (landed, branch `fix/threshold-mldsa-hint-leak`):**
-`Round2Sign` now **fails closed** with `ErrUnsafeThresholdV03HintPath`
-unless `AllowUnsafeThresholdV03ForTests` is set (test
-`TestThresholdV03DisabledByDefault`). The dangerously-false `(t−1)`-secret
-note is corrected.
+**Containment (landed, branch `fix/threshold-mldsa-hint-leak`, commit `eda6d96`):**
+The entire v0.3 `AlgebraicAggregate*` path — `threshold_v03.go`, `attest.go`,
+`orchestrate.go`, and their tests — is **DELETED forward-only**. There is no
+flag to re-enable it, and the secret-dependent `makeHint` primitive it used is
+also removed (BCC recovers the hint from public data via `FindHint`). The
+dangerously-false `(t−1)`-secret note is gone with the path.
 
-**Replacement design + verified math core:** boundary-cleared nonces +
-carry elimination (`spec/threshold-mldsa-boundary-clearance.tex`,
-`threshold_bcc.go`). The hint is computed from the **public**
+**Replacement design + verified math core:** boundary-cleared nonces + carry
+elimination (`spec/threshold-mldsa-boundary-clearance.tex`,
+`boundary.go`/`bcc_sign.go`). The hint is computed from the **public**
 `w' = A·z − c·t1·2^d` and `w1 = HighBits(w)` strictly via FIPS `UseHint`
-(`findHintToTarget`); boundary clearance (margin `2β`) keeps the small
-`c·s2` shift off the boundary; `c·t0` is structurally
-`‖c·t0‖∞ ≤ τ·2^{d-1} < γ2` for **ML-DSA-65/87 only** (param-guarded).
-Verified (`threshold_bcc_test.go`, all green): `FindHintToTarget↔UseHint`
-round-trip, `BoundaryClear ⇒ HighBits-stable + r0-bound`, exact off-by-one
-edges, offline yield ≈ **9.8 %**.
+(`FindHint`); boundary clearance (margin `2β`) keeps the small `c·s2` shift
+off the boundary; `c·t0` is structurally `‖c·t0‖∞ ≤ τ·2^{d-1} < γ2` for
+**ML-DSA-65/87 only** (param-guarded, `ErrBCCParamSet`). Verified (all green):
+`FindHint↔UseHint` round-trip, `BoundaryClear ⇒ HighBits-stable + r0-bound`,
+exact off-by-one edges, offline yield ≈ **9.8 %**, and a no-leak single-key
+signature that verifies **byte-for-byte under CIRCL + pq-crystals** (ML-DSA-65/87).
 
-**NOT RESOLVED.** The math is verified but the production path is not built.
-Resolution criteria (all required for NIST/consensus):
-- [x] `AlgebraicAggregate*` disabled in production builds (hard gate).
-- [x] Hint derived only via public `FindHintToTarget(w', w1)` (FIPS `UseHint`).
+**Status: leak removed + no-leak core complete + cert-verification hardened;
+the production threshold path remains gated FAIL-CLOSED pending external
+review of the novel ZK parts.** `[~]` = structurally complete in code but
+registered fail-closed pending review (NOT claimed proven). Resolution criteria:
+- [x] v0.3 `AlgebraicAggregate*` path **removed** from the codebase (not merely gated).
+- [x] Hint derived only via public `FindHint(w', w1)` (FIPS `UseHint`); secret `makeHint` deleted.
 - [x] No production code computes `c·s2`/`c·t0`/`r0`/`LowBits(residual)`.
-- [x] Boundary predicate proves the hidden `r0` bound; ML-DSA-65 scope enforced.
-- [ ] `CS2`/`CT0` and all hint-secret wire fields **deleted** from production messages (reflection test).
-- [ ] **Full `w` never public / reconstructible** (PULSAR-V13-W-LEAK) — needs the ZK clearance proof.
-- [ ] Partial-`z` correctness proof (PULSAR-V13-PARTIAL-Z-PROOF).
-- [ ] Canonical, non-grindable nonce selection.
-- [ ] DKG never reconstructs the master key / `t0`; certifies the `t0` bound.
-- [ ] Rejected attempts simulatable, not publicly leaked; coarse abort classes.
-- [ ] Tree aggregation (z-sums + bitmaps + proof roots) for ~1000 signers.
-- [ ] Two-certificate consensus artifact (ML-DSA sig + signer bitmap/transcript root).
-- [ ] Final sigs verify under ≥2 independent FIPS 204 verifiers on the BCC path.
-- [ ] External cryptographic review of the no-MPC leaderless instantiation.
+- [x] Boundary predicate proves the hidden `r0` bound; ML-DSA-65/87 scope enforced (`ErrBCCParamSet`).
+- [x] `CS2`/`CT0` + all hint-secret wire fields deleted; reflection guard (`TestNoHintSecretFieldsInProductionWireTypes`) enforces it.
+- [~] **Full `w` never on the wire** — `NonceCert` carries only `w1` + a commitment + the clearance QC; the ZK boundary-clearance proof that a hidden `w` is clear is registered **fail-closed** (`ErrClearanceProofUnsound`) pending review (PULSAR-V13-W-LEAK).
+- [~] Partial-`z` correctness — sound linear sigma proof, FS-bound, challenge validated as `SampleInBall` (`partial_proof.go`); registered **fail-closed** by default; the small-norm range gate is fail-closed (L2-vs-L∞, no faithful proof exists).
+- [x] Canonical, non-grindable nonce selection (`CanonicalNonceIndex`).
+- [~] DKG never reconstructs the master key / `t0` (`DKGPublicOutput`, no `t0`); sound DKG linear proof; the `t0`-bound range gate is fail-closed pending review.
+- [x] Rejected attempts coarse abort classes (`AbortClass`).
+- [x] Tree aggregation (z-sums + bitmaps + proof roots) for ~1000 signers.
+- [x] Two-certificate consensus artifact — ML-DSA sig + signer bitmap **bound to the signature** via an accountability QC (`ConsensusCert.Verify`).
+- [x] Final sigs verify under ≥2 independent FIPS 204 verifiers (CIRCL + pq-crystals) on the BCC path.
+- [ ] External cryptographic review of the no-MPC leaderless instantiation (the remaining gate).
 
 ### PULSAR-V13-W-LEAK (CRITICAL — replacement-design hazard)
 
