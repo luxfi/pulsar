@@ -59,8 +59,8 @@ the CORRECTNESS core of Model 2 — `Crypto.Pulsar.NoLeakAggregate`
 (`z_aggregate_no_reconstruct`, `hint_is_fips_hint`,
 `no_leak_under_standard_assumptions`), `Crypto.Pulsar.BoundaryClearance`
 (`boundary_clearance`, `findHintCoeff_unique`), `Crypto.Threshold_Lagrange`.
-The EC side of Model 2 is **written, machine-recheck pending EasyCrypt** (no
-`ec` on the authoring host; `scripts/checks/ec-compile.sh` is the CI gate).
+The EC side of Model 2 **machine-checks on the host** via `easycrypt compile`
+(opam switch `proofs`), enforced every run by the gate `ec-machine-check.sh`.
 
 Remaining OPEN:
 
@@ -78,8 +78,8 @@ Remaining OPEN:
       written, with its CORRECTNESS core machine-checked (Lean, this host)
       and its residual stated as a STANDARD Module-LWE/MSIS reduction
       (`Pulsar_N1_NoLeak.ec` + `Crypto.Pulsar.NoLeakAggregate`).
-- [ ] `Pulsar_N1_NoLeak.ec` passes `scripts/checks/ec-compile.sh` in CI
-      (machine-recheck pending EasyCrypt; cannot run on the authoring host).
+- [x] `Pulsar_N1_NoLeak.ec` machine-checks via `easycrypt compile` on the host
+      (gate `ec-machine-check.sh`; pulsar 14/14 theories compile).
 - [ ] `no_leak_reduction` discharged to a full M-LWE/M-SIS simulation proof
       (v0.8 EC/paper artifact), OR accepted by external review as a standard
       reduction.
