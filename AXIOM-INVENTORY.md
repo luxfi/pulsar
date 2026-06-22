@@ -322,9 +322,10 @@ green, 0 sorry):
   residual: under M-LWE/M-SIS, every transcript is the simulator's output.
 
 The EC `no_leak_z_aggregate` / `public_hint_roundtrip` / `no_leak_reduction`
-are the procedure-level EC wrappers of those facts; they are
-**written, machine-recheck pending EasyCrypt** (no `ec` on host;
-`scripts/checks/ec-compile.sh` is the CI authority).
+are the procedure-level EC wrappers of those facts; they
+**machine-check on the host** via `easycrypt compile` (opam switch `proofs`),
+enforced every run by `security/framework/checks/ec-machine-check.sh`
+(pulsar 14/14 theories).
 
 ### The net assurance change of this pass
 
