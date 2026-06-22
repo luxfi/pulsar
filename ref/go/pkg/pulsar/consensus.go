@@ -258,6 +258,12 @@ var forbiddenWireFieldFragments = []string{
 	"CS2", "CT0", "Cs2", "Ct0", "D2Masked", "D0Masked",
 	"R0Share", "LowBits", "HintShare", "HintInput", "MaskedCorrection",
 	"Residual",
+	// FullW / w-commitment: the full unmasked commitment w reconstructs the
+	// residual (w' - w == c·t0 - c·s2), so it must never appear in a production
+	// wire type. Guarded generically here (was NonceCert-specific only); a bare
+	// "W" fragment would over-match (Weight/Witness), so the specific w-bearing
+	// field names are listed.
+	"FullW", "LowBitsW",
 }
 
 func typeHasForbiddenField(t reflect.Type) (string, bool) {

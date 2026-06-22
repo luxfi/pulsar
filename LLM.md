@@ -2,8 +2,8 @@
 
 **Repository (current)**: github.com/luxfi/pulsar
 **Repository (target)**: github.com/luxfi/pulsar
-**Latest Tag**: v0.1.0
-**Status**: Research / Reference (not production hardened, not FIPS validated)
+**Latest Tag**: v1.1.4
+**Status**: Research / Reference (not production hardened, not FIPS validated). EasyCrypt + Lean machine-check on host (gate `ec-machine-check.sh`, 14/14); no-leak BCC threshold path interop-verified under CIRCL + pq-crystals.
 
 ## Rename in progress: Pulsar-M → Pulsar
 
@@ -187,7 +187,7 @@ FIPS 204 signature on the same message + public key.
 
 ## Active versions
 
-- Repo: `v0.1.0` (initial submission-readiness tag; next: `v0.1.1`).
+- Repo: `v1.1.4` (current; patch-bump only, next `v1.1.5`).
 - Pinned by: `luxfi/consensus v1.23.5+` (finality verify path replaces
   the placeholder Pulsar-M verifier).
 
