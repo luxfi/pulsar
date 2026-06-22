@@ -14,7 +14,7 @@
 
 | Tag | Meaning |
 |---|---|
-| **machine-checked** | A proof assistant verifies it; the named EasyCrypt or Lean theory has ZERO `sorry` / `admit.` / `:= True` (real tactics, per the repo's own admit gate). No EasyCrypt toolchain on this host — "machine-checked" here means *structurally complete and intended to compile*; `scripts/checks/ec-compile.sh` is the CI gate, skipped locally when easycrypt is absent. |
+| **machine-checked** | A proof assistant verifies it; the named EasyCrypt or Lean theory has ZERO `sorry` / `admit.` / `:= True` (real tactics, per the repo's own admit gate). The EasyCrypt toolchain **is live on the host** (opam switch `proofs`: easycrypt + why3 + alt-ergo, z3 solver) — all theories compile under `easycrypt compile`, enforced every run by `security/framework/checks/ec-machine-check.sh` (pulsar 14/14). Lean compiles under `lake build`. |
 | **sound-by-reduction** | A pen-and-paper reduction to a stated assumption exists; not mechanized. |
 | **interop-tested** | Validated by running against ≥2 INDEPENDENT implementations (CIRCL + pq-crystals), not the signer's own library. |
 | **asserted-axiom** | Taken as an axiom in EC; bucketed in AXIOM-INVENTORY.md (A/B). Not proved here. |
@@ -63,9 +63,9 @@
 > transcript leaks nothing about `(s1,s2,t0)` beyond one single-party FIPS
 > 204 signature. That is a STANDARD PQ assumption — the SAME lattice
 > hardness ML-DSA's own EUF-CMA rests on — **not** an implementation
-> reconstruct. The EC side of Model 2 is **written, machine-recheck pending
-> EasyCrypt** (no `ec` on the authoring host; `scripts/checks/ec-compile.sh`
-> is the CI authority); its Lean core is machine-checked now.
+> reconstruct. The EC side of Model 2 **machine-checks on the host** via
+> `easycrypt compile` (gate `ec-machine-check.sh`); its Lean core is
+> machine-checked too.
 
 - The production no-leak property is ALSO **interop-tested**: the BCC
   single-key signature verifies **byte-for-byte under CIRCL + pq-crystals**
@@ -80,8 +80,8 @@
 | EC threshold↔centralised refinement (`pulsar_n1_byte_equality`) | machine-checked modulo C-cone (asserted-axiom) | lemma in the N1 theory; 0 real `admit.` tactics (`scripts/checks/ec-admits.sh`); cone in AXIOM-INVENTORY.md §C |
 | Class N4 reshare preserves `(rho,t1)` group key | machine-checked modulo A-cone | lemma in the N4 theory; 0 real `admit.` tactics; rests on `shamir_correct`/`reconstruct_linear`/`add_share_zeroR` (Lean-bridged) |
 | The byte-walk = centralised signer on reconstructed secret (C-idealised cone) | asserted-axiom (OPEN; idealised CORRECTNESS only) | `combine_body_axiom`, `S_functional_spec`, `*_body_*_spec` — reconstruct-then-sign; NOT the production residual; BLOCKERS.md |
-| No-leak masked-aggregate = central z, secret never formed | **machine-checked (Lean 4 + Mathlib, this host)** | `Crypto.Pulsar.NoLeakAggregate.z_aggregate_no_reconstruct`; EC mirror `Pulsar_N1_NoLeak.no_leak_z_aggregate` (recheck pending ec-compile) |
-| No-leak hint recovered from public `w'`, unique FIPS hint | **machine-checked (Lean 4 + Mathlib, this host)** | `Crypto.Pulsar.BoundaryClearance.{boundary_clearance,findHintCoeff_unique}`; EC mirror `Pulsar_N1_NoLeak.public_hint_roundtrip` (recheck pending ec-compile) |
+| No-leak masked-aggregate = central z, secret never formed | **machine-checked (Lean 4 + Mathlib, this host)** | `Crypto.Pulsar.NoLeakAggregate.z_aggregate_no_reconstruct`; EC mirror `Pulsar_N1_NoLeak.no_leak_z_aggregate` (EC-compiles on host, gate `ec-machine-check.sh`) |
+| No-leak hint recovered from public `w'`, unique FIPS hint | **machine-checked (Lean 4 + Mathlib, this host)** | `Crypto.Pulsar.BoundaryClearance.{boundary_clearance,findHintCoeff_unique}`; EC mirror `Pulsar_N1_NoLeak.public_hint_roundtrip` (EC-compiles on host, gate `ec-machine-check.sh`) |
 | Production no-leak residual (transcript leaks nothing extra) | **sound-by-reduction (STANDARD: Module-LWE + Module-SIS)** | `no_leak_reduction` (Pulsar_N1_NoLeak.ec); EC mirror of machine-checked Lean `Crypto.Pulsar.NoLeak.NoLeakReduction`; full simulation = v0.8 artifact |
 | Final BCC signature interchangeable with FIPS 204 | interop-tested | 19/19 N1 subtests vs CIRCL; BCC no-leak sig byte-equal under CIRCL + pq-crystals (`test/interoperability/`, BLOCKERS V13) |
 | Production no-leak (no `c·s2`/`c·t0`/master reconstruction) | interop-tested (single-key) + fail-closed-pending-review (threshold ZK) | BLOCKERS.md V13-HINT-LEAK / V13-W-LEAK / V13-PARTIAL-Z-PROOF |
