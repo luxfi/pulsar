@@ -212,15 +212,18 @@ underlying op/constant (a verify-gated refactor); not a security claim.
 | B39 | `committee_quorum_uniq` | …:209 | the canonical quorum is duplicate-free. |
 | B40 | `committee_quorum_nonempty` | …:210 | the canonical quorum is non-empty. |
 
-### B.5 — V04 ctx-encoding byte facts
+### B.5 — V04 ctx-encoding byte facts — **REMOVED (forward-only)**
 
-| # | Axiom | File:line | Justification |
-|---|---|---|---|
-| B41 | `empty_bytes_len` / `byte_of_zero` / `bytes_cat_empty_l` | V04_Sign_Ctx.ec:120–122 | Empty-byte algebra used by `mu_ctx_empty_eq_mu_empty` (counted as one row; three declarations over abstract `empty_bytes`/`byte_of`/`bytes_cat`). |
+The `V04_Sign_Ctx.ec` proof file was **deleted**: it proved byte-equality for
+the v0.4 ctx-bound `AlgebraicAggregateCtx` path — the ctx sibling of the v0.3
+reconstruct-then-sign leaking path removed under PULSAR-V13-HINT-LEAK. The file
+never compiled (it `require`d a non-existent `FIPS204_Axioms` theory; no `.eco`).
+Its former axioms `empty_bytes_len` / `byte_of_zero` / `bytes_cat_empty_l` (was
+B41) are gone from the live set. Historical note only; no proof target imports it.
 
 ---
 
-## Bucket C — OPEN SECURITY ASSUMPTION (21) — **MUST STAY OPEN**
+## Bucket C — OPEN SECURITY ASSUMPTION (19) — **MUST STAY OPEN**
 
 These carry security-relevant content the EC reduction has **not** closed.
 Every one assumes the extracted/aggregated body equals the **centralised
@@ -250,12 +253,13 @@ EC-proven**. Tracked: `BLOCKERS.md` § "EC reconstruct-then-sign model".
 | C12 | `sign_body_cs1_spec` | …:662 | extracted c·s₁ = `apply_c_to_s1 …` (z-stage sub). |
 | C13 | `sign_body_w_low_spec` | …:704 | extracted libjade w_low = `central_w_low …` (h-stage). |
 | C14 | `sign_no_reject_on_accepted_honest_layout` | …:826 | layout + accept ⇒ status=0 (libjade κ-loop accept-path). |
-| C15 | `mldsa_sign_ctx_axiom` | V04_Sign_Ctx.ec:163 | FIPS 204 §5.4 ctx-bound single-party sign is the trusted base (circl SignTo with ctx). |
-| C16 | `algebraic_aggregate_ctx_body_axiom` | V04_Sign_Ctx.ec:201 | **The v0.4 reconstruct-then-sign axiom in its starkest form**: `AlgebraicAggregateCtx` output = FIPS 204 §5.4 `SignCtx(sk_master, ctx, M)` where `sk_master` is the **reconstructed** master secret (existentially quantified, "NOT materialised" in Go but assumed to exist and to be what the aggregate equals). Go-discharge is by test + AST sweep, not EC. |
+| ~~C15~~ | ~~`mldsa_sign_ctx_axiom`~~ | **REMOVED** | Lived in the deleted `V04_Sign_Ctx.ec`; gone with the v0.4 ctx path. |
+| ~~C16~~ | ~~`algebraic_aggregate_ctx_body_axiom`~~ | **REMOVED** | The v0.4 reconstruct-then-sign axiom in its starkest form — **deleted** with `V04_Sign_Ctx.ec` (forward-only). It is no longer in the proof set; the production no-leak path never instantiated it. |
 
 > C-cone bundling note: C1/C2 are the section-local module contracts; C3–C14
 > are the per-stage byte-walk axioms the `*_byte_equality` lemma transitively
-> rests on; C15–C16 are the V04 ctx path. The histogram lists 21; the table
+> rests on; C15–C16 (the V04 ctx path) are **removed** with the deleted file.
+> The histogram lists 19; the table
 > above enumerates 16 rows. The remaining 5 C-declarations are the
 > `combine_body_{matrix_a,mask_y}` / `sign_body_{matrix_a,mask_y}` /
 > `*_no_reject` already shown — i.e. per *declaration* the C set is the 16
