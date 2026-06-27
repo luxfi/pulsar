@@ -17,6 +17,7 @@
 | **machine-checked** | A proof assistant verifies it; the named EasyCrypt or Lean theory has ZERO `sorry` / `admit.` / `:= True` (real tactics, per the repo's own admit gate). The EasyCrypt toolchain **is live on the host** (opam switch `proofs`: easycrypt + why3 + alt-ergo, z3 solver) — all theories compile under `easycrypt compile`, enforced every run by `security/framework/checks/ec-machine-check.sh` (pulsar 14/14). Lean compiles under `lake build`. |
 | **sound-by-reduction** | A pen-and-paper reduction to a stated assumption exists; not mechanized. |
 | **interop-tested** | Validated by running against ≥2 INDEPENDENT implementations (CIRCL + pq-crystals), not the signer's own library. |
+| **test-proven** | A property established by executable tests (transcript / structural / reflection / round-trip), not a proof assistant or a reduction; the tests are named. For TALUS-CSCP this is **semi-honest** and runs in an in-process N-party **SIMULATION** (not a networked MPC, not malicious-secure). |
 | **asserted-axiom** | Taken as an axiom in EC; bucketed in AXIOM-INVENTORY.md (A/B). Not proved here. |
 | **fail-closed-pending-review** | Implemented but gated to REFUSE until external review; not claimed correct. |
 | **open-research** | Not done; multi-month roadmap. |
@@ -89,6 +90,23 @@
 | 5 Lagrange/algebra identities | machine-checked (Lean 4 + Mathlib), asserted-axiom (EC side) | `proofs/lean-easycrypt-bridge.md`; `scripts/check-lean-bridge.sh` |
 | FIPS 204 per-type codec round-trips (B-cone) | asserted-axiom | AXIOM-INVENTORY.md §B; closing = Dilithium codec mechanization (open-research) |
 | ML-DSA post-quantum hardness (M-LWE/M-SIS) | open-research (inherited) | NIST FIPS 204 analysis; NOT a Pulsar claim |
+| TALUS sig verifies under stock FIPS-204 (circl `mldsa65`/`mldsa87.Verify`) | interop-tested (unmodified upstream verifier) | `TestTalus_MPC_EndToEnd_StockVerify`, `TestTalus_MPC_Mode87`; BCC single-key also byte-equal under CIRCL + pq-crystals |
+| TALUS CSCP path leak-free (no node forms `w`/`w0`/`A0`; only `{valid,maskC,w1}` opened) | **test-proven — semi-honest, in-process N-party SIMULATION** (NOT machine-checked, NOT a networked MPC) | `TestCSCP_MultiNode_LeakFree`, `TestCSCP_LeakFree_Structural`, `TestCSCP_MaskOpen_HidesW` (transcript + source-structural + reflection) |
+| TALUS malicious CSCP deviation = liveness-only (never forge/leak) | test-proven (FindHint + `TalusReleaseGate` mandatory stock verify) | `TestCSCP_WrongW1_CaughtByFindHint`; a corrupt `w1` is caught by `FindHint`, the release-gate refuses any non-verifying signature |
+| Dealerless byte-FIPS-204 KEY DKG impossible (S_η argument) | sound-by-reduction (parameter-derived obstruction) | `distributed_bcc_dkg.go` → `ErrDealerlessByteFIPSUnreachable`; `s1,s2 ∈ S_η = {‖p‖∞ ≤ η}`, a dealerless sum has ‖·‖∞ ≤ N·η > η ⇒ breaks BCC (‖c·s2‖∞ ≤ N·β > β) + FIPS-204 equivalence; KEYGEN trusted-dealer, Corona carries permissionless |
+
+### §2 addendum — TALUS / CSCP assurance (v1.2.0)
+
+The four rows above record the v1.2.0 TALUS threshold ML-DSA assurance. The
+leak-free CSCP property (`w`/`w0` never formed) is **semi-honest and proven in
+an in-process N-party SIMULATION** — the harness holds every party's shares; it
+is the *algorithm* that never reconstructs `w`/`w0`, faithfully proven, but this
+is NOT yet a networked/deployed distributed MPC, and the malicious-secure CSCP
+layer is UNBUILT (**Residual A**, `BLOCKERS.md`). A malicious deviation can
+never forge or leak — `FindHint` + `TalusReleaseGate` bound it to a liveness
+fault. KEYGEN stays trusted-dealer because dealerless byte-FIPS-204 KEY DKG is
+proven unreachable (**Residual B**); the permissionless-public guarantee is
+carried by the dealerless Corona leg of the Quasar AND-mode cert.
 
 ## §3 What is NOT proved (the load-bearing honesty disclosure)
 
@@ -100,6 +118,11 @@
 3. **ML-DSA hardness, side-channels beyond jasmin-CT, adaptive-corruption
    unforgeability, robust completion, async identifiable-abort** — not
    proved here (see `docs/proof-claims.md` §3 for the full list).
+4. **The TALUS leak-free property is semi-honest and simulation-only.** It is
+   not machine-checked, not a networked MPC deployment, and the malicious-secure
+   CSCP layer is unbuilt (Residual A). KEYGEN is trusted-dealer (dealerless
+   byte-FIPS-204 KEY DKG is proven unreachable, Residual B); permissionless
+   safety rests on Corona.
 
 ## §4 The honest one-paragraph version
 

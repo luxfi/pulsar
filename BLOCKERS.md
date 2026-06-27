@@ -1,12 +1,19 @@
 # Finding registry — luxfi/pulsar
 
-**Status: OPEN items present (see `## Open`).** The v1.1.1 byte-equality /
-ctx-bound / public-BFT claims are submission-ready, but the v0.3/v0.4
-leaderless threshold path has CRITICAL open findings (PULSAR-V13-*), and
-the EasyCrypt byte-equality proof rests on an OPEN reconstruct-then-sign
-axiom cone (PULSAR-EC-RECON-MODEL). None blocks the single-party / N4 /
-interop-tested BCC claims; all block any "production threshold path is
-proven" statement.
+**Status (v1.2.0): the TALUS threshold ML-DSA path is BUILT and
+PULSAR-V13-W-LEAK is CLOSED (semi-honest, simulation-proven).** The v1.1.x
+byte-equality / ctx-bound / public-BFT claims remain submission-ready. On the
+leaderless threshold path the REAL CSCP secure-comparison circuit closes the
+W-LEAK under an honest majority (commit `530c24e`); exactly TWO honest
+residuals remain open — **Residual A** (the CSCP malicious-secure /
+identifiable-abort layer, plus a networked non-simulation MPC deployment) and
+**Residual B** (dealerless byte-FIPS-204 KEY DKG is proven unreachable ⇒
+KEYGEN stays trusted-dealer; permissionless safety is carried by the dealerless
+Corona leg of the AND-mode Quasar cert). The EasyCrypt byte-equality proof
+still rests on an OPEN reconstruct-then-sign axiom cone
+(PULSAR-EC-RECON-MODEL). None of these blocks the single-party / N4 /
+interop-tested BCC claims; the two residuals block any "malicious-secure,
+networked, permissionless threshold path is proven" statement.
 
 Forward-looking v1.2 extensions are tracked under
 `## Forward-looking (v1.2)` below; they are EXTENSIONS surfaced by the
@@ -27,6 +34,41 @@ v1.0.7 sign-off); the canonical narrative lives in `CHANGELOG.md`
 and the v1.0.7 sign-off.
 
 ## Open
+
+**Open items (v1.2.0) = exactly two honest residuals on the TALUS threshold
+path.** The old "two novel components fail-closed — (i) tight small-norm
+lattice range proofs and (ii) HighBits-inside-MPC" framing is retired:
+component (ii) is now BUILT (that is exactly what the REAL CSCP
+secure-comparison does, semi-honest — PULSAR-V13-W-LEAK, now CLOSED), and
+component (i)'s malicious-secure VSS for the nonce DKG folds into Residual A
+(it is NOT a separate byte-equality blocker). The genuinely-open items are:
+
+- **Residual A — CSCP is semi-honest-secure only (+ networked MPC).** The REAL
+  CSCP secure-comparison circuit (`cscpSecureHighBitsVec`) closes the W-LEAK
+  under an honest majority (N ≥ 2T−1, enforced by `TalusMinPartiesMPC` /
+  `newCSCPCtx` / `bgwMulShares`), but it is proven leak-free in an in-process
+  N-party SIMULATION, and the malicious-secure / identifiable-abort layer
+  (Feldman/Pedersen-committed shares + verified openings + a bit-validity proof
+  + complaint round, including the malicious-secure VSS for the nonce DKG) is
+  UN-built, as is a networked non-simulation deployment. A malicious deviation
+  can never forge or leak — `FindHint` + `TalusReleaseGate` bound it to a
+  LIVENESS fault (abort/retry) (`TestCSCP_WrongW1_CaughtByFindHint`). Detailed
+  record: PULSAR-V13-HINT-LEAK (malicious-secure gates) + PULSAR-V13-W-LEAK
+  (marked CLOSED below + its "Residual" paragraph).
+- **Residual B — dealerless byte-FIPS-204 KEY DKG is impossible (proven).**
+  FIPS-204 KeyGen samples s1,s2 uniformly from S_η = {p : ‖p‖∞ ≤ η}; a
+  dealerless DKG forms the joint secret as a sum/Lagrange combination of N ≥ 2
+  contributions each in S_η, whose ℓ∞-support is up to N·η > η — not
+  S_η-distributed. This breaks BCC byte-validity (‖c·s2‖∞ ≤ N·β > β) AND the
+  FIPS-204 security-equivalence; forcing back into S_η "is exactly a dealer."
+  Code: `distributed_bcc_dkg.go` returns `ErrDealerlessByteFIPSUnreachable`.
+  THEREFORE KEYGEN stays **trusted-dealer** (`DealAlgShares`) and the
+  **permissionless-public guarantee is carried by Corona** (natively dealerless
+  via Pedersen DKG over R_q) in the Quasar AND-mode cert. Detailed record:
+  PULSAR-V12-PARALLEL-PQ item 2 (`## Forward-looking`).
+
+`PULSAR-EC-RECON-MODEL` below is a separate proof-scope disclosure (the EC
+reduction `no_leak_reduction`), not a threshold-path safety residual.
 
 ### PULSAR-EC-RECON-MODEL (HIGH — proof-scope disclosure; RE-SCOPED this pass)
 
@@ -131,15 +173,18 @@ exact off-by-one edges, offline yield ≈ **9.8 %**, and a no-leak single-key
 signature that verifies **byte-for-byte under CIRCL + pq-crystals** (ML-DSA-65/87).
 
 **Status: leak removed + no-leak core complete + cert-verification hardened;
-the production threshold path remains gated FAIL-CLOSED pending external
-review of the novel ZK parts.** `[~]` = structurally complete in code but
-registered fail-closed pending review (NOT claimed proven). Resolution criteria:
+PULSAR-V13-W-LEAK is now CLOSED semi-honest on the TALUS-MPC CSCP path (see
+its CLOSED marker below), and the remaining malicious-secure / range-proof
+gates are the open **Residual A**.** `[~]` = structurally complete in code,
+semi-honest; the malicious-secure hardening is Residual A (a deviation is
+liveness-only via `FindHint` + `TalusReleaseGate`, never forge/leak).
+Resolution criteria:
 - [x] v0.3 `AlgebraicAggregate*` path **removed** from the codebase (not merely gated).
 - [x] Hint derived only via public `FindHint(w', w1)` (FIPS `UseHint`); secret `makeHint` deleted.
 - [x] No production code computes `c·s2`/`c·t0`/`r0`/`LowBits(residual)`.
 - [x] Boundary predicate proves the hidden `r0` bound; ML-DSA-65/87 scope enforced (`ErrBCCParamSet`).
 - [x] `CS2`/`CT0` + all hint-secret wire fields deleted; reflection guard (`TestNoHintSecretFieldsInProductionWireTypes`) enforces it.
-- [~] **Full `w` never on the wire** — `NonceCert` carries only `w1` + a commitment + the clearance QC; the ZK boundary-clearance proof that a hidden `w` is clear is registered **fail-closed** (`ErrClearanceProofUnsound`) pending review (PULSAR-V13-W-LEAK).
+- [x] **Full `w` never on the wire** — CLOSED semi-honest on the TALUS-MPC CSCP path: no node forms `w`/`w0`/`A0` even transiently, and `NonceCert` carries only `w1` + a binding commitment (simulation-proven — see PULSAR-V13-W-LEAK, marked CLOSED below). The earlier debug-oracle ZK-boundary-clearance prototype (`ErrClearanceProofUnsound`) is superseded by the REAL CSCP secure-comparison; the malicious-secure layer is Residual A.
 - [~] Partial-`z` correctness — sound linear sigma proof, FS-bound, challenge validated as `SampleInBall` (`partial_proof.go`); registered **fail-closed** by default; the small-norm range gate is fail-closed (L2-vs-L∞, no faithful proof exists).
 - [x] Canonical, non-grindable nonce selection (`CanonicalNonceIndex`).
 - [~] DKG never reconstructs the master key / `t0` (`DKGPublicOutput`, no `t0`); sound DKG linear proof; the `t0`-bound range gate is fail-closed pending review.
@@ -147,9 +192,20 @@ registered fail-closed pending review (NOT claimed proven). Resolution criteria:
 - [x] Tree aggregation (z-sums + bitmaps + proof roots) for ~1000 signers.
 - [x] Two-certificate consensus artifact — ML-DSA sig + signer bitmap **bound to the signature** via an accountability QC (`ConsensusCert.Verify`).
 - [x] Final sigs verify under ≥2 independent FIPS 204 verifiers (CIRCL + pq-crystals) on the BCC path.
-- [ ] External cryptographic review of the no-MPC leaderless instantiation (the remaining gate).
+- [ ] External cryptographic review + the malicious-secure CSCP layer and a networked, non-simulation MPC deployment (**Residual A** — the remaining gate; the semi-honest leak-free property is already proven in simulation).
 
-### PULSAR-V13-W-LEAK (CRITICAL — replacement-design hazard)
+### PULSAR-V13-W-LEAK (CLOSED — semi-honest, simulation-proven, v1.2.0; TALUS-MPC CSCP path)
+
+**Status**: CLOSED on the TALUS-MPC CSCP path (commit `530c24e`) — semi-honest,
+honest-majority (N ≥ 2T−1), proven leak-free in an in-process N-party
+SIMULATION (the harness holds all parties' shares; it is the *algorithm* that
+never reconstructs `w`/`w0`, faithfully proven — but this is NOT yet a
+networked/deployed distributed MPC). The orthogonal malicious-secure /
+identifiable-abort layer (and a networked, non-simulation MPC deployment) is the
+named **Residual A** (see `## Open`); a malicious deviation is bounded to
+liveness (abort/retry) by `FindHint` + `TalusReleaseGate`, never forge or leak.
+Retained here with the HINT-LEAK cluster for narrative continuity; the registry
+pointer lives in `## Closed`. The hazard history and the closure proof follow.
 
 The boundary-cleared nonce certificate must **not** publish the full
 commitment `w = A·y`. Once `z` is assembled, `w' = A·z − c·t1·2^d` is
@@ -321,12 +377,13 @@ group-key signature in the consensus multi-node test.
   but **no concrete poly-vector share type or concrete `RoundSigner`
   implementor exists on the current line** (the v0.3 algebraic stack was
   removed in the b185533 consolidation).
-- Even with poly-vector shares, the leaderless production path stays
-  fenced **fail-closed** behind the two unproven ZK gates:
-  **PULSAR-V13-W-LEAK** (the distributed boundary-clear NONCE proof —
-  "does not yet exist ⇒ the BCC/CEF signing path is prototype, not
-  production") and **PULSAR-V13-PARTIAL-Z-PROOF** (the proof-carrying
-  z-partial verifier, `RegisterPartialZVerifier` default-fail-closed).
+- The leaderless production path is now BUILT (TALUS, v1.2.0):
+  **PULSAR-V13-W-LEAK** is CLOSED semi-honest on the TALUS-MPC CSCP path
+  (marked CLOSED above) and **PULSAR-V13-PARTIAL-Z-PROOF** is functionally
+  closed on the no-reconstruct path. The remaining open work is **Residual A**
+  (the CSCP malicious-secure / identifiable-abort layer + a networked,
+  non-simulation MPC deployment); a malicious deviation is liveness-only via
+  `FindHint` + `TalusReleaseGate`, never forge or leak.
 
 **Why the consumer is permissionless-safe anyway.** The consensus cert
 is AND-mode and the **Corona leg is genuinely dealerless and
@@ -551,6 +608,20 @@ forward-looking item, not pulsar code; engine wiring at
 MLDSA batch path once the substrate ships.
 
 ## Closed
+
+### PULSAR-V13-W-LEAK — CLOSED semi-honest (v1.2.0)
+
+**Status**: CLOSED (semi-honest, simulation-proven), commit `530c24e`. The
+REAL CSCP secure-comparison circuit (`talus_cscp.go::cscpSecureHighBitsVec`,
+driven by `CEFComputeW1`) realises the ideal so that no node forms `w`/`w0`/`A0`
+even transiently — proven leak-free by `TestCSCP_MultiNode_LeakFree` /
+`TestCSCP_LeakFree_Structural` / `TestCSCP_MaskOpen_HidesW` in an in-process
+N-party SIMULATION. The full hazard description and closure narrative are
+retained in-place with the V13 threshold-path cluster above (its header is
+marked CLOSED). The orthogonal malicious-secure / identifiable-abort layer + a
+networked, non-simulation MPC deployment is the open **Residual A** (`## Open`);
+a malicious deviation is bounded to a liveness fault (abort/retry) by `FindHint`
++ `TalusReleaseGate`, never forge or leak (`TestCSCP_WrongW1_CaughtByFindHint`).
 
 ### PULSAR-V04-CTX — v0.4 ctx-bound threshold sign (FIPS 204 §5.4)
 

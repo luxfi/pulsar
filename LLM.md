@@ -2,8 +2,8 @@
 
 **Repository (current)**: github.com/luxfi/pulsar
 **Repository (target)**: github.com/luxfi/pulsar
-**Latest Tag**: v1.1.4
-**Status**: Research / Reference (not production hardened, not FIPS validated). EasyCrypt + Lean machine-check on host (gate `ec-machine-check.sh`, 14/14); no-leak BCC threshold path interop-verified under CIRCL + pq-crystals.
+**Latest Tag**: v1.2.0
+**Status**: TALUS threshold ML-DSA BUILT; PULSAR-V13-W-LEAK CLOSED (semi-honest, simulation-proven). Not yet FIPS-validated; open residuals = the malicious-secure CSCP layer + a networked MPC deployment (Residual A) and dealerless-key impossibility ⇒ trusted-dealer keygen + Corona-carries-permissionless (Residual B). EasyCrypt + Lean machine-check on host (gate `ec-machine-check.sh`, 14/14); TALUS / no-leak BCC threshold path interop-verified byte-equal under CIRCL + pq-crystals.
 
 ## Rename in progress: Pulsar-M → Pulsar
 
@@ -148,14 +148,56 @@ and resolve before advancing.
 
 ## Purpose (one-liner)
 
-Threshold ML-DSA: 2-round threshold signing and DKG whose generated
-signatures are verifiable by **unmodified FIPS 204 ML-DSA verification**.
-Targeting NIST MPTC Class N1 (signing) + N4 (ML keygen / DKG).
+Threshold ML-DSA: a two-round lattice kernel + one-round online signing
+(TALUS) and DKG whose generated signatures are verifiable by **unmodified
+FIPS 204 ML-DSA verification**. Targeting NIST MPTC Class N1 (signing) + N4
+(ML keygen / DKG).
 
 Pulsar-M is the Module-LWE sibling of `luxfi/pulsar` (Ring-LWE). Pulsar's
-2-round protocol is transplanted onto ML-DSA-65's polynomial-vector-over-`R_q`
+two-round kernel is transplanted onto ML-DSA-65's polynomial-vector-over-`R_q`
 algebra so the aggregated signature is bit-identical to a single-party
-FIPS 204 signature on the same message + public key.
+FIPS 204 signature on the same message + public key; TALUS (v1.2.0) adds
+one-round online signing on top.
+
+## TALUS — threshold ML-DSA (v1.2.0)
+
+TALUS is the threshold ML-DSA scheme on Pulsar's two-round lattice kernel,
+adding **one-round online signing**. Source: `ref/go/pkg/pulsar/talus*.go`.
+
+- **Three pillars.** Dealerless Shamir **nonce DKG** (`talus_nonce_dkg.go`),
+  **CEF** = Carry Elimination Framework / distributed `w1` (`talus_cef.go`),
+  **CSCP** = the CarryCompare secure-comparison protocol (`talus_cscp.go`).
+  BCC = Boundary Clearance Condition. These route around the impossibility of
+  FROST-style additive-nonce threshold ML-DSA (HighBits/r0/carry is non-linear).
+- **W-LEAK closed (semi-honest, simulation-proven).** Commit `530c24e`: the
+  REAL CSCP secure-comparison circuit (bit-decompose + carry-save bitAdd +
+  prefix bitLT over BGW multiplication, coefficient-exact vs FIPS Decompose)
+  drives `CEFComputeW1` → `cscpSecureHighBitsVec`, so NO node forms `w0` or the
+  full commitment `w` even transiently (only masked openings {valid, maskC,
+  w1}). Proven leak-free by `TestCSCP_MultiNode_LeakFree` /
+  `TestCSCP_LeakFree_Structural` / `TestCSCP_MaskOpen_HidesW` — but in an
+  in-process N-party SIMULATION (NOT a networked/deployed MPC, NOT
+  malicious-secure). Always describe as **semi-honest, simulation-proven**.
+- **Two profiles.** **Pulsar-TEE** (TEE-backed `w1`) and **Pulsar-MPC**
+  (honest-majority N ≥ 2T−1, enforced by `TalusMinPartiesMPC` / `newCSCPCtx` /
+  `cscpSecureHighBitsVec` / `bgwMulShares`). Signature byte-identical across both.
+- **Stock FIPS-204.** A TALUS signature verifies byte-equal under UNMODIFIED
+  `cloudflare/circl` `mldsa65.Verify` / `mldsa87.Verify`
+  (`TestTalus_MPC_EndToEnd_StockVerify`, `TestTalus_MPC_Mode87`).
+- **Malicious deviation = liveness-only.** `FindHint` (recovers the FIPS hint
+  from public `w' = A·z − c·t1·2^d`) + `TalusReleaseGate` (mandatory stock
+  FIPS-204 verify, never releases a failed sig) bound any malicious CSCP
+  deviation to abort/retry — never forge or leak
+  (`TestCSCP_WrongW1_CaughtByFindHint`). This is **Residual A** (the
+  malicious-secure CSCP layer + a networked MPC deployment, un-built).
+- **KEYGEN is trusted-dealer (Residual B).** Dealerless byte-FIPS-204 KEY DKG
+  is *proven unreachable*: FIPS-204 KeyGen samples s1,s2 from S_η = {‖p‖∞ ≤ η};
+  a dealerless sum of N ≥ 2 contributions has ℓ∞-support up to N·η > η, breaking
+  BCC byte-validity (‖c·s2‖∞ ≤ N·β > β) and the FIPS-204 security-equivalence
+  (`distributed_bcc_dkg.go` → `ErrDealerlessByteFIPSUnreachable`). KEYGEN stays
+  trusted-dealer; the **permissionless guarantee is carried by Corona**
+  (corona v0.8.0, natively dealerless via Pedersen DKG over R_q) in the Quasar
+  AND-mode cert.
 
 ## Canonical profile + scheme constants
 
@@ -166,7 +208,7 @@ FIPS 204 signature on the same message + public key.
     share. Canonical extreme committee target: `TargetCommitteeSize =
     1_111_111` (seven 1s).
 - Curve / lattice: same Module-LWE parameters as ML-DSA-65.
-- Round count: 2 (commit + reveal).
+- Round count: two-round kernel (commit + reveal); TALUS adds one-round online signing.
 - Abort model: identifiable.
 - Arithmetic width: uint32 lanes with uint64 accumulators. uint128 /
   uint256 not required (reserved for the Z-Chain SNARK side).
@@ -187,7 +229,7 @@ FIPS 204 signature on the same message + public key.
 
 ## Active versions
 
-- Repo: `v1.1.4` (current; patch-bump only, next `v1.1.5`).
+- Repo: `v1.2.0` (current; TALUS threshold ML-DSA + PULSAR-V13-W-LEAK closed semi-honest).
 - Pinned by: `luxfi/consensus v1.23.5+` (finality verify path replaces
   the placeholder Pulsar-M verifier).
 

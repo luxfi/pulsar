@@ -4,6 +4,64 @@ This file tracks substantive changes to the EasyCrypt proof
 artifact, the spec, and the residual trust footprint. For
 implementation-level changes see `git log`.
 
+## v1.2.0 — TALUS threshold ML-DSA (one-round online; W-LEAK closed semi-honest)
+
+TALUS is the threshold ML-DSA scheme on the two-round lattice kernel, adding
+**one-round online signing** via three pillars: a dealerless Shamir **nonce
+DKG**, the **CEF** (Carry Elimination Framework, distributed `w1`), and **CSCP**
+(the CarryCompare secure-comparison protocol). Source:
+`ref/go/pkg/pulsar/talus*.go`.
+
+**PULSAR-V13-W-LEAK closed (semi-honest, simulation-proven).** Commit
+`530c24e` lands the REAL CSCP secure-comparison circuit (bit-decompose +
+carry-save `bitAdd` + prefix `bitLT` over BGW multiplication, validated
+coefficient-exact against FIPS Decompose). On the production
+`CEFComputeW1` → `cscpSecureHighBitsVec` path NO node forms `w0` or the full
+commitment `w` even transiently — only three masked openings
+(`{valid, maskC, w1}`) — proven leak-free by `TestCSCP_MultiNode_LeakFree`,
+`TestCSCP_LeakFree_Structural`, and `TestCSCP_MaskOpen_HidesW`. HONEST SCOPE:
+this is an in-process N-party SIMULATION (the harness holds all parties'
+shares); the *algorithm* never reconstructs `w`/`w0`, faithfully proven, but
+this is NOT yet a networked/deployed distributed MPC and the malicious-secure
+layer is unbuilt.
+
+- **Two profiles.** **Pulsar-TEE** (TEE-backed `w1` source) and **Pulsar-MPC**
+  (honest-majority N ≥ 2T−1, enforced by `TalusMinPartiesMPC` / `newCSCPCtx` /
+  `cscpSecureHighBitsVec` / `bgwMulShares`). The emitted signature is
+  byte-identical across profiles.
+- **Stock FIPS-204 verify.** A TALUS signature verifies byte-equal under the
+  UNMODIFIED `cloudflare/circl` `mldsa65.Verify` / `mldsa87.Verify`
+  (`TestTalus_MPC_EndToEnd_StockVerify`, `TestTalus_MPC_Mode87`).
+- **Malicious deviation = liveness-only.** `FindHint` (recovers the FIPS hint
+  from public `w' = A·z − c·t1·2^d`) + `TalusReleaseGate` (mandatory stock
+  FIPS-204 verify; never releases a failed signature) bound any malicious CSCP
+  deviation to abort/retry — never forge or leak
+  (`TestCSCP_WrongW1_CaughtByFindHint`). This is the open **Residual A** (the
+  CSCP malicious-secure / identifiable-abort layer + a networked,
+  non-simulation MPC deployment).
+- **KEYGEN stays trusted-dealer (Residual B).** Dealerless byte-FIPS-204 KEY
+  DKG is *proven unreachable*: FIPS-204 KeyGen samples `s1,s2` from
+  `S_η = {p : ‖p‖∞ ≤ η}`, but a dealerless sum/Lagrange combination of N ≥ 2
+  contributions has ℓ∞-support up to `N·η > η`, breaking BCC byte-validity
+  (`‖c·s2‖∞ ≤ N·β > β`) and the FIPS-204 security-equivalence
+  (`distributed_bcc_dkg.go` returns `ErrDealerlessByteFIPSUnreachable`). KEYGEN
+  therefore stays trusted-dealer (`DealAlgShares`); the
+  **permissionless-public guarantee is carried by Corona** (natively dealerless
+  via Pedersen DKG over `R_q`), composed alongside Pulsar in the Quasar AND-mode
+  dual-PQ cert.
+
+## v1.1.0 – v1.1.5 — BCC/CEF byte-equal threshold ML-DSA + honest-status hardening
+
+The Boundary-Clearance-Condition (BCC) + Carry-Elimination (CEF)
+no-reconstruct signing path: the hint is recovered from the **public**
+`w' = A·z − c·t1·2^d` via `FindHint` (FIPS `UseHint`), no production code forms
+`c·s2`/`c·t0`/`r0`, and the single-key BCC signature verifies byte-for-byte
+under CIRCL + pq-crystals (ML-DSA-65/87). The leaking v0.3 `AlgebraicAggregate*`
+path was deleted forward-only; PULSAR-V04-CTX (FIPS 204 §5.4 ctx-bound sign)
+closed; and the proof-claim vocabulary was hardened to an honest two-model
+framing (idealised reconstruct-then-sign vs the production no-leak residual
+under a standard Module-LWE / Module-SIS reduction).
+
 ## v1.0.14 — v0.2 honesty rename (Algebraic → Transitional)
 
 The v0.2 API previously named `Algebraic*` was materially
