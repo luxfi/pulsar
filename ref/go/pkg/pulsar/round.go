@@ -97,23 +97,6 @@ func RoundCommitteeRoot(committee []NodeID) [32]byte {
 	return transcriptHash32(tagDKGCommit, parts...)
 }
 
-// RoundSigShare is the per-validator Pulsar signature contribution
-// emitted in one Lux round. It rides alongside the validator's Wave
-// preference vote on the Photon wire. The aggregator at the Quasar
-// layer collects β rounds worth of these, passes them to LargeCombine
-// (or the small-committee Combine), and emits one FIPS 204 ML-DSA
-// signature that the P3Q rollup attests to as part of the final
-// block certificate.
-type RoundSigShare struct {
-	// Context binds the share to its Lux round.
-	Context RoundContext
-	// Round1 is the per-round Pulsar Round-1 commit message.
-	Round1 *Round1Message
-	// Round2 is the per-round Pulsar Round-2 reveal message.
-	// Filled in after the Wave alpha-of-K agreement check passes.
-	Round2 *Round2Message
-}
-
 // RoundQuorumPolicy bundles the (alpha, beta) parameters Wave uses to
 // drive Lux-round agreement. These are exposed here so the
 // consensus-layer Wave-driver can synchronise them with the Pulsar
