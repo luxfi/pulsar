@@ -206,15 +206,16 @@ func TestTalus_CEF_DistributedCommitment(t *testing.T) {
 	f := newBCCFixture(t, ModeP65, n, threshold)
 	_, L, _ := modeShape(ModeP65)
 	K := f.params.K
-	quorum, evalPoints, _ := f.quorum(threshold)
+	// CEF/CSCP run over the full honest-majority committee (N≥2T−1).
+	quorum, evalPoints, _ := f.quorum(n)
 
 	var nonceID [32]byte
 	nonceID[0] = 0x07
 	yShares, _ := runNonceDKG(t, ModeP65, quorum, evalPoints, threshold, nonceID)
 
-	// Per-node local commitment shares.
-	commits := make([]polyVec, threshold)
-	for i := 0; i < threshold; i++ {
+	// Per-node local commitment shares (one per committee member).
+	commits := make([]polyVec, n)
+	for i := 0; i < n; i++ {
 		lambda := LagrangeAtZeroQ(evalPoints[i], evalPoints)
 		g, err := CEFCommitmentShare(f.setup, lambda, yShares[quorum[i]])
 		if err != nil {
@@ -231,8 +232,8 @@ func TestTalus_CEF_DistributedCommitment(t *testing.T) {
 		t.Fatalf("Σ commitment shares ≠ A·ȳ — distributed commitment broken")
 	}
 
-	// CEF produces w1; assert it equals HighBits(A·ȳ) and the cert is W-clean.
-	cert, err := CEFComputeW1(f.setup, commits, nonceID)
+	// REAL CSCP produces w1; assert it equals HighBits(A·ȳ) and the cert is W-clean.
+	cert, err := CEFComputeW1(f.setup, commits, evalPoints, threshold, nonceID, rand.Reader)
 	if err != nil {
 		t.Fatalf("CEFComputeW1: %v", err)
 	}
@@ -385,10 +386,15 @@ func TestTalus_SharedRandomBit(t *testing.T) {
 // non-boundary-clear (hint) rejection.
 func runTalusMPCCeremony(t *testing.T, f *bccFixture, q int, sid [32]byte, ctx, msg []byte) (*Signature, error) {
 	t.Helper()
-	quorum, evalPoints, qshares := f.quorum(q)
-	if !TalusProfileAllows(TalusMPC, q, len(f.shares)) {
-		t.Fatalf("committee N=%d not admissible for TalusMPC at T=%d (need N≥%d)", len(f.shares), q, TalusMinPartiesMPC(q))
+	n := len(f.shares)
+	if !TalusProfileAllows(TalusMPC, q, n) {
+		t.Fatalf("committee N=%d not admissible for TalusMPC at T=%d (need N≥%d)", n, q, TalusMinPartiesMPC(q))
 	}
+	// CEF/CSCP run over the FULL committee (honest-majority N≥2T−1 — TALUS Thm 10.1);
+	// the online z-round uses any t-subset. Both interpolate the SAME degree-(T−1) ȳ,
+	// so the cert's w1 = HighBits(A·ȳ) matches the signing quorum's implied commitment.
+	cefQuorum, cefEval, cefShares := f.quorum(n)
+	quorum, evalPoints, qshares := cefQuorum[:q], cefEval[:q], cefShares[:q]
 
 	for attempt := 0; attempt < int(f.params.MaxRestart); attempt++ {
 		var nonceID [32]byte
@@ -396,22 +402,23 @@ func runTalusMPCCeremony(t *testing.T, f *bccFixture, q int, sid [32]byte, ctx, 
 		nonceID[1] = byte(attempt >> 8)
 		copy(nonceID[2:], sid[:30])
 
-		// 1. Dealerless nonce DKG.
-		yShares, dkgParts := runNonceDKG(t, f.params.Mode, quorum, evalPoints, q, nonceID)
+		// 1. Dealerless nonce DKG over the full committee at threshold q.
+		yShares, dkgParts := runNonceDKG(t, f.params.Mode, cefQuorum, cefEval, q, nonceID)
 
-		// 2. Per-node local CEF commitment shares.
-		commits := make([]polyVec, q)
-		for i := 0; i < q; i++ {
-			lambda := LagrangeAtZeroQ(evalPoints[i], evalPoints)
-			g, err := CEFCommitmentShare(f.setup, lambda, yShares[quorum[i]])
+		// 2. Per-node local CEF commitment shares over the full committee.
+		commits := make([]polyVec, n)
+		for i := 0; i < n; i++ {
+			lambda := LagrangeAtZeroQ(cefEval[i], cefEval)
+			g, err := CEFCommitmentShare(f.setup, lambda, yShares[cefQuorum[i]])
 			if err != nil {
 				return nil, err
 			}
 			commits[i] = g
 		}
 
-		// 3. CEF distributed-w1 → W-LEAK-clean nonce cert (no node formed w).
-		cert, err := CEFComputeW1(f.setup, commits, nonceID)
+		// 3. REAL CarryCompare (CSCP): secure HighBits over the committee → a
+		// W-LEAK-clean nonce cert. No node, and no process, forms w / w0 / A0.
+		cert, err := CEFComputeW1(f.setup, commits, cefEval, q, nonceID, rand.Reader)
 		if err != nil {
 			return nil, err
 		}
@@ -535,16 +542,18 @@ func TestTalus_MPC_Mode87(t *testing.T) {
 func TestTalus_MPC_SubQuorumCannotSign(t *testing.T) {
 	const n, threshold = 5, 3
 	f := newBCCFixture(t, ModeP65, n, threshold)
-	quorum, evalPoints, qshares := f.quorum(threshold)
+	// CEF over the full honest-majority committee; sign with the first t.
+	cefQuorum, cefEval, cefShares := f.quorum(n)
+	quorum, evalPoints, qshares := cefQuorum[:threshold], cefEval[:threshold], cefShares[:threshold]
 	var nonceID [32]byte
 	nonceID[0] = 0x5a
-	yShares, _ := runNonceDKG(t, ModeP65, quorum, evalPoints, threshold, nonceID)
-	commits := make([]polyVec, threshold)
-	for i := 0; i < threshold; i++ {
-		lambda := LagrangeAtZeroQ(evalPoints[i], evalPoints)
-		commits[i], _ = CEFCommitmentShare(f.setup, lambda, yShares[quorum[i]])
+	yShares, _ := runNonceDKG(t, ModeP65, cefQuorum, cefEval, threshold, nonceID)
+	commits := make([]polyVec, n)
+	for i := 0; i < n; i++ {
+		lambda := LagrangeAtZeroQ(cefEval[i], cefEval)
+		commits[i], _ = CEFCommitmentShare(f.setup, lambda, yShares[cefQuorum[i]])
 	}
-	cert, err := CEFComputeW1(f.setup, commits, nonceID)
+	cert, err := CEFComputeW1(f.setup, commits, cefEval, threshold, nonceID, rand.Reader)
 	if err != nil {
 		t.Fatalf("CEFComputeW1: %v", err)
 	}
@@ -698,6 +707,8 @@ func TestTalus_WireTypes_NoForbiddenFields(t *testing.T) {
 		reflect.TypeOf(NonceDKGDeal{}),
 		reflect.TypeOf(TalusEvidence{}),
 		reflect.TypeOf(CSCPObstruction{}),
+		reflect.TypeOf(CSCPParticipant{}),
+		reflect.TypeOf(CSCPMaliciousResidual{}),
 	} {
 		if name, bad := typeHasForbiddenField(typ); bad {
 			t.Fatalf("%s carries forbidden field %q", typ.Name(), name)

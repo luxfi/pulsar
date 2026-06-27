@@ -163,16 +163,63 @@ Go predicate and `spec` are **debug-oracle/prototype**: production needs the
 ZK proof machinery, which does not yet exist ⇒ the BCC/CEF signing path is
 **prototype, not production**, even though the arithmetic tests pass.
 
-**Status update (TALUS, PULSAR-V12 item 3): NARROWED.** The leaking
-`DealNonceMPCDebug.DebugW` is no longer the only path. The dealerless Shamir
-Nonce DKG (`talus_nonce_dkg.go`) + CEF distributed-w1 (`talus_cef.go`,
-`CEFComputeW1`) now establish ȳ and emit a `NonceCert` carrying **only w1**
-(no `w` / `w0` / low-sum on the wire). The residual is narrowed to one
-precisely-computed step: realising the ideal `cefIdealSecureHighBits` by the
-actual CarryCompare (CSCP) secure comparison so no node forms `w0` even
-transiently. The obstruction (DCF for T=2 / CSA+prefix for T≥3 over the
-`bgwMulShares` substrate, N≥2T−1, round & comparison cost, leak-if-skipped)
-is COMPUTED by `assessCSCP` / `AssessCarryCompare`, not asserted.
+**Status update (TALUS, PULSAR-V12 item 3): leak-free realisation BUILT +
+PROVEN (semi-honest honest-majority); the W-LEAK proper is CLOSED on the
+TALUS-MPC path; the orthogonal malicious-secure layer is the named residual.**
+The leaking `DealNonceMPCDebug.DebugW` is gone from the output, and the
+narrowed residual — realising the ideal `cefIdealSecureHighBits` by an ACTUAL
+CarryCompare secure comparison so no node forms `w0`/`w`/`A0` even transiently
+— is now BUILT (`talus_cscp.go`, branch `feat/pulsar-cscp`):
+
+- The REAL secure circuit `cscpSecureHighBitsVec` computes
+  `w1 = HighBits(Σ g_i mod q)` coefficient-wise from the per-party ADDITIVE
+  commitment shares via a genuine secure comparison: additive→Shamir reshare to
+  ⟨w⟩ over GF(q); a mask-open bit-decomposition (carry-save adder + a bitwise
+  prefix less-than for the mod-q fold — the "CSA + prefix comparison" the
+  obstruction names); and the exact boundary-count HighBits identity
+  `w1 = (Σ_{k=1..16}[w>(2k−1)γ2]) mod 16` (m=16 is a power of two for ML-DSA-65/87,
+  validated coefficient-exact against FIPS Decompose). Built on the
+  `bgwMulShares` / `SharedRandomBit` substrate; enforces N ≥ 2T−1.
+- `CEFComputeW1` now DRIVES this real circuit (it no longer calls the ideal);
+  `cefIdealSecureHighBits` is retained only as the test ORACLE the secure output
+  is proven equal to.
+- LEAK-FREE, proven three ways: (i) **transcript** — the ONLY values ever
+  reconstructed are the random-bitwise validity bit, the per-coefficient UNIFORM
+  mask-open `c = (w−r) mod q`, and the final `w1`; `w`, `w0`, `A0`, and the bits
+  of `w` are never opened (`TestCSCP_MultiNode_LeakFree`, `otherCt==0`);
+  (ii) **structural source guard** — `reconstructScalarGFq` is called exactly
+  once (inside `open()`), and `open()` is called with only the three sanctioned
+  tags (`TestCSCP_LeakFree_Structural`); (iii) **reflection** — a node's
+  persistent state (`CSCPParticipant`) holds only its own commitment share, no
+  joint `w`/`w0`/`A0` field. Perfect masking is shown directly
+  (`TestCSCP_MaskOpen_HidesW`: fresh randomness ⇒ different mask-opens, identical
+  `w1`).
+- CORRECT, proven exact (not probabilistic): the real CSCP `w1` equals both the
+  ideal `cefIdealSecureHighBits` and the ground-truth `HighBits(A·ȳ)` on real
+  multi-node shares, ML-DSA-65 and -87 (`TestCSCP_SecureVec_MatchesIdealOracle`);
+  the gadgets are validated bottom-up (bitwise LT exhaustive over all 64×64
+  pairs; bit-decompose reconstructs; secure HighBits == FIPS Decompose on
+  boundary + random coefficients). The headline `TestTalus_MPC_EndToEnd_StockVerify`
+  / `_Mode87` now run the REAL CSCP and the aggregated signature still verifies
+  byte-for-byte under the UNMODIFIED `cloudflare/circl mldsa{65,87}.Verify`.
+  Race-clean (the per-coefficient parallel driver).
+- The obstruction (DCF for T=2 / CSA+prefix for T≥3, N≥2T−1, round & comparison
+  cost, leak-if-skipped) remains COMPUTED by `assessCSCP` / `AssessCarryCompare`.
+
+**Residual (orthogonal, semi-honest → malicious):** the circuit is semi-honest
+honest-majority. A malicious party could feed an inconsistent re-share, a
+non-{0,1} "bit", or equivocate a mask opening — biasing `w1`. This is the
+`CSCPMaliciousResidual` (`AssessCSCPMalicious`): each deviation is named with its
+standard closing layer (Feldman/Pedersen-committed shares + verified openings,
+a bit-validity proof, identifiable abort via signed share commitments — TALUS
+Phase B). Crucially, even WITHOUT that layer a wrong `w1` cannot forge or leak:
+`FindHint` rejects a `w1` no public hint reaches and `TalusReleaseGate` runs
+mandatory stock FIPS-204 verification before any signature is emitted, so a
+deviation is at worst a LIVENESS fault (nonce consumed, retry), never a forged
+signature or a key leak (`TestCSCP_WrongW1_CaughtByFindHint`). KEYGEN is still
+the trusted dealer `DealAlgShares` (dealerless byte-FIPS-204 KEY DKG is unreachable,
+item 2); permissionless safety rests on the dealerless Corona leg of the AND-mode
+dual-PQ cert.
 
 ### PULSAR-V13-PARTIAL-Z-PROOF (HIGH — consensus robustness)
 
@@ -446,12 +493,16 @@ item 2 RESEARCH-BLOCKED with a computed obstruction):**
     rejection. 15 TALUS tests green; `go build ./...` and the full package
     suite green.
 
-  **Remaining honest work (Item 3):** (a) realise `cefIdealSecureHighBits`
-  by the actual CSCP secure-comparison circuit on `bgwMulShares` (the cost
-  is in `assessCSCP`) so no node forms w0 even transiently; (b) the
+  **Remaining honest work (Item 3):** (a) **DONE** — `cefIdealSecureHighBits`
+  is realised by the actual CSCP secure-comparison circuit (`talus_cscp.go`,
+  `cscpSecureHighBitsVec`, driven by `CEFComputeW1`) on the `bgwMulShares`
+  substrate; no node forms w0/w/A0 even transiently (proven by transcript +
+  source-structural guard + reflection; see PULSAR-V13-W-LEAK above). (b) the
   malicious-secure / identifiable-abort layer (committed shares, verified
-  openings, complaint round) over the DKG and the comparison; (c) KEYGEN is
-  still the trusted dealer `DealAlgShares` (item 2 proves dealerless
+  openings, complaint round) over the DKG and the comparison — the scoped
+  `CSCPMaliciousResidual`, orthogonal to the now-proven semi-honest leak-free
+  property; a wrong w1 is caught downstream (liveness fault, never forgery/leak);
+  (c) KEYGEN is still the trusted dealer `DealAlgShares` (item 2 proves dealerless
   byte-FIPS-204 KEYGEN is unreachable; permissionless safety rests on the
   dealerless Corona leg in the AND-mode cert). HONEST DISTINGUISHABILITY
   NOTE: the TALUS threshold transcript (masked CEF broadcasts + per-party
