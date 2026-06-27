@@ -173,6 +173,22 @@ fails the aggregate with no clean blame path (leaderless DoS). Verify
 partials **without** `c·s2_i`/`c·t0_i`/`r0_i`/hint shares (those fields must
 not exist).
 
+**Status: functionally CLOSED on the new no-reconstruct signing path**
+(branch `feat/pulsar-dealerless-v12`). The sound, complete Maurer /
+generalized-Schnorr linear sigma for exactly this relation already exists
+(`partial_proof.go` `ProvePartial`/`VerifyPartialProof`, special-soundness
+from invertible challenge differences in `Z_q`, parallel-repeated to
+≈2⁻¹⁸⁶ soundness, HVZK). `DistributedBCCSigner.Round2` produces it and
+`AggregateBCC` verifies every partial against the public `(λ_i,c,z_i)` +
+session/nonce/party binding, dropping any that fail — the clean blame path
+(`TestDistributedBCC_SoundPartialZProofRejectsForgery`). Documented scope
+(unchanged): the sigma proves the LINEAR relation + FS context binding; it
+does NOT re-prove the hash-opening of the DKG/nonce commitments (SHA-3
+non-linear) nor a small-norm bound on `y_i` (no exact ℓ∞ range proof — the
+final FIPS `‖z‖<γ1−β` check and the boundary-clear nonce gate cover norm).
+The registry seam stays default-fail-closed; the one-line production
+closure is `RegisterPartialZVerifier(SoundPartialZVerifier(mode,λ,c,z))`.
+
 ## Forward-looking (v1.2)
 
 These are EXTENSIONS surfaced by the 2026-06 fresh four-dimension audit
@@ -267,8 +283,8 @@ its genesis TEE-gated (see PULSAR-V12-TEE-BIND and the `mldsa-tee`
 custody surface above).
 
 **Forward path (do NOT resurrect v0.3).** Finish the new model:
-(1) add a poly-vector `(s1,s2,t0)` secret-share type and a concrete
-single-share `RoundSigner` whose `Round2` emits a real `Partial`;
+(1) add a poly-vector secret-share type and a concrete single-share
+`RoundSigner` whose `Round2` emits a real `Partial`;
 (2) close PULSAR-V13-W-LEAK and PULSAR-V13-PARTIAL-Z-PROOF (the
 distributed-nonce and partial-z ZK proofs). The proven per-node custody
 DECOMPOSITION to apply once the share type lands is gate C's
@@ -278,6 +294,61 @@ session/round messages on the bus, aggregator combines messages (no
 share, no sk) — the same single-share boundary the Corona leg already
 ships. Restoring the removed v0.3 stack is rejected: it would create a
 second threshold path (violates one-way) and is a backwards move.
+
+**Status update — branch `feat/pulsar-dealerless-v12` (item 1 BUILT,
+item 2 RESEARCH-BLOCKED with a computed obstruction):**
+
+- **Item 1 — no-reconstruct single-share SIGNING: BUILT + PROVEN.**
+  `ref/go/pkg/pulsar/distributed_bcc.go` adds `AlgShare` (a GF(q)
+  poly-vector Shamir share of the EXPANDED component **s1 only** — the
+  BCC/CEF path never touches s2/t0, so sharing them would reopen
+  PULSAR-V13-HINT-LEAK; this matches the `DKGPublicOutput` no-t0
+  invariant and the `dkg_wellformed.go` note "online signing needs only
+  s1_i, y_i and public t1") and `DistributedBCCSigner`, the concrete
+  `RoundSigner` (`var _ RoundSigner = (*DistributedBCCSigner)(nil)`).
+  Round1 binds the canonical `NonceCert` and derives c; Round2 emits
+  `z_i = λ_i·y_i + c·λ_i·s1_i` carrying the **sound** partial-z proof;
+  Finalize aggregates `z = Σ z_i` Lagrange-linearly (`FlatAggregateZ`),
+  recovers the hint from PUBLIC `w'` via `FindHint`, and emits FIPS-204
+  `sigEncode`. The aggregator surface `AggregateBCC` takes `[]Partial`
+  only — **no share, sk, or seed**. Multi-node proof
+  (`distributed_bcc_test.go`, 7 tests): t separate signers one share
+  each over a message bus, signatures verify under **unmodified FIPS-204**
+  (`VerifyBytes` + stock circl `Verify`), ML-DSA-65 and -87, ctx-binding
+  real, sub-quorum refused, share carries no seed/s2/t0, `ShareCount()==1`.
+  **PULSAR-V13-PARTIAL-Z-PROOF is functionally CLOSED on this path**: the
+  sound Maurer/Schnorr sigma (`partial_proof.go`) is verified per-partial
+  in `AggregateBCC`; a forged z-partial is dropped with a clean blame path
+  (`TestDistributedBCC_SoundPartialZProofRejectsForgery`). The
+  consensus-facing registry closure is the one-liner
+  `RegisterPartialZVerifier(SoundPartialZVerifier(mode,λ,c,z))`.
+  Honest residuals: KEYGEN here is the **trusted dealer** `DealAlgShares`
+  (no-reconstruct at SIGN time, not dealerless — that is item 2), and the
+  joint nonce is the **NonceMPC stand-in** `DealNonceMPCDebug` (it reveals
+  w to the harness = **PULSAR-V13-W-LEAK**, still fail-closed; the SIGNING
+  decomposition is independent of how the nonce was established).
+
+- **Item 2 — dealerless byte-FIPS-204 ML-DSA DKG: RESEARCH-BLOCKED, with
+  a COMPUTED obstruction (not a stub, not a fake, no dealer/TEE fallback).**
+  `ref/go/pkg/pulsar/distributed_bcc_dkg.go` `assessDealerlessFIPS`
+  derives the wall from the parameters (mirroring `rangeproof.go`):
+  FIPS-204 calibrates β=τη, ω, and the BCC 2β margin to ‖s1‖∞,‖s2‖∞ ≤ η;
+  a dealerless joint secret is a sum/Lagrange-combination of N≥2
+  contributions ⇒ ‖s2‖∞ ≤ Nη ⇒ ‖c·s2‖∞ ≤ Nβ > β, **violating the BCC
+  boundary-clearance hypothesis ‖c·s2‖∞ ≤ β at N=2 for both ML-DSA-65 and
+  -87**; the deeper break is that a sum-of-contributions secret is not the
+  S_η distribution ML-DSA's EUF-CMA assumes, and forcing it back into S_η
+  needs either a dealer or a norm-reduction that changes (A,t). **t0 is
+  NOT the obstruction** (joint t0 = Power2Round-low is in range for any N,
+  so ‖c·t0‖∞ < γ2 always — pinned by computation). The
+  **Corona/Raccoon noise-flooding** technique IS the right one for a
+  dealerless lattice signature and is exactly why
+  `corona.BootstrapPedersen` is dealerless — but it produces a
+  noise-flooded Ring-LWE / Raccoon-family signature (Threshold Raccoon,
+  EUROCRYPT'24) that does **not** verify under FIPS-204; ML-DSA has fixed
+  S_η bounds and no noise-absorbing rounding step. This is precisely why
+  the cert is AND-mode dual-PQ. `DealerlessMLDSADKG` fails closed
+  (`ErrDealerlessByteFIPSUnreachable`); 5 tests pin the arithmetic.
 
 ### PULSAR-V12-GPU-NTT-WIRE — route Round-2 NTTs through gpu-kernels batched dispatch
 
