@@ -212,6 +212,73 @@ master seed inside an attested TEE. The permissionless v0.3 path does
 NOT materialise sk at any party by construction, so attestation there
 is a policy gate, not a safety primitive.
 
+### PULSAR-V12-PARALLEL-PQ — parallel-PQ AND-mode dual-lattice finality (consensus consumer)
+
+**Status**: CONSUMER WIRED in `luxfi/consensus`; Pulsar-side
+no-reconstruct threshold PRODUCTION remains gated by the V13 findings
+below. Filed here so the consumer's expectations and this repo's
+blockers stay one document apart, not two narratives.
+
+`luxfi/consensus/protocol/quasar` (`dualpq.go`,
+`consensus_cert_dualpq_test.go`) now composes a dual-lattice AND-mode
+finality cert that carries a **Pulsar (Module-LWE / FIPS-204 ML-DSA)
+leg in parallel with a Corona (Ring-LWE) leg**, both required to
+finalize (`config CertModeStrict + CertVariantStrict ⇒ RequiredLegs()
+= {Pulsar, Corona}`). The Pulsar leg is verified live and byte-for-byte
+by an unmodified FIPS-204 verifier (`verifyPulsarLeg → wire.VerifyBytes`);
+that verify path is production-ready and is exercised by a real
+group-key signature in the consensus multi-node test.
+
+**What is NOT yet production on the Pulsar side** — the leg's
+*no-reconstruct, single-share t-of-n SIGNING*:
+
+- The current public `KeyShare` (`types.go`) is a **GF(257) byte-wise
+  share of the 32-byte ML-DSA SEED**. ML-DSA's `s1`/`s2` are a
+  **non-linear** SHAKE expansion of the seed, so seed-shares admit only
+  the Lagrange **reconstruct-then-sign** path (`Combine` /
+  `LargeCombine`) — which materialises the master key in the
+  aggregator (the H-1 footgun; intentionally NOT the production
+  instantiation, see PULSAR-EC-RECON-MODEL Model 1). A no-reconstruct
+  signer needs **poly-vector secret shares of `(s1, s2, t0)`** (the v0.3
+  `AlgebraicKeyShare` shape) so the per-party `z_i = λ_i·y_i +
+  c·λ_i·s_{1,i}` aggregates Lagrange-linearly without ever forming the
+  secret. The new `RoundSigner`/`Partial`/`FlatAggregateZ` model carries
+  the *interface and the z-sum aggregation primitive* for exactly this,
+  but **no concrete poly-vector share type or concrete `RoundSigner`
+  implementor exists on the current line** (the v0.3 algebraic stack was
+  removed in the b185533 consolidation).
+- Even with poly-vector shares, the leaderless production path stays
+  fenced **fail-closed** behind the two unproven ZK gates:
+  **PULSAR-V13-W-LEAK** (the distributed boundary-clear NONCE proof —
+  "does not yet exist ⇒ the BCC/CEF signing path is prototype, not
+  production") and **PULSAR-V13-PARTIAL-Z-PROOF** (the proof-carrying
+  z-partial verifier, `RegisterPartialZVerifier` default-fail-closed).
+
+**Why the consumer is permissionless-safe anyway.** The consensus cert
+is AND-mode and the **Corona leg is genuinely dealerless and
+no-reconstruct** (Ring-LWE shares are linear; `corona/keyera` Pedersen
+DKG never forms the master secret; per-node `corona/threshold.NewSigner`
+holds exactly one share). An adversary who compromises a fenced/TEE
+Pulsar genesis ceremony and forges a Pulsar leg STILL cannot finalize —
+AND-mode also requires the Corona leg, whose dealerless key has no
+single point of forgery. The permissionless guarantee rests on Corona;
+the Pulsar leg is FIPS-204 standard + Module-LWE defense-in-depth, with
+its genesis TEE-gated (see PULSAR-V12-TEE-BIND and the `mldsa-tee`
+custody surface above).
+
+**Forward path (do NOT resurrect v0.3).** Finish the new model:
+(1) add a poly-vector `(s1,s2,t0)` secret-share type and a concrete
+single-share `RoundSigner` whose `Round2` emits a real `Partial`;
+(2) close PULSAR-V13-W-LEAK and PULSAR-V13-PARTIAL-Z-PROOF (the
+distributed-nonce and partial-z ZK proofs). The proven per-node custody
+DECOMPOSITION to apply once the share type lands is gate C's
+`DistributedSigner` (`luxfi/threshold/docs/_gatec/distributed.go`,
+branch `feat/distributed-signer-gatec`): one validator = one share,
+session/round messages on the bus, aggregator combines messages (no
+share, no sk) — the same single-share boundary the Corona leg already
+ships. Restoring the removed v0.3 stack is rejected: it would create a
+second threshold path (violates one-way) and is a backwards move.
+
 ### PULSAR-V12-GPU-NTT-WIRE — route Round-2 NTTs through gpu-kernels batched dispatch
 
 **Status**: SPEC only. The substrate
