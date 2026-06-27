@@ -1,0 +1,838 @@
+// Copyright (C) 2025-2026, Lux Industries Inc. All rights reserved.
+// See the file LICENSE for licensing terms.
+
+package pulsar
+
+// distributed_bcc.go — the concrete, no-reconstruct, single-share
+// threshold ML-DSA signer for the current (post-v0.3) Pulsar model.
+//
+// THE PROBLEM THIS CLOSES (PULSAR-V12-PARALLEL-PQ, forward path item 1):
+//
+//	The public KeyShare (types.go) is a GF(257) byte-share of the 32-byte
+//	ML-DSA SEED. ML-DSA's s1/s2 are a NON-LINEAR SHAKE expansion of the
+//	seed, so seed-shares admit ONLY Lagrange reconstruct-then-sign
+//	(Combine / LargeCombine — the H-1 footgun that materialises the master
+//	key in the aggregator). The new RoundSigner / Partial / FlatAggregateZ
+//	model carried the interface and the z-sum aggregation primitive for a
+//	no-reconstruct signer, but NO concrete poly-vector share type or
+//	concrete RoundSigner implementor existed on the current line (the v0.3
+//	AlgebraicKeyShare stack was removed in b185533).
+//
+// THE FIX (this file):
+//
+//	AlgShare is a poly-vector Shamir share of the EXPANDED signing-key
+//	component s1 (length L) over GF(q), at the party's evaluation point.
+//	Because s1 enters the BCC/CEF response z = y + c·s1 LINEARLY, the
+//	per-party partial
+//
+//	    z_i = λ_i·y_i + c·λ_i·s1_i        (over R_q^L)
+//
+//	aggregates Lagrange-linearly to z = ȳ + c·s1 WITHOUT ever forming s1
+//	(let alone the seed): Σ_i z_i = (Σ_i λ_i·y_i) + c·(Σ_i λ_i·s1_i) =
+//	ȳ + c·s1. The hint is recovered from the PUBLIC w' = A·z − c·t1·2^d
+//	via FindHint exactly as the single-key BCC signer (bcc_sign.go) does,
+//	so the aggregator never holds s1, s2, t0, r0, or full w. Each node
+//	holds EXACTLY ONE AlgShare; the designated aggregator (quorum[0])
+//	combines collected z-partials — its Finalize signature takes
+//	[]Partial, NEVER a share, sk, or seed.
+//
+// WHY ONLY s1 (not s1,s2,t0). The BCC/CEF path is precisely the
+// construction that touches NEITHER s2 NOR t0 when signing: the hint
+// comes from public data (FindHint over w'), so c·s2 and c·t0 are never
+// computed (PULSAR-V13-HINT-LEAK). Sharing s2/t0 would (a) be unused dead
+// secret material and (b) reopen the very leak vector the V13 line closed
+// (DKGPublicOutput carries no t0; TestNoT0* enforce it). The codebase's
+// own invariant states it: "Online signing needs only s1_i, y_i (held
+// locally) and public t1" (dkg_wellformed.go). AlgShare follows that
+// invariant: s1 only.
+//
+// SAME KERNEL, DECOMPLECTED CUSTODY. The arithmetic of each round is
+// byte-identical to what the single-key bcc_sign.go computes on the joint
+// (ȳ, s1); this file only distributes the custody boundary so no process
+// holds ≥ t shares. The unforgeability / (t−1)-privacy argument is the
+// standard threshold-of-a-linear-response reduction (FROST-shaped: masks
+// summed, secret shares Lagrange-weighted), inheriting ML-DSA's EUF-CMA
+// under Module-LWE/Module-SIS.
+//
+// WHAT THIS FILE IS NOT — the two fences that remain open:
+//   - Part-1 KEYGEN here is a TRUSTED DEALER (DealAlgShares expands the
+//     seed once, shares s1, wipes). It is no-RECONSTRUCT at SIGN time, not
+//     dealerless at KEYGEN time. Dealerless ML-DSA DKG is the separate,
+//     research-blocked Part-2 problem (see distributed_bcc_dkg.go).
+//   - The joint nonce ȳ is established by DealNonceMPCDebug, a stand-in
+//     for the validator NonceMPC. It reveals the joint commitment w to the
+//     harness — exactly the leak production must avoid (PULSAR-V13-W-LEAK).
+//     The leak-free distributed nonce (HighBits-over-shares without
+//     revealing w) remains fail-closed behind the same exact-ℓ∞-range-proof
+//     wall as rangeproof.go. The SIGNING decomposition below is independent
+//     of how the nonce was established and is the load-bearing deliverable.
+
+import (
+	"encoding/binary"
+	"errors"
+	"io"
+
+	"golang.org/x/crypto/sha3"
+)
+
+// Errors specific to the distributed BCC signer.
+var (
+	// ErrAlgNilShare is returned when a DistributedBCCSigner is constructed
+	// without exactly one AlgShare.
+	ErrAlgNilShare = errors.New("pulsar: distributed BCC signer requires exactly one AlgShare")
+
+	// ErrAlgNoNonceShare is returned when Round1/Round2 run before a nonce
+	// share has been delivered by the NonceMPC (SetNonceShare).
+	ErrAlgNoNonceShare = errors.New("pulsar: distributed BCC signer has no nonce share (SetNonceShare first)")
+
+	// ErrAlgNotAggregator is returned when Finalize is called on a node that
+	// is not the designated aggregator (quorum[0]).
+	ErrAlgNotAggregator = errors.New("pulsar: only the designated aggregator (quorum[0]) can Finalize")
+
+	// ErrAlgSessionMismatch / ErrAlgNonceMismatch guard round binding.
+	ErrAlgSessionMismatch = errors.New("pulsar: distributed BCC round session mismatch")
+	ErrAlgNonceMismatch   = errors.New("pulsar: distributed BCC round nonce mismatch")
+
+	// ErrAlgShareShape rejects a malformed share / setup.
+	ErrAlgShareShape = errors.New("pulsar: AlgShare shape does not match the parameter set")
+
+	// ErrAlgNonceExhausted is returned by DealNonceMPCDebug when it cannot
+	// find a boundary-clear joint nonce within its attempt budget.
+	ErrAlgNonceExhausted = errors.New("pulsar: nonce MPC exhausted its budget without a boundary-clear joint nonce")
+)
+
+// AlgShare is one validator's poly-vector Shamir share of the ML-DSA
+// signing-key component s1, evaluated at the party's GF(q) Shamir point.
+//
+// CUSTODY: a DistributedBCCSigner holds exactly one *AlgShare (a single
+// pointer, never a slice). There is no field, constructor, or method by
+// which it comes to hold a second party's share. AlgShare carries s1 only
+// — never s2, t0, the seed, or the full secret t — so it cannot be used to
+// reconstruct the leaking MakeHint residual even in principle.
+type AlgShare struct {
+	NodeID    NodeID
+	EvalPoint uint32  // Shamir x-coordinate in [1, q); distinct per party
+	S1Share   polyVec // length L; Shamir share of s1 at EvalPoint, coeff-wise over GF(q)
+	Mode      Mode
+}
+
+// AlgSetup is the public setup shared by the whole committee: the group
+// ML-DSA public key, the matrix A (NTT domain), tr, and t1. NO master sk
+// inside; identical for every party.
+type AlgSetup struct {
+	Mode Mode
+	Pub  *PublicKey
+	rho  [32]byte
+	tr   [64]byte
+	a    []polyVec // K×L public matrix, NTT domain (== circl pk.A)
+	t1   polyVec   // K, high bits in [0, 2^10)
+}
+
+// DealAlgShares is the Part-1 TRUSTED-DEALER keygen: it expands the seed
+// into the FIPS 204 key material ONCE, Shamir-shares the signing component
+// s1 over GF(q) across the committee, wipes every secret, and returns the
+// public setup plus one AlgShare per committee member.
+//
+// TRUST MODEL — TRUSTED DEALER (explicit, Part-1 scope). The dealer holds
+// the master key for the duration of this one call. This makes SIGNING
+// no-reconstruct (no party ever reconstructs s1), but KEYGEN is not
+// dealerless. Dealerless ML-DSA DKG is the research-blocked Part-2 problem
+// (distributed_bcc_dkg.go documents the precise obstruction). For
+// production permissionless safety, the consensus cert is AND-mode dual-PQ:
+// the Corona leg is genuinely dealerless; this Pulsar leg's genesis is
+// dealer/TEE-gated.
+//
+// rng supplies the Shamir polynomial coefficients; pass a deterministic
+// reader for KAT-reproducible shares. committee must be distinct NodeIDs;
+// threshold is the reconstruction threshold t (1 ≤ t ≤ n).
+func DealAlgShares(params *Params, committee []NodeID, threshold int, seed [SeedSize]byte, rng io.Reader) (*AlgSetup, []*AlgShare, error) {
+	if err := params.Validate(); err != nil {
+		return nil, nil, err
+	}
+	if _, _, _, ok := bccParams(params.Mode); !ok {
+		// BCC/CEF (and therefore this no-reconstruct signer) is proven only
+		// for ML-DSA-65/87 (the ‖c·t0‖∞ < γ2 scope). Refuse other sets.
+		return nil, nil, ErrBCCParamSet
+	}
+	n := len(committee)
+	if threshold < 1 || n < threshold {
+		return nil, nil, ErrInvalidThreshold
+	}
+	K, L, _ := modeShape(params.Mode)
+
+	km, err := deriveKeyMaterial(params.Mode, &seed)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Public setup: copy the public matrix A, t1, tr, rho, and packed pk.
+	setup := &AlgSetup{
+		Mode: params.Mode,
+		Pub:  &PublicKey{Mode: params.Mode, Bytes: append([]byte(nil), km.pub...)},
+		rho:  km.rho,
+		tr:   km.tr,
+		t1:   make(polyVec, K),
+		a:    make([]polyVec, K),
+	}
+	copy(setup.t1, km.t1)
+	for i := 0; i < K; i++ {
+		setup.a[i] = append(polyVec(nil), km.a[i]...)
+	}
+
+	// Eval points: deterministic, non-zero, distinct GF(q) points per party.
+	evalPoints := make([]uint32, n)
+	seen := make(map[uint32]struct{}, n)
+	for i, id := range committee {
+		x := EvalPointFromIDQ(id)
+		if _, dup := seen[x]; dup {
+			return nil, nil, ErrDuplicateEvalPoint
+		}
+		seen[x] = struct{}{}
+		evalPoints[i] = x
+	}
+
+	// Shamir-share s1 coefficient-wise over GF(q). The constant term of
+	// every per-coefficient sharing polynomial is the [0,q) representative
+	// of that s1 coefficient, so Σ_p λ_p · share_p == s1 (Lagrange at 0).
+	s1Norm := make(polyVec, L)
+	for l := 0; l < L; l++ {
+		s1Norm[l] = km.s1[l]
+		s1Norm[l].normalize() // [q-η, q+η] → [0, q)
+	}
+	perParty, err := shamirSharePolyVecGFq(s1Norm, evalPoints, threshold, rng)
+	if err != nil {
+		zeroizeKeyMaterial(km)
+		return nil, nil, err
+	}
+
+	shares := make([]*AlgShare, n)
+	for i := range committee {
+		shares[i] = &AlgShare{
+			NodeID:    committee[i],
+			EvalPoint: evalPoints[i],
+			S1Share:   perParty[i],
+			Mode:      params.Mode,
+		}
+	}
+
+	// Wipe every secret the dealer touched. After this point the master key
+	// exists nowhere; only the n single shares and the public setup remain.
+	for l := 0; l < L; l++ {
+		s1Norm[l] = poly{}
+	}
+	zeroizeKeyMaterial(km)
+	for i := range seed {
+		seed[i] = 0
+	}
+
+	return setup, shares, nil
+}
+
+// zeroizeKeyMaterial scrubs the secret polynomials and packed private key
+// of a dealer's expanded key material.
+func zeroizeKeyMaterial(km *mldsaKeyMaterial) {
+	for i := range km.s1 {
+		km.s1[i] = poly{}
+	}
+	for i := range km.s2 {
+		km.s2[i] = poly{}
+	}
+	for i := range km.t0 {
+		km.t0[i] = poly{}
+	}
+	for i := range km.prv {
+		km.prv[i] = 0
+	}
+}
+
+// shamirSharePolyVecGFq shares each coefficient of secret (a length-L
+// poly-vector, coefficients already normalized to [0,q)) with a fresh
+// degree-(t−1) GF(q) polynomial whose constant term is that coefficient,
+// and evaluates the sharing at each eval point. Returns shares[p] = the
+// length-L poly-vector share for the party at evalPoints[p]. By Lagrange
+// interpolation at X=0, Σ_p λ_p · shares[p] == secret.
+func shamirSharePolyVecGFq(secret polyVec, evalPoints []uint32, threshold int, rng io.Reader) ([]polyVec, error) {
+	if threshold < 1 {
+		return nil, ErrInvalidThreshold
+	}
+	L := len(secret)
+	n := len(evalPoints)
+	out := make([]polyVec, n)
+	for p := 0; p < n; p++ {
+		out[p] = make(polyVec, L)
+	}
+	coeffs := make([]uint32, threshold-1) // reused per (l, j)
+	for l := 0; l < L; l++ {
+		for j := 0; j < mldsaN; j++ {
+			for d := 0; d < threshold-1; d++ {
+				v, err := randGFq(rng)
+				if err != nil {
+					return nil, err
+				}
+				coeffs[d] = v
+			}
+			a0 := secret[l][j] % mldsaQ
+			for p := 0; p < n; p++ {
+				// Horner from the top degree down to the constant a0.
+				x := uint64(evalPoints[p])
+				var acc uint64
+				for d := threshold - 2; d >= 0; d-- {
+					acc = (acc*x + uint64(coeffs[d])) % shamirPrimeQ
+				}
+				acc = (acc*x + uint64(a0)) % shamirPrimeQ
+				out[p][l][j] = uint32(acc)
+			}
+		}
+	}
+	return out, nil
+}
+
+// randGFq draws one uniform GF(q) value in [0, q) by rejection from rng.
+func randGFq(rng io.Reader) (uint32, error) {
+	var buf [4]byte
+	for {
+		if _, err := io.ReadFull(rng, buf[:]); err != nil {
+			return 0, err
+		}
+		v := binary.LittleEndian.Uint32(buf[:]) & 0x7FFFFF // 23 bits
+		if v < mldsaQ {
+			return v, nil
+		}
+	}
+}
+
+// randCenteredGFq draws v uniform in the centered range [−R, R] and
+// returns its [0, q) representative. Used to sample the small joint nonce.
+func randCenteredGFq(rng io.Reader, R uint32) (uint32, error) {
+	span := uint64(2*R + 1)
+	var buf [8]byte
+	for {
+		if _, err := io.ReadFull(rng, buf[:]); err != nil {
+			return 0, err
+		}
+		u := binary.LittleEndian.Uint64(buf[:])
+		// Reject the small biased tail so the result is exactly uniform.
+		limit := (^uint64(0) / span) * span
+		if u >= limit {
+			continue
+		}
+		v := int64(u%span) - int64(R)
+		r := v % int64(mldsaQ)
+		if r < 0 {
+			r += mldsaQ
+		}
+		return uint32(r), nil
+	}
+}
+
+// ----- NonceMPC stand-in (PULSAR-V13-W-LEAK gate; test/dev surface) -----
+
+// NonceDeal is the output of the NonceMPC stand-in: the public NonceCert
+// (w1 + clearance) plus the per-party Shamir shares of the small joint
+// nonce ȳ. DebugW is the joint commitment; a real NonceMPC never reveals
+// it (the no-leak oracle in the test asserts the production wire — the
+// NonceCert — does not carry it).
+type NonceDeal struct {
+	Cert    NonceCert
+	YShares map[NodeID]polyVec
+	DebugW  polyVec // TEST/DEBUG ONLY — never on the production wire
+}
+
+// DealNonceMPCDebug models the validator NonceMPC: it samples a small joint
+// nonce ȳ whose commitment w = A·ȳ is BOUNDARY-CLEAR, Shamir-shares ȳ over
+// the quorum eval points, and emits the public NonceCert (w1 + a debug
+// clearance QC) plus the per-party nonce shares.
+//
+// W-LEAK HONESTY. A real NonceMPC must produce w1 = HighBits(w) and the
+// boundary-clear attestation over secret-shared w WITHOUT revealing w to
+// any participant (else w' − w = c·t0 − c·s2 leaks the long-term key —
+// PULSAR-V13-W-LEAK). This stand-in computes w directly and returns it in
+// DebugW; it is the dealer-modelled NonceMPC for the SIGNING tests, NOT a
+// production primitive. The leak-free distributed nonce (a secure
+// HighBits-over-shares MPC, or an exact-ℓ∞ boundary-clearance ZK proof) is
+// fail-closed behind the same wall as rangeproof.go.
+//
+// The joint nonce is sampled in the reduced centered range R = γ1 − 2β − 4
+// so the aggregated response z = ȳ + c·s1 always clears ‖z‖∞ < γ1 − β;
+// boundary clearance (~9% yield for ML-DSA-65) is the only resample gate.
+func DealNonceMPCDebug(setup *AlgSetup, quorum []NodeID, evalPoints []uint32, threshold int, nonceID [32]byte, rng io.Reader) (*NonceDeal, error) {
+	gamma2, beta, _, ok := bccParams(setup.Mode)
+	if !ok {
+		return nil, ErrBCCParamSet
+	}
+	if len(quorum) != len(evalPoints) {
+		return nil, ErrAlgShareShape
+	}
+	_, L, _ := modeShape(setup.Mode)
+	K := len(setup.a)
+	_, _, gamma1Bits, _ := modeTauOmega(setup.Mode)
+	gamma1 := uint32(1) << gamma1Bits
+	R := gamma1 - 2*beta - 4
+
+	const budget = 4096
+	for attempt := 0; attempt < budget; attempt++ {
+		// 1. Sample the small joint nonce ȳ ∈ R_q^L, ‖ȳ‖∞ ≤ R.
+		yBar := make(polyVec, L)
+		for l := 0; l < L; l++ {
+			for j := 0; j < mldsaN; j++ {
+				v, err := randCenteredGFq(rng, R)
+				if err != nil {
+					return nil, err
+				}
+				yBar[l][j] = v
+			}
+		}
+		// 2. w = A·ȳ (mirror bcc_sign step 2).
+		yHat := make(polyVec, L)
+		for l := 0; l < L; l++ {
+			yHat[l] = yBar[l]
+			yHat[l].ntt()
+		}
+		w := make(polyVec, K)
+		for k := 0; k < K; k++ {
+			polyDotHat(&w[k], setup.a[k], yHat)
+			w[k].reduceLe2Q()
+			w[k].invNTT()
+			w[k].normalize()
+		}
+		// 3. Offline boundary-clearance gate (message-independent, public).
+		if !BoundaryClear(w, gamma2, beta) {
+			continue
+		}
+		w1 := highBitsVec(w, gamma2)
+
+		// 4. Shamir-share ȳ over the quorum eval points.
+		perParty, err := shamirSharePolyVecGFq(yBar, evalPoints, threshold, rng)
+		if err != nil {
+			return nil, err
+		}
+		yShares := make(map[NodeID]polyVec, len(quorum))
+		for i, id := range quorum {
+			yShares[id] = perParty[i]
+		}
+
+		// 5. Public NonceCert (w1 + debug clearance QC). Models the validator-
+		// attested NonceMPC: a quorum signs the bound payload. The test
+		// registers a permissive QuorumSigVerifier (the validators attested);
+		// production registers the real validator-set verifier.
+		cert := NonceCert{
+			Mode:    setup.Mode,
+			NonceID: nonceID,
+			W1:      packW1Vec(w1, gamma2, K),
+			Margin:  2 * beta,
+		}
+		payload := nonceCertPayloadRoot(&cert)
+		bitmap := []byte{0xFF}
+		sigs := make([][]byte, bitmapWeight(bitmap))
+		for i := range sigs {
+			sigs[i] = []byte{1}
+		}
+		cert.ClearanceQC = QuorumCert{
+			CommitteeID:  cert.CommitteeID,
+			SignerBitmap: bitmap,
+			PayloadRoot:  payload,
+			Signatures:   sigs,
+		}
+		return &NonceDeal{Cert: cert, YShares: yShares, DebugW: w}, nil
+	}
+	return nil, ErrAlgNonceExhausted
+}
+
+// ----- the single-share distributed BCC round signer -----
+
+// DistributedBCCSigner is one validator's local state machine for a
+// no-reconstruct threshold ML-DSA signature on the BCC/CEF path. It holds
+// exactly one *AlgShare; the per-nonce y-share is delivered out-of-band by
+// the NonceMPC (SetNonceShare). It satisfies the RoundSigner interface.
+type DistributedBCCSigner struct {
+	params *Params
+	setup  *AlgSetup
+	share  *AlgShare // THE single key share — one pointer, never a slice
+
+	quorum     []NodeID
+	evalPoints []uint32
+	partyIdx   uint32 // this node's position in the sorted quorum
+	lambda     uint32 // this node's Lagrange coefficient at X=0
+	sid        [32]byte
+	ctx, msg   []byte
+	rng        io.Reader
+
+	// per-nonce state.
+	nonceID [32]byte
+	yShare  polyVec // this node's Shamir share of the joint nonce ȳ
+	haveY   bool
+	w1      polyVec // public HighBits(w), unpacked from the NonceCert
+	c       poly    // challenge = SampleInBall(H(μ, w1)); set by Round1
+	cHat    poly    // c in NTT/Montgomery form
+	haveC   bool
+}
+
+// compile-time witness: the concrete signer is a Quasar RoundSigner.
+var _ RoundSigner = (*DistributedBCCSigner)(nil)
+
+// NewDistributedBCCSigner constructs one validator's signer over exactly
+// one AlgShare. quorum is the sorted, distinct signing committee containing
+// share.NodeID; evalPoints are the GF(q) Shamir points parallel to quorum.
+func NewDistributedBCCSigner(params *Params, setup *AlgSetup, share *AlgShare, quorum []NodeID, evalPoints []uint32, sid [32]byte, ctx, msg []byte, rng io.Reader) (*DistributedBCCSigner, error) {
+	if err := params.Validate(); err != nil {
+		return nil, err
+	}
+	if setup == nil {
+		return nil, ErrAlgShareShape
+	}
+	if share == nil {
+		return nil, ErrAlgNilShare
+	}
+	if _, _, _, ok := bccParams(params.Mode); !ok {
+		return nil, ErrBCCParamSet
+	}
+	if share.Mode != params.Mode || setup.Mode != params.Mode {
+		return nil, ErrModeMismatch
+	}
+	_, L, _ := modeShape(params.Mode)
+	if len(share.S1Share) != L {
+		return nil, ErrAlgShareShape
+	}
+	if len(quorum) == 0 || len(evalPoints) != len(quorum) {
+		return nil, ErrAlgShareShape
+	}
+	if len(ctx) > 255 {
+		return nil, ErrCtxTooLong
+	}
+	// Quorum sorted ascending, distinct; this node must be in it.
+	myIdx := -1
+	for i := 1; i < len(quorum); i++ {
+		if !nodeIDLess(quorum[i-1], quorum[i]) {
+			return nil, ErrCommitteeDuplicate
+		}
+	}
+	for i, q := range quorum {
+		if q == share.NodeID {
+			myIdx = i
+		}
+	}
+	if myIdx < 0 {
+		return nil, ErrNotInQuorum
+	}
+
+	var ctxCopy []byte
+	if len(ctx) > 0 {
+		ctxCopy = append([]byte{}, ctx...)
+	}
+	return &DistributedBCCSigner{
+		params:     params,
+		setup:      setup,
+		share:      share,
+		quorum:     append([]NodeID{}, quorum...),
+		evalPoints: append([]uint32{}, evalPoints...),
+		partyIdx:   uint32(myIdx),
+		lambda:     LagrangeAtZeroQ(share.EvalPoint, evalPoints),
+		sid:        sid,
+		ctx:        ctxCopy,
+		msg:        append([]byte{}, msg...),
+		rng:        rng,
+	}, nil
+}
+
+// Profile reports the Quasar cert profile this signer serves.
+func (d *DistributedBCCSigner) Profile() CertProfile { return ProfilePulsar }
+
+// NodeID returns this validator's identity within the quorum.
+func (d *DistributedBCCSigner) NodeID() NodeID { return d.share.NodeID }
+
+// ShareCount is the runtime witness of the single-share custody invariant:
+// it returns 1 for a constructed signer and 0 only for the zero value.
+func (d *DistributedBCCSigner) ShareCount() int {
+	if d.share == nil {
+		return 0
+	}
+	return 1
+}
+
+// IsAggregator reports whether this node is the designated aggregator
+// (quorum[0], the lowest-sorted member). The aggregator rotates with the
+// committee; it is not a fixed leader and holds no extra secret.
+func (d *DistributedBCCSigner) IsAggregator() bool { return d.share.NodeID == d.quorum[0] }
+
+// SetNonceShare delivers this node's Shamir share of the joint nonce ȳ for
+// the given nonce id. The NonceMPC produces these out-of-band (the hot path
+// consumes a NonceCert plus its own y-share). Must be called before Round1.
+func (d *DistributedBCCSigner) SetNonceShare(nonceID [32]byte, yShare polyVec) error {
+	_, L, _ := modeShape(d.params.Mode)
+	if len(yShare) != L {
+		return ErrAlgShareShape
+	}
+	d.nonceID = nonceID
+	d.yShare = append(polyVec(nil), yShare...)
+	d.haveY = true
+	return nil
+}
+
+// Round1 binds the canonical nonce cert to the session and derives the
+// challenge c = SampleInBall(H(μ, w1)). The per-party y-share must already
+// be set (SetNonceShare). Returns the SignRound1 binding consensus tracks.
+func (d *DistributedBCCSigner) Round1(sessionID, nonceID [32]byte, cert NonceCert) (SignRound1, error) {
+	if sessionID != d.sid {
+		return SignRound1{}, ErrAlgSessionMismatch
+	}
+	if !d.haveY || nonceID != d.nonceID {
+		return SignRound1{}, ErrAlgNoNonceShare
+	}
+	if cert.Mode != d.params.Mode {
+		return SignRound1{}, ErrModeMismatch
+	}
+	if _, _, _, ok := bccParams(cert.Mode); !ok {
+		return SignRound1{}, ErrBCCParamSet
+	}
+	K, _, _ := modeShape(d.params.Mode)
+	gamma2, _, _, _ := bccParams(d.params.Mode)
+	w1, err := unpackW1Vec(cert.W1, gamma2, K)
+	if err != nil {
+		return SignRound1{}, err
+	}
+	d.w1 = w1
+
+	// c̃ = H(μ, packW1(w1)); c = SampleInBall(c̃). Same deriveCTilde the
+	// aggregator uses, so every party's c and the final signature's c̃ agree.
+	cTilde := deriveCTilde(d.params.Mode, d.setup.tr, d.ctx, d.msg, d.w1, gamma2, K)
+	var c poly
+	polyDeriveUniformBall(&c, cTilde, d.params.Tau)
+	d.c = c
+	d.cHat = c
+	d.cHat.ntt()
+	d.haveC = true
+
+	return SignRound1{SessionID: sessionID, NonceID: nonceID, NonceCert: cert}, nil
+}
+
+// Round2 emits this node's proof-carrying z-partial. The signer computes
+// z_i = λ_i·y_i + c·λ_i·s1_i from ITS OWN (y_i, s1_i, λ_i, c) and produces
+// the sound linear-sigma proof (partial_proof.go) binding it to (session,
+// nonce, party, challenge, dkg-commit, nonce-commit). The PartialInput
+// supplies only the public bindings; in.ZShare is recomputed authoritatively
+// here (the signer, not the caller, holds the secret).
+func (d *DistributedBCCSigner) Round2(r1 SignRound1, in PartialInput) (Partial, error) {
+	if !d.haveC {
+		return Partial{}, ErrAlgNoNonceShare
+	}
+	if r1.SessionID != d.sid {
+		return Partial{}, ErrAlgSessionMismatch
+	}
+	if r1.NonceID != d.nonceID {
+		return Partial{}, ErrAlgNonceMismatch
+	}
+	// z_i = partialLinearMap(λ_i, ĉ, y_i, s1_i) — byte-identical to the image
+	// the proof certifies, so the partial and its proof are consistent.
+	z := partialLinearMap(d.lambda, &d.cHat, d.yShare, d.share.S1Share)
+
+	st := &PartialStatement{
+		Mode:            d.params.Mode,
+		Lambda:          d.lambda,
+		C:               d.c,
+		Z:               z,
+		SessionID:       d.sid,
+		NonceID:         d.nonceID,
+		PartyID:         d.partyIdx,
+		DKGCommitment:   in.DKGCommitment,
+		NonceCommitment: in.NonceCommitment,
+	}
+	proof, err := ProvePartial(st, &PartialWitness{Y: d.yShare, S1: d.share.S1Share}, d.rng)
+	if err != nil {
+		return Partial{}, err
+	}
+	return Partial{
+		PartyID:   d.partyIdx,
+		NonceID:   d.nonceID,
+		SessionID: d.sid,
+		ZShare:    packPolyVec(z),
+		Proof:     proof,
+	}, nil
+}
+
+// Finalize is run by the designated aggregator (quorum[0]). It verifies
+// every partial's sound z-proof, picks the canonical signer subset, sums
+// the z-partials Lagrange-linearly, recovers the hint from PUBLIC data via
+// FindHint, and emits a FIPS 204 ML-DSA signature plus the two-cert
+// consensus artifact. It holds NO share, sk, or seed — its only secret-free
+// inputs are the collected partials.
+func (d *DistributedBCCSigner) Finalize(r1 SignRound1, partials []Partial) (Aggregate, ConsensusCert, error) {
+	if !d.IsAggregator() {
+		return Aggregate{}, ConsensusCert{}, ErrAlgNotAggregator
+	}
+	if !d.haveC {
+		return Aggregate{}, ConsensusCert{}, ErrAlgNoNonceShare
+	}
+	return AggregateBCC(d.params, d.setup, d.evalPoints, d.ctx, d.msg, d.c, &d.cHat, d.w1,
+		d.sid, d.nonceID, len(d.quorum), partials)
+}
+
+// AggregateBCC is the free-function aggregation surface: ANY process
+// holding the public setup, the challenge c, the public target w1, and the
+// collected z-partials can produce the FIPS 204 signature WITHOUT any
+// share, sk, or seed. This is the load-bearing no-reconstruct boundary —
+// its parameter list carries no secret.
+//
+// threshold is the reconstruction threshold; partials is the collected set
+// (at least threshold valid ones required). The result verifies under
+// unmodified FIPS 204 ML-DSA.Verify (VerifyBytes / mldsa{65,87}.Verify).
+func AggregateBCC(params *Params, setup *AlgSetup, evalPoints []uint32, ctx, msg []byte, c poly, cHat *poly, w1 polyVec, sid, nonceID [32]byte, threshold int, partials []Partial) (Aggregate, ConsensusCert, error) {
+	gamma2, beta, omega, ok := bccParams(params.Mode)
+	if !ok {
+		return Aggregate{}, ConsensusCert{}, ErrBCCParamSet
+	}
+	K, L, _ := modeShape(params.Mode)
+	_, _, gamma1Bits, _ := modeTauOmega(params.Mode)
+	gamma1 := uint32(1) << gamma1Bits
+
+	// 1. Verify each partial's sound linear-sigma proof, binding it to the
+	// public (λ_p, c, z_p) and the session/nonce/party identifiers. Reject
+	// partials whose proof fails — this is the clean blame path
+	// (PULSAR-V13-PARTIAL-Z-PROOF).
+	valid := make([]Partial, 0, len(partials))
+	zByParty := make(map[uint32]polyVec, len(partials))
+	for i := range partials {
+		p := partials[i]
+		if p.SessionID != sid || p.NonceID != nonceID {
+			continue
+		}
+		if int(p.PartyID) >= len(evalPoints) {
+			continue
+		}
+		z := unpackPolyVec(p.ZShare, L)
+		lambda := LagrangeAtZeroQ(evalPoints[p.PartyID], evalPoints)
+		st := &PartialStatement{
+			Mode:      params.Mode,
+			Lambda:    lambda,
+			C:         c,
+			Z:         z,
+			SessionID: sid,
+			NonceID:   nonceID,
+			PartyID:   p.PartyID,
+		}
+		if err := VerifyPartialProof(st, p.Proof); err != nil {
+			continue
+		}
+		valid = append(valid, p)
+		zByParty[p.PartyID] = z
+	}
+
+	// 2. Canonical (non-grindable) signer subset of exactly `threshold`.
+	chosen, bitmap, err := CanonicalSignerSet(valid, threshold)
+	if err != nil {
+		return Aggregate{}, ConsensusCert{}, err
+	}
+
+	// 3. z = Σ_chosen z_p  (Lagrange-linear; mod q). The per-party z_p are
+	// full-range, but the sum telescopes to ȳ + c·s1 — the master s1 is
+	// NEVER formed.
+	zShares := make([]polyVec, len(chosen))
+	for i, p := range chosen {
+		zShares[i] = zByParty[p.PartyID]
+	}
+	z := FlatAggregateZ(zShares, L)
+
+	// 4. ‖z‖∞ < γ1 − β (the FIPS 204 reject bound on z).
+	if polyVecExceeds(z, gamma1-beta) {
+		return Aggregate{}, ConsensusCert{}, ErrBCCExhausted
+	}
+
+	// 5. w' = A·z − c·t1·2^d (PUBLIC; mirror bcc_sign step 8).
+	t1Scaled := make(polyVec, K)
+	for k := 0; k < K; k++ {
+		t1Scaled[k].mulBy2toD(&setup.t1[k])
+		t1Scaled[k].ntt()
+	}
+	zHat := make(polyVec, L)
+	for l := 0; l < L; l++ {
+		zHat[l] = z[l]
+		zHat[l].ntt()
+	}
+	wPrime := make(polyVec, K)
+	for k := 0; k < K; k++ {
+		var az poly
+		polyDotHat(&az, setup.a[k], zHat)
+		az.reduceLe2Q()
+		var ct1 poly
+		ct1.mulHat(cHat, &t1Scaled[k])
+		az.sub(&az, &ct1)
+		az.reduceLe2Q()
+		az.invNTT()
+		az.normalize()
+		wPrime[k] = az
+	}
+
+	// 6. Recover the hint from PUBLIC (w', w1) via FindHint — never from a
+	// secret residual. ok=false ⇒ the nonce was not admissible; the caller
+	// retries with a fresh NonceMPC nonce.
+	hint, ok := FindHint(wPrime, w1, gamma2, omega)
+	if !ok {
+		return Aggregate{}, ConsensusCert{}, ErrNoFIPSHint
+	}
+
+	// 7. sigEncode(c̃, z, h) per FIPS 204 Algorithm 28. c̃ = H(μ, packW1(w1))
+	// is recomputed from (tr, ctx, msg, w1) by every party identically; the
+	// challenge c verified above was derived from this exact c̃ upstream.
+	cTilde := deriveCTilde(params.Mode, setup.tr, ctx, msg, w1, gamma2, K)
+	sigBytes, err := encodeBCCSignature(params, gamma1Bits, z, hint, cTilde)
+	if err != nil {
+		return Aggregate{}, ConsensusCert{}, err
+	}
+	sig := Signature{Mode: params.Mode, Bytes: sigBytes}
+
+	agg := Aggregate{SessionID: sid, NonceID: nonceID, SignerBitmap: bitmap, ZSum: packPolyVec(z)}
+	cert := ConsensusCert{
+		JointPKID:    pkID(setup.Pub),
+		SignerBitmap: bitmap,
+		Signature:    sig,
+	}
+	return agg, cert, nil
+}
+
+// deriveCTilde is the single source of truth for c̃ = H(μ, packW1(w1)) with
+// μ = SHAKE256(tr ‖ 0x00 ‖ |ctx| ‖ ctx ‖ msg) (FIPS 204 §5.4). Every party's
+// Round1 challenge c = SampleInBall(c̃) and the aggregator's signature c̃ are
+// the SAME bytes for the same (tr, ctx, msg, w1) — there is exactly one way
+// to compute it.
+func deriveCTilde(mode Mode, tr [64]byte, ctx, msg []byte, w1 polyVec, gamma2 uint32, K int) []byte {
+	var mu [64]byte
+	deriveMuCtx(tr, ctx, msg, mu[:])
+	cTildeSize := modeCTildeSize(mode)
+	cTilde := make([]byte, cTildeSize)
+	h := sha3.NewShake256()
+	_, _ = h.Write(mu[:])
+	_, _ = h.Write(packW1Vec(w1, gamma2, K))
+	_, _ = h.Read(cTilde)
+	return cTilde
+}
+
+// encodeBCCSignature packs (c̃, z, h) into FIPS 204 sigEncode byte form.
+func encodeBCCSignature(params *Params, gamma1Bits uint32, z, hint polyVec, cTilde []byte) ([]byte, error) {
+	K, L, _ := modeShape(params.Mode)
+	_, omega, _, _ := modeTauOmega(params.Mode)
+	cTildeSize := modeCTildeSize(params.Mode)
+	polyLeGamma1Size := int((gamma1Bits + 1) * mldsaN / 8)
+	sigBytes := make([]byte, params.SignatureSize)
+	copy(sigBytes[:cTildeSize], cTilde)
+	off := cTildeSize
+	for l := 0; l < L; l++ {
+		polyPackLeGamma1(&z[l], sigBytes[off:off+polyLeGamma1Size], gamma1Bits)
+		off += polyLeGamma1Size
+	}
+	polyVecPackHint(hint, sigBytes[off:off+omega+K], omega)
+	return sigBytes, nil
+}
+
+// pkID is a stable 32-byte identifier of a group public key (SHAKE-256 of
+// the packed pk), used only as the ConsensusCert JointPKID tag.
+func pkID(pub *PublicKey) [32]byte {
+	var out [32]byte
+	if pub == nil {
+		return out
+	}
+	h := sha3.NewShake256()
+	_, _ = h.Write([]byte("PULSAR-BCC-CEF/joint-pk-id/v1"))
+	_, _ = h.Write([]byte{byte(pub.Mode)})
+	_, _ = h.Write(pub.Bytes)
+	_, _ = h.Read(out[:])
+	return out
+}
