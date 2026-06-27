@@ -1,8 +1,9 @@
 # Pulsar — NIST MPTC submission package
 
-> **Threshold ML-DSA** — a 2-round threshold signing and DKG system whose
-> generated signatures are verifiable by **unmodified FIPS 204 ML-DSA
-> verification**. Targeting NIST MPTC Class N1 (signing) + N4 (ML keygen / DKG).
+> **Threshold ML-DSA** — a two-round lattice kernel (TALUS adds one-round
+> online signing) for threshold signing and DKG whose generated signatures are
+> verifiable by **unmodified FIPS 204 ML-DSA verification**. Targeting NIST
+> MPTC Class N1 (signing) + N4 (ML keygen / DKG).
 
 This repository is the **active NIST MPTC submission package** for Pulsar
 and the canonical home for the submission artifacts (spec, KAT vectors,
@@ -18,10 +19,11 @@ is the identifier NIST receives and reviews against.
 
 ## Library identities (post-2026 split)
 
-`Pulsar` is the Module-LWE threshold ML-DSA construction. The 2-round
-threshold protocol structure operates on ML-DSA-65's polynomial-vector-
-over-`R_q` algebra so the per-party-aggregated signature is bit-identical
-to a single-party FIPS 204 signature on the same message + public key.
+`Pulsar` is the Module-LWE threshold ML-DSA construction. The two-round
+lattice kernel operates on ML-DSA-65's polynomial-vector-over-`R_q` algebra so
+the per-party-aggregated signature is bit-identical to a single-party FIPS 204
+signature on the same message + public key; TALUS (v1.2.0) adds one-round
+online signing on top of that kernel.
 
 > **Aggregator-honesty caveat (v0.2 vs v0.3).** Bit-identity to a
 > single-party FIPS 204 signature is achieved without master-secret
@@ -47,14 +49,47 @@ The module path inside this submission package remains
 `github.com/luxfi/pulsar` because that is the identifier NIST receives
 and reviews against the submitted KAT vectors and spec. Downstream
 consumers who want the live production library should pin
-`github.com/luxfi/pulsar@v1.0.x` (Module-LWE) or
+`github.com/luxfi/pulsar@v1.2.x` (Module-LWE) or
 `github.com/luxfi/corona@v0.2.x` (Ring-LWE) instead.
 
-> **Status.** Algorithm-level reference implementation. NIST-profile
-> vectors use SHAKE / cSHAKE / KMAC (FIPS 202 + SP 800-185); the
-> MPTC submission excludes BLAKE3. Deployed-binary tracks (Rust
-> crate, C library, WASM, no_std) carry their own constant-time
-> audit + KAT cross-validation before claiming production posture.
+> **Status (v1.2.0).** Algorithm-level reference implementation. The TALUS
+> threshold ML-DSA path (dealerless nonce DKG + CEF + CSCP) is BUILT and
+> PULSAR-V13-W-LEAK is CLOSED (semi-honest, simulation-proven); the two open
+> residuals are the CSCP malicious-secure layer + a networked MPC deployment
+> (Residual A) and dealerless-key impossibility ⇒ trusted-dealer keygen with
+> Corona carrying permissionless (Residual B) — see `BLOCKERS.md`. NIST-profile
+> vectors use SHAKE / cSHAKE / KMAC (FIPS 202 + SP 800-185); the MPTC
+> submission excludes BLAKE3. Deployed-binary tracks (Rust crate, C library,
+> WASM, no_std) carry their own constant-time audit + KAT cross-validation
+> before claiming production posture.
+
+## TALUS — one-round online threshold signing (v1.2.0)
+
+TALUS is the threshold ML-DSA scheme built on the two-round lattice kernel; it
+adds **one-round online signing** via three pillars — a dealerless Shamir
+**nonce DKG**, the **CEF** (Carry Elimination Framework, distributed `w1`), and
+**CSCP** (the CarryCompare secure-comparison protocol). FROST-style
+additive-nonce threshold ML-DSA is impossible (HighBits/r0/carry rounding is
+non-linear; no homomorphic nonce commitment exists); TALUS routes around it
+with the BCC (Boundary Clearance Condition) + CEF + dealerless nonce DKG.
+
+- **Two profiles.** **Pulsar-TEE** — a TEE-backed `w1` source. **Pulsar-MPC** —
+  TEE-free, honest-majority (N ≥ 2T−1); no node forms the joint nonce `ȳ` or
+  the commitment `w`. The emitted signature is byte-identical across profiles.
+- **W-LEAK closed (semi-honest, simulation-proven).** The REAL CSCP
+  secure-comparison circuit computes `w1 = HighBits(Σ g_i mod q)` so that NO
+  node forms `w0` or the full commitment `w` even transiently — proven leak-free
+  by transcript / structural / reflection tests in an in-process N-party
+  SIMULATION (not yet a networked deployment; the malicious-secure layer is
+  unbuilt — see `BLOCKERS.md` Residual A).
+- **Stock FIPS-204 verify.** A TALUS signature verifies byte-equal under the
+  UNMODIFIED `cloudflare/circl` `mldsa65.Verify` / `mldsa87.Verify`; `FindHint`
+  + a mandatory release-gate verify bound any malicious CSCP deviation to
+  liveness-only (abort/retry) — never forge or leak.
+- **KEYGEN is trusted-dealer.** Dealerless byte-FIPS-204 KEY DKG is *proven
+  unreachable* (a sum-of-contributions secret leaves S_η = {‖p‖∞ ≤ η}); the
+  **permissionless-public guarantee is carried by Corona** (natively dealerless)
+  in the Quasar AND-mode dual-PQ cert (Residual B).
 
 ## High-assurance headline
 
@@ -144,7 +179,7 @@ The win, if Pulsar's Sign output is byte-equal to FIPS 204 Sign:
 
 ```
 pulsar/
-├── BLOCKERS.md               closed-finding registry (Open: none; Closed: PULSAR-V03-1 v1.0.20 ExpandA-convention fix postmortem)
+├── BLOCKERS.md               finding registry (Open: Residual A — CSCP malicious-secure + networked MPC; Residual B — dealerless-key impossible ⇒ trusted-dealer keygen + Corona carries permissionless. Closed: PULSAR-V13-W-LEAK semi-honest v1.2.0; PULSAR-V03-1 v1.0.20 ExpandA fix)
 ├── SUBMISSION.md             NIST MPTC cover sheet (single source of truth for reviewer)
 ├── CHANGELOG.md              per-version proof artefact log (v4 → v13)
 ├── README.md                 this file
