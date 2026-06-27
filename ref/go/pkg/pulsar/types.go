@@ -168,55 +168,6 @@ type Signature struct {
 	Bytes []byte
 }
 
-// Round1Message is the broadcast emitted by ThresholdSigner.Round1.
-//
-// The protocol structure follows pulsar.tex §4.2 Algorithm "Sign
-// Round 1": commit + MAC the per-party w̄_i. The full bar-w is sent
-// alongside the digest at round 2 — the digest's role is binding under
-// MAC, not concealment. See pulsar.tex §4.2 Remark "Round-1
-// commit-digest binding".
-//
-// The MAC keys are EPHEMERAL per-session per-pair keys established by
-// EstablishSession before Round 1. The legacy v0.1 derivation from
-// public inputs (NodeID pair + group pubkey) was forgeable by any
-// network observer (BLOCKERS.md CR-7); the v0.2 derivation binds the
-// MAC to a fresh ML-KEM-768 shared secret authenticated under each
-// party's long-term ML-DSA identity.
-type Round1Message struct {
-	NodeID    NodeID
-	SessionID [16]byte            // sid uniqueness; see pulsar.tex §6.2
-	Attempt   uint32              // rejection-restart counter κ
-	Commit    [32]byte            // D_i = cSHAKE(w̄_i || τ_1) per pulsar.tex §4.2
-	MACs      map[NodeID][32]byte // KMAC256(K_{i,j}, D_i || τ_1) — K_{i,j} is the ephemeral session key
-}
-
-// Round2Message is the broadcast emitted by ThresholdSigner.Round2.
-//
-// Carries the party's plaintext mask contribution (so peers can
-// re-derive D_i and compare against the Round-1 commit), the per-party
-// response contribution, and the per-party blinding-share term used by
-// the aggregator to recompute c·s_2.
-type Round2Message struct {
-	NodeID    NodeID
-	SessionID [16]byte
-	Attempt   uint32
-
-	// W1 is the per-party w̄_i in HighBits form. The aggregator sums
-	// the per-party W1 values to recover the aggregate w̄ used to
-	// compute the FIPS 204 challenge c̃.
-	W1 []byte
-
-	// PartialSig is this party's contribution toward the FIPS 204
-	// signature. In the v0.1 reconstruction-aggregator instantiation
-	// (see BLOCKERS.md), this is the Shamir share of
-	// the seed encrypted under the round transcript hash; the
-	// aggregator collects t shares, reconstructs the seed, and emits
-	// a single FIPS 204 signature. The Lagrange-linearity path of
-	// pulsar.tex §4.2 Algorithm "Sign Round 2" produces (z_i, r_i)
-	// here directly; it is on the v0.2 critical path.
-	PartialSig []byte
-}
-
 // DKGRound1Msg is the broadcast emitted by DKGSession.Round1.
 //
 // Protocol shape (CR-6 path A — Shamir+sum, no commit-and-open):

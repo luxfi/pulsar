@@ -53,18 +53,6 @@ type VerifyKAT struct {
 	Valid     bool   `json:"valid"`
 }
 
-type ThresholdSignKAT struct {
-	Mode      string   `json:"mode"`
-	N         int      `json:"n"`
-	T         int      `json:"t"`
-	Message   string   `json:"message"`
-	PublicKey string   `json:"public_key"`
-	Signature string   `json:"signature"`
-	Quorum    []string `json:"quorum"`
-	SessionID string   `json:"session_id"`
-	Attempt   uint32   `json:"attempt"`
-}
-
 type DKGKAT struct {
 	Mode           string   `json:"mode"`
 	N              int      `json:"n"`
@@ -206,66 +194,6 @@ func main() {
 	}
 	writeJSON(filepath.Join(*outDir, "verify.json"), verifyKATs)
 
-	// ---- threshold-sign ----
-	thresholdKATs := []ThresholdSignKAT{}
-	for _, mode := range []pm.Mode{pm.ModeP65} { // mode P65 is the canonical target
-		for _, tc := range []struct{ N, T int }{{3, 2}, {5, 3}, {7, 4}, {10, 7}} {
-			params := pm.MustParamsFor(mode)
-			committee := makeKATCommittee(tc.N)
-			identities := makeKATIdentities(committee, mode, tc.N, tc.T)
-			pub, shares, _ := runKATDKG(params, committee, tc.T, mode, identities)
-			msg := []byte(fmt.Sprintf("Pulsar Threshold KAT %s n=%d t=%d", mode.String(), tc.N, tc.T))
-			quorum := make([]pm.NodeID, tc.T)
-			for i := 0; i < tc.T; i++ {
-				quorum[i] = shares[i].NodeID
-			}
-			var sid [16]byte
-			copy(sid[:], "kat-threshold01")
-			attempt := uint32(1)
-			// Per-pair session keys: every quorum pair runs the
-			// authenticated ML-KEM-768 exchange and derives the
-			// canonical session key (CR-7 fix).
-			sessionKeys := makeKATSessionKeys(quorum, identities, sid, msg)
-			signers := make([]*pm.ThresholdSigner, tc.T)
-			for i := 0; i < tc.T; i++ {
-				rng := newDetReader(append(masterSeed, []byte{0x30, byte(mode), byte(tc.T), byte(i)}...))
-				signers[i], _ = pm.NewThresholdSigner(params, sid, attempt, quorum, shares[i], sessionKeys[shares[i].NodeID], msg, rng)
-			}
-			r1 := make([]*pm.Round1Message, tc.T)
-			for i, s := range signers {
-				r1[i], _ = s.Round1(msg)
-			}
-			r2 := make([]*pm.Round2Message, tc.T)
-			for i, s := range signers {
-				r2[i], _, _ = s.Round2(r1)
-			}
-			sig, err := pm.Combine(params, pub, msg, nil, false, sid, attempt, quorum, tc.T, r1, r2, shares)
-			if err != nil {
-				fail(fmt.Errorf("threshold combine n=%d t=%d: %w", tc.N, tc.T, err))
-			}
-			// Cross-check: verify under unmodified FIPS 204.
-			if err := pm.Verify(params, pub, msg, sig); err != nil {
-				fail(fmt.Errorf("threshold KAT FIPS 204 Verify failed: %w", err))
-			}
-			quorumHex := make([]string, len(quorum))
-			for i, q := range quorum {
-				quorumHex[i] = hex.EncodeToString(q[:])
-			}
-			thresholdKATs = append(thresholdKATs, ThresholdSignKAT{
-				Mode:      mode.String(),
-				N:         tc.N,
-				T:         tc.T,
-				Message:   hex.EncodeToString(msg),
-				PublicKey: hex.EncodeToString(pub.Bytes),
-				Signature: hex.EncodeToString(sig.Bytes),
-				Quorum:    quorumHex,
-				SessionID: hex.EncodeToString(sid[:]),
-				Attempt:   attempt,
-			})
-		}
-	}
-	writeJSON(filepath.Join(*outDir, "threshold-sign.json"), thresholdKATs)
-
 	// ---- dkg ----
 	dkgKATs := []DKGKAT{}
 	for _, mode := range []pm.Mode{pm.ModeP65} {
@@ -332,27 +260,6 @@ func makeKATIdentities(committee []pm.NodeID, mode pm.Mode, n, threshold int) *k
 		fail(err)
 	}
 	return &katIdentities{keys: keys, dir: dir}
-}
-
-// makeKATSessionKeys runs SymmetricSession for every pair in the
-// quorum and returns each party's local view (peer -> session key).
-func makeKATSessionKeys(quorum []pm.NodeID, ident *katIdentities, sid [16]byte, transcript []byte) map[pm.NodeID]map[pm.NodeID][32]byte {
-	out := make(map[pm.NodeID]map[pm.NodeID][32]byte, len(quorum))
-	for _, id := range quorum {
-		out[id] = make(map[pm.NodeID][32]byte, len(quorum)-1)
-	}
-	for i := 0; i < len(quorum); i++ {
-		for j := i + 1; j < len(quorum); j++ {
-			a, b := quorum[i], quorum[j]
-			key, err := pm.SymmetricSession(a, ident.keys[a], b, ident.keys[b], sid, transcript)
-			if err != nil {
-				fail(fmt.Errorf("SymmetricSession %x↔%x: %w", a[:4], b[:4], err))
-			}
-			out[a][b] = key
-			out[b][a] = key
-		}
-	}
-	return out
 }
 
 // runKATDKG is a deterministic DKG run for KAT generation.
