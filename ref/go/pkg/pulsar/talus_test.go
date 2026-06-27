@@ -712,6 +712,106 @@ func TestTalus_WireTypes_NoForbiddenFields(t *testing.T) {
 	}
 }
 
+// TestTalus_TEE_ComputeW1_BCCPrefilter proves the Pulsar-TEE w1 source: the
+// trusted coordinator computes w1 = HighBits(A·ȳ) from the held joint nonce and
+// CAN pre-filter BCC offline (unlike the MPC profile). Cross-checked against the
+// existing coordinator nonce path.
+func TestTalus_TEE_ComputeW1_BCCPrefilter(t *testing.T) {
+	const n, threshold = 4, 3
+	f := newBCCFixture(t, ModeP65, n, threshold)
+	_, L, _ := modeShape(ModeP65)
+	K := f.params.K
+	quorum, evalPoints, _ := f.quorum(threshold)
+
+	var nonceID [32]byte
+	nonceID[0] = 0xee
+	// The coordinator path produces a boundary-clear joint nonce + shares + w.
+	deal, err := DealNonceMPCDebug(f.setup, quorum, evalPoints, threshold, nonceID, rand.Reader)
+	if err != nil {
+		t.Fatalf("coordinator nonce deal: %v", err)
+	}
+	// Reconstruct ȳ the TEE holds (oracle) from the dealt shares.
+	yJoint := oracleReconstructPolyVec(deal.YShares, quorum, evalPoints, L)
+
+	cert, clear, err := TalusTEEComputeW1(f.setup, yJoint, nonceID)
+	if err != nil {
+		t.Fatalf("TalusTEEComputeW1: %v", err)
+	}
+	// The TEE pre-filtered a clear nonce (DealNonceMPCDebug only returns clear).
+	if !clear {
+		t.Fatalf("TEE reported a non-clear nonce for a boundary-clear deal")
+	}
+	gamma2, _, _, _ := bccParams(ModeP65)
+	w1Want := highBitsVec(deal.DebugW, gamma2)
+	w1Got, err := unpackW1Vec(cert.W1, gamma2, K)
+	if err != nil {
+		t.Fatalf("unpack TEE w1: %v", err)
+	}
+	if !polyVecEqual(w1Want, w1Got) {
+		t.Fatalf("TEE w1 ≠ HighBits(A·ȳ)")
+	}
+	// The cert is W-LEAK-clean (only w1 + a commitment; never w).
+	if len(cert.WCommitment) != 32 {
+		t.Fatalf("TEE cert WCommitment must be a 32-byte commitment, got %d", len(cert.WCommitment))
+	}
+}
+
+// TestTalus_NoncePool_CanonicalSelection proves the refillable pool: TEE admits
+// only boundary-clear nonces, selection is canonical (deterministic per session
+// + pool), and one-time consume removes a nonce.
+func TestTalus_NoncePool_CanonicalSelection(t *testing.T) {
+	mk := func(b byte, clear bool) TalusNonceEntry {
+		var id [32]byte
+		id[0] = b
+		return TalusNonceEntry{NonceID: id, Clear: clear}
+	}
+
+	// TEE pool rejects non-clear entries.
+	tee := NewTalusNoncePool(TalusTEE)
+	if tee.Add(mk(1, false)) {
+		t.Fatalf("TEE pool admitted a non-boundary-clear nonce")
+	}
+	for i := byte(2); i <= 6; i++ {
+		if !tee.Add(mk(i, true)) {
+			t.Fatalf("TEE pool rejected a clear nonce")
+		}
+	}
+	if tee.Available() != 5 {
+		t.Fatalf("TEE pool Available=%d, want 5", tee.Available())
+	}
+
+	var sid [32]byte
+	copy(sid[:], []byte("pool-session"))
+	e1, err := tee.SelectCanonical(sid)
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	e2, _ := tee.SelectCanonical(sid)
+	if e1.NonceID != e2.NonceID {
+		t.Fatalf("canonical selection is not deterministic for a fixed session+pool")
+	}
+	tee.Consume(e1.NonceID)
+	if tee.Available() != 4 {
+		t.Fatalf("after consume Available=%d, want 4", tee.Available())
+	}
+	e3, _ := tee.SelectCanonical(sid)
+	if e3.NonceID == e1.NonceID {
+		t.Fatalf("a consumed nonce was selected again (one-time-use broken)")
+	}
+
+	// MPC pool admits unconditionally (BCC filtered online).
+	mpc := NewTalusNoncePool(TalusMPC)
+	if !mpc.Add(mk(9, false)) {
+		t.Fatalf("MPC pool must admit unconditionally (BCC filtered online)")
+	}
+
+	// Exhaustion fails closed.
+	empty := NewTalusNoncePool(TalusMPC)
+	if _, err := empty.SelectCanonical(sid); !errors.Is(err, ErrTalusNoncePoolEmpty) {
+		t.Fatalf("empty pool select: err=%v, want ErrTalusNoncePoolEmpty", err)
+	}
+}
+
 // ---- small test helpers ----
 
 func sortedNodeIDs(ids []NodeID) []NodeID {
