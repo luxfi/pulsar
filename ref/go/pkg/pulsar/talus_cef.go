@@ -48,19 +48,22 @@ package pulsar
 // CarryCompare protocol (CSCP): a Distributed Comparison Function (DCF/FSS) for
 // T=2, or a Carry-Save-Adder reduction + prefix comparison (needing N ≥ 2T−1)
 // for T≥3 — so only w1 is opened and w0 never forms. That secure comparison is
-// the irreducible non-linear MPC; this package provides the multiplication
-// substrate it composes from (talus_mpc.go) but not the full bit-decomposition
-// comparison circuit with malicious-secure identifiable abort. assessCSCP
-// COMPUTES the obstruction (which step, which primitive, the round/comm cost,
-// and the leak if skipped); cefIdealSecureHighBits models the IDEAL
-// FUNCTIONALITY the CSCP realises — it returns ONLY w1, so the produced
-// NonceCert is W-LEAK-clean (carries w1 and a commitment, never w / w0 / A0),
-// which the test asserts. Replacing the ideal functionality with the real CSCP
-// circuit (built on bgwMulShares) is the closing move; the round/comm budget is
-// in assessCSCP.
+// the irreducible non-linear MPC. The real circuit now exists: talus_cscp.go
+// builds the secure comparison (bit-decomposition + prefix less-than over the
+// bgwMulShares substrate), and CEFComputeW1 below drives it
+// (cscpSecureHighBitsVec) — no node, and no process, ever forms w / w0 / A0.
+// assessCSCP still COMPUTES the obstruction's cost (which step, which primitive,
+// the round/comm budget); cefIdealSecureHighBits remains the IDEAL FUNCTIONALITY
+// the real CSCP realises — it is now the test ORACLE the secure output is proven
+// equal to, not the production path. The malicious-secure / identifiable-abort
+// hardening over the semi-honest circuit is the scoped residual
+// (AssessCSCPMalicious); a wrong w1 from a deviating party is caught downstream by
+// FindHint + the mandatory stock-FIPS release gate (liveness fault, never a forged
+// signature or key leak).
 
 import (
 	"errors"
+	"io"
 
 	"golang.org/x/crypto/sha3"
 )
@@ -176,17 +179,22 @@ func cefIdealSecureHighBits(shares []polyVec, mode Mode) (polyVec, error) {
 	return cefReconstructW1FromShares(shares, mode)
 }
 
-// CEFComputeW1 is the TALUS-MPC offline coordinator surface: given the
-// collected per-party commitment shares (each computed locally by
-// CEFCommitmentShare), it produces a W-LEAK-clean NonceCert carrying only
-// w1 = HighBits(w) and a binding commitment — never w, w0, the low sum, or any
-// share that reconstructs them. BCC is NOT pre-tested (the MPC profile cannot
-// evaluate ‖r0‖∞ without forming w0); a non-clear nonce is caught downstream
-// when FindHint fails at aggregation, and the ceremony retries with a fresh
-// nonce. The cert's clearance QC is left to the consensus layer's validator
-// NonceMPC attestation (registeredQuorumSigVerifier), as for the production
-// nonce path.
-func CEFComputeW1(setup *AlgSetup, commitmentShares []polyVec, nonceID [32]byte) (*NonceCert, error) {
+// CEFComputeW1 is the TALUS-MPC offline coordinator surface: given the per-party
+// additive commitment shares (each computed locally by CEFCommitmentShare) and the
+// parallel CEF participant set (evalPoints, length N ≥ 2T−1 for honest majority), it
+// runs the REAL CarryCompare secure circuit (cscpSecureHighBitsVec) and produces a
+// W-LEAK-clean NonceCert carrying only w1 = HighBits(w) and a binding commitment —
+// never w, w0, the low sum A0, or any share that reconstructs them. NO node, and no
+// process here, ever forms w0/w: the secure circuit opens only the per-coefficient
+// uniform mask and the final w1. BCC is NOT pre-tested (the MPC profile cannot
+// evaluate ‖r0‖∞ without forming w0); a non-clear nonce is caught downstream when
+// FindHint fails at aggregation, and the ceremony retries with a fresh nonce. The
+// cert's clearance QC is left to the consensus layer's validator NonceMPC
+// attestation (registeredQuorumSigVerifier), as for the production nonce path.
+//
+// The participant set MUST satisfy N ≥ 2T−1 (TALUS Theorem 10.1) — the same bound
+// TalusProfileAllows enforces. rng supplies the secure re-sharing randomness.
+func CEFComputeW1(setup *AlgSetup, commitmentShares []polyVec, evalPoints []uint32, threshold int, nonceID [32]byte, rng io.Reader) (*NonceCert, error) {
 	if setup == nil {
 		return nil, ErrCEFShape
 	}
@@ -196,7 +204,9 @@ func CEFComputeW1(setup *AlgSetup, commitmentShares []polyVec, nonceID [32]byte)
 	if len(commitmentShares) == 0 {
 		return nil, ErrCEFNoShares
 	}
-	w1, err := cefIdealSecureHighBits(commitmentShares, setup.Mode)
+	// REAL CarryCompare (CSCP): secure HighBits over the per-party additive
+	// commitment shares — no node (and no process) ever forms w, w0, or A0.
+	w1, err := cscpSecureHighBitsVec(setup.Mode, commitmentShares, evalPoints, threshold, rng, nil)
 	if err != nil {
 		return nil, err
 	}
