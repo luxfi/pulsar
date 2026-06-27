@@ -163,6 +163,17 @@ Go predicate and `spec` are **debug-oracle/prototype**: production needs the
 ZK proof machinery, which does not yet exist ⇒ the BCC/CEF signing path is
 **prototype, not production**, even though the arithmetic tests pass.
 
+**Status update (TALUS, PULSAR-V12 item 3): NARROWED.** The leaking
+`DealNonceMPCDebug.DebugW` is no longer the only path. The dealerless Shamir
+Nonce DKG (`talus_nonce_dkg.go`) + CEF distributed-w1 (`talus_cef.go`,
+`CEFComputeW1`) now establish ȳ and emit a `NonceCert` carrying **only w1**
+(no `w` / `w0` / low-sum on the wire). The residual is narrowed to one
+precisely-computed step: realising the ideal `cefIdealSecureHighBits` by the
+actual CarryCompare (CSCP) secure comparison so no node forms `w0` even
+transiently. The obstruction (DCF for T=2 / CSA+prefix for T≥3 over the
+`bgwMulShares` substrate, N≥2T−1, round & comparison cost, leak-if-skipped)
+is COMPUTED by `assessCSCP` / `AssessCarryCompare`, not asserted.
+
 ### PULSAR-V13-PARTIAL-Z-PROOF (HIGH — consensus robustness)
 
 BCC/CEF removes the hint-path leakage, but leaderless consensus also needs
@@ -349,6 +360,104 @@ item 2 RESEARCH-BLOCKED with a computed obstruction):**
   S_η bounds and no noise-absorbing rounding step. This is precisely why
   the cert is AND-mode dual-PQ. `DealerlessMLDSADKG` fails closed
   (`ErrDealerlessByteFIPSUnreachable`); 5 tests pin the arithmetic.
+
+- **Item 3 — TALUS construction (dealerless NONCE DKG + CEF distributed-w1
+  + two profiles): BUILT to the maximal real extent; the CSCP secure
+  comparison is the ONE precisely-computed residual.** Pulsar now realises
+  the SOTA TALUS scheme (Kao, *Threshold ML-DSA with One-Round Online
+  Signing via Boundary Clearance and Carry Elimination*, arXiv:2603.22109)
+  on the item-1 BCC/CEF core (`talus*.go`):
+
+  - **Dealerless Shamir Nonce DKG** (`talus_nonce_dkg.go`,
+    `NonceDKGParticipant`) — REPLACES the trusted nonce dealing inside
+    `DealNonceMPCDebug`. Each party samples its OWN small contribution
+    `y_h` (‖·‖∞ ≤ ⌊(γ1−2β−4)/N⌋), Shamir-shares it, and sums the shares it
+    RECEIVES into `y_i = Σ_h f_h(x_i) = F(x_i)`, `F(0) = Σ_h y_h = ȳ`. No
+    party (and no dealer) ever forms the joint nonce ȳ; the contribution is
+    erased after dealing; the instance is one-time-use (`Consume`/`Abort`
+    erase the share). Proven by `TestTalus_NonceDKG_Dealerless` (each node
+    holds shares at exactly its own eval point ⇒ cannot interpolate ȳ; two
+    T-subsets reconstruct the SAME ȳ in the oracle; small-nonce bound holds).
+
+  - **CEF distributed-w1** (`talus_cef.go`). Each party computes its OWN
+    additive commitment contribution `g_i = A·(λ_i·y_i)` locally
+    (`CEFCommitmentShare`); `Σ_i g_i = A·ȳ = w` but no node forms w. The
+    **carry-elimination identity** (`cefReconstructW1FromShares`) recovers
+    `w1 = HighBits(Σ g_i mod q)` from the per-party Decompose parts + the
+    two carries (q-wrap and α-carry) — proven equal to ground truth on real
+    shares (`TestTalus_CEF_CarryEliminationIdentity`, ML-DSA-65 and -87).
+    `CEFComputeW1` emits a **W-LEAK-clean** `NonceCert` carrying ONLY w1 + a
+    binding commitment — never w, w0, or the low sum (asserted by
+    `TestTalus_CEF_DistributedCommitment` + the forbidden-field guard). This
+    **narrows PULSAR-V13-W-LEAK**: the leaking `DebugW` is gone from the
+    output; the cert is provably w0-free.
+
+  - **The ONE residual — CarryCompare (CSCP) — COMPUTED, not faked**
+    (`assessCSCP` / `AssessCarryCompare`, mirroring `assessDealerlessFIPS`).
+    The carry-elimination needs the aggregate low sum `A0 = Σ a0_i` to
+    resolve the α-carry, and A0 **is** w0 up to the carry — forming it in
+    the clear IS the W-LEAK. TALUS resolves the carry with a SECURE
+    comparison: a Distributed Comparison Function (DCF/FSS) for T=2, or a
+    Carry-Save-Adder reduction + prefix comparison (needs N ≥ 2T−1) for
+    T≥3. That non-linear secure comparison is the irreducible MPC step this
+    package does not yet build; `cefIdealSecureHighBits` models the IDEAL
+    functionality it realises (returns ONLY w1, so the cert stays clean) and
+    `assessCSCP` COMPUTES the obstruction: the step, the per-T primitive,
+    the honest-majority bound (N≥2T−1), the offline rounds
+    `max(3, ⌈log2(N/2)⌉+2)`, the per-signature comparison count
+    `256·K·⌈1/0.317⌉`, and the leak if skipped (opening A0 ⇒ w0 ⇒
+    `w'−w = c·t0 − c·s2`). Pinned by `TestTalus_CSCPObstruction_Computed`.
+
+  - **Honest-majority MPC substrate** (`talus_mpc.go`) — `bgwMulShares`
+    (BGW secure multiplication over GF(q) Shamir shares) + `SharedRandomBit`
+    (XOR-folded). SOUND, tested, and they concretely ENFORCE TALUS
+    Theorem 10.1's **N ≥ 2T−1** barrier (the degree-2(T−1) product is
+    unreconstructable otherwise — `ErrBGWNotEnoughParties`). This is the
+    multiplication/randomness layer the CSCP comparison circuit composes
+    from; the malicious-secure / identifiable-abort hardening (Feldman/
+    Pedersen-committed shares, TALUS Phase B) is the orthogonal residual.
+
+  - **Two profiles** (`talus.go`). **Pulsar-TEE** = trusted coordinator/TEE
+    holds ȳ, computes w1 directly, and CAN pre-filter BCC offline
+    (`TalusTEEComputeW1`; TEE attestation binding is the OPTIONAL luxfi/tee
+    extension via `attest.go AttestationContext`, never baked into core).
+    **Pulsar-MPC** = TEE-free, fully distributed, no node forms ȳ or w;
+    honest-majority N≥2T−1 for T≥3 (`TalusProfileAllows`). The online path
+    and emitted signature are byte-identical across profiles.
+
+  - **Safety gate + pool + Quasar evidence.** `TalusReleaseGate` runs
+    MANDATORY stock FIPS-204 verification before any signature is emitted
+    and NEVER releases a failed/empty signature
+    (`TestTalus_ReleaseGate_NeverReleasesFailed`). `TalusNoncePool` gives a
+    refillable pool with the existing non-grindable `CanonicalNonceIndex`
+    selection (TEE admits only boundary-clear nonces; MPC filters online).
+    `TalusEvidence` binds the Quasar evidence kind **`pulsar-talus-mldsa`**
+    (distinct from Corona) + suite IDs `…-65`/`…-87` (ML-DSA-44 refused,
+    outside BCC scope) and dispatches to the suite-pinned stock verifier so
+    no suite string routes a Pulsar leg to the wrong verifier.
+
+  - **Headline proof.** `TestTalus_MPC_EndToEnd_StockVerify` /
+    `_Mode87`: a full multi-node Pulsar-MPC ceremony over a message bus
+    (dealerless DKG → per-node commitment shares → CEF w1 → one z-broadcast
+    round → release gate) produces a signature that verifies under the
+    UNMODIFIED stock `cloudflare/circl` `mldsa{65,87}.Verify`, with
+    single-share custody, no joint-nonce / no-w / no-w0 / no-s1
+    reconstruction, sub-quorum refusal, one-time nonces, and tamper
+    rejection. 15 TALUS tests green; `go build ./...` and the full package
+    suite green.
+
+  **Remaining honest work (Item 3):** (a) realise `cefIdealSecureHighBits`
+  by the actual CSCP secure-comparison circuit on `bgwMulShares` (the cost
+  is in `assessCSCP`) so no node forms w0 even transiently; (b) the
+  malicious-secure / identifiable-abort layer (committed shares, verified
+  openings, complaint round) over the DKG and the comparison; (c) KEYGEN is
+  still the trusted dealer `DealAlgShares` (item 2 proves dealerless
+  byte-FIPS-204 KEYGEN is unreachable; permissionless safety rests on the
+  dealerless Corona leg in the AND-mode cert). HONEST DISTINGUISHABILITY
+  NOTE: the TALUS threshold transcript (masked CEF broadcasts + per-party
+  z_i) may differ in DISTRIBUTION from a single-party ML-DSA transcript,
+  even though the final signature's byte format and verify path are
+  identical and standard.
 
 ### PULSAR-V12-GPU-NTT-WIRE — route Round-2 NTTs through gpu-kernels batched dispatch
 

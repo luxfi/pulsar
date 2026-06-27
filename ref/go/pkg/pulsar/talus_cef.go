@@ -203,6 +203,56 @@ func CEFComputeW1(setup *AlgSetup, commitmentShares []polyVec, nonceID [32]byte)
 	return cefNonceCert(setup, w1, nonceID), nil
 }
 
+// TalusTEEComputeW1 is the Pulsar-TEE offline w1 source: the trusted
+// coordinator / TEE HOLDS the joint nonce ȳ, computes w = A·ȳ directly, and —
+// unlike the MPC profile — CAN pre-filter the Boundary Clearance Condition
+// offline (it has w). It returns the W-LEAK-clean NonceCert (only w1 leaves the
+// TEE) and whether the nonce is boundary-clear (so the TEE pool keeps only the
+// ~31.7% that will sign in one online round). The TEE's custody of ȳ is the
+// trust boundary; its attestation binding is the OPTIONAL luxfi/tee extension
+// (attest.go AttestationContext) — never baked into core. jointNonce is the
+// TEE-held ȳ (length L, ‖·‖∞ ≤ γ1 − 2β − 4).
+func TalusTEEComputeW1(setup *AlgSetup, jointNonce polyVec, nonceID [32]byte) (*NonceCert, bool, error) {
+	if setup == nil {
+		return nil, false, ErrCEFShape
+	}
+	gamma2, beta, _, ok := bccParams(setup.Mode)
+	if !ok {
+		return nil, false, ErrBCCParamSet
+	}
+	_, L, _ := modeShape(setup.Mode)
+	if len(jointNonce) != L {
+		return nil, false, ErrCEFShape
+	}
+	w := commitMatrixSetup(setup, jointNonce)
+	clear := BoundaryClear(w, gamma2, beta)
+	w1 := highBitsVec(w, gamma2)
+	// Only w1 leaves the TEE; w is discarded here (never returned/serialized).
+	cert := cefNonceCert(setup, w1, nonceID)
+	return cert, clear, nil
+}
+
+// commitMatrixSetup computes w = A·y from the public setup (the TEE-side direct
+// commitment; the MPC profile never calls this — it sums per-party shares
+// instead, never forming w).
+func commitMatrixSetup(setup *AlgSetup, y polyVec) polyVec {
+	_, L, _ := modeShape(setup.Mode)
+	K := len(setup.a)
+	yHat := make(polyVec, L)
+	for l := 0; l < L; l++ {
+		yHat[l] = y[l]
+		yHat[l].ntt()
+	}
+	w := make(polyVec, K)
+	for k := 0; k < K; k++ {
+		polyDotHat(&w[k], setup.a[k], yHat)
+		w[k].reduceLe2Q()
+		w[k].invNTT()
+		w[k].normalize()
+	}
+	return w
+}
+
 // cefNonceCert builds the public, W-LEAK-clean nonce certificate from w1. It
 // mirrors the production nonce cert (consensus.go NonceCert): only the packed
 // w1 and a binding commitment to it are carried; full w, w0, w-shares, and the
