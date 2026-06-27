@@ -68,3 +68,51 @@ func packW1Vec(w1 polyVec, gamma2 uint32, K int) []byte {
 	}
 	return out
 }
+
+// unpackW1Vec is the exact inverse of packW1Vec: it recovers the K-vector
+// of HighBits polynomials from the canonical packed bytes a NonceCert
+// carries. The no-reconstruct aggregator needs w1 in polynomial form to run
+// FindHint(w', w1); because w1 is the PUBLIC challenge target, any verifier
+// reconstructs it from the cert alone. Round-trips byte-for-byte with
+// polyPackW1 over the in-range HighBits values.
+//
+// For the BCC-proven scope (ML-DSA-65/87, γ2 = (q−1)/32) the packing is two
+// 4-bit nibbles per byte; ML-DSA-44 (6-bit) is handled for completeness but
+// is out of the BCC scope. Returns ErrWireLengthMismatch on a short buffer.
+func unpackW1Vec(buf []byte, gamma2 uint32, K int) (polyVec, error) {
+	var polyW1Size int
+	if gamma2 == mldsaGamma2P65 {
+		polyW1Size = mldsaN / 2
+	} else {
+		polyW1Size = mldsaN * 6 / 8
+	}
+	if len(buf) != polyW1Size*K {
+		return nil, ErrWireLengthMismatch
+	}
+	w1 := make(polyVec, K)
+	for i := 0; i < K; i++ {
+		polyUnpackW1(&w1[i], buf[polyW1Size*i:polyW1Size*(i+1)], gamma2)
+	}
+	return w1, nil
+}
+
+// polyUnpackW1 is the inverse of polyPackW1 for one polynomial.
+func polyUnpackW1(p *poly, buf []byte, gamma2 uint32) {
+	if gamma2 == mldsaGamma2P65 {
+		// 4-bit packing: buf[i] = p[2i] | (p[2i+1] << 4).
+		for i := 0; i < mldsaN/2; i++ {
+			p[2*i] = uint32(buf[i] & 0x0F)
+			p[2*i+1] = uint32(buf[i] >> 4)
+		}
+		return
+	}
+	if gamma2 == mldsaGamma2P44 {
+		// 6-bit packing (out of BCC scope; provided for completeness).
+		for i := 0; i < mldsaN/4; i++ {
+			p[4*i+0] = uint32(buf[3*i+0] & 0x3F)
+			p[4*i+1] = uint32(buf[3*i+0]>>6) | uint32(buf[3*i+1]&0x0F)<<2
+			p[4*i+2] = uint32(buf[3*i+1]>>4) | uint32(buf[3*i+2]&0x03)<<4
+			p[4*i+3] = uint32(buf[3*i+2] >> 2)
+		}
+	}
+}
