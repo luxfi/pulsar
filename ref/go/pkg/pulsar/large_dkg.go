@@ -1,5 +1,14 @@
+//go:build legacy_trusted_dealer
+
 // Copyright (C) 2025-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
+//
+// LEGACY (quarantined): GF(q) SEED-share committee path. It is dealerless
+// at keygen but its output (LargeKeyShare = a Shamir share of the 32-byte
+// ML-DSA seed) can ONLY be consumed by the reconstruct-at-sign combiner
+// (large_threshold.go). NOT in the default production build. The production
+// committee path is the no-reconstruct AlgShare/AggregateBCC signer
+// (distributed_bcc.go). Build with `-tags legacy_trusted_dealer` only.
 
 package pulsar
 

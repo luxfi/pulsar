@@ -1,5 +1,13 @@
+//go:build legacy_trusted_dealer
+
 // Copyright (C) 2025-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
+//
+// LEGACY (quarantined): EVM-precompile ctx closure for the GF(q)
+// SEED-share reconstruct path (LargeCombine). Run with
+// `-tags legacy_trusted_dealer`. The default build's no-reconstruct
+// committee ctx coverage is TestDistributedBCC_Ctx (distributed_bcc_test.go)
+// and no_reconstruct_committee_test.go.
 
 package pulsar
 

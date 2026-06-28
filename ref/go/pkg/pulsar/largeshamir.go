@@ -1,5 +1,13 @@
+//go:build legacy_trusted_dealer
+
 // Copyright (C) 2025-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
+//
+// LEGACY (quarantined): high-level GF(q) Shamir wrapper (LargeShamir) for
+// the SEED-share committee path. NOT in the default production build. The
+// shared low-level GF(q) Shamir primitives used by the production
+// no-reconstruct/TALUS path live in shamir_gfq.go (always built). Build
+// with `-tags legacy_trusted_dealer` only.
 
 package pulsar
 
