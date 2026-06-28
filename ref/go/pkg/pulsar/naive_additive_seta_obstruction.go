@@ -3,9 +3,9 @@
 
 package pulsar
 
-// distributed_bcc_dkg.go — the obstruction to a NAIVE dealerless DKG for
-// byte-FIPS-204 ML-DSA, DERIVED from the parameter arithmetic (not asserted).
-// This is the honest Part-2 deliverable of PULSAR-V12-PARALLEL-PQ: a
+// naive_additive_seta_obstruction.go — the obstruction to a NAIVE dealerless
+// DKG for byte-FIPS-204 ML-DSA, DERIVED from the parameter arithmetic (not
+// asserted). This is the honest Part-2 deliverable of PULSAR-V12-PARALLEL-PQ: a
 // Pedersen/Gennaro-style dealerless DKG that forms the joint secret as a SUM
 // of N≥2 independent S_η contributions does NOT produce a key whose
 // signatures verify byte-for-byte under unmodified FIPS 204, and THIS FILE
@@ -20,14 +20,14 @@ package pulsar
 // a KNOWN, published technique that achieves a dealerless DKG AND a-posteriori
 // sharing of an existing key whose signatures verify under the STANDARD ML-DSA
 // verifier, for a small party count N (≲8; replicated-share cost grows with
-// (T,N)). Pulsar does not implement it yet — it is the candidate to adopt
-// (see CANDIDATE RESEARCH DIRECTIONS). What is genuinely barred is the naive
-// sum, not "dealerless ML-DSA" as a class.
+// (T,N)). Pulsar IMPLEMENTS it — mithril_rss.go (MithrilRSSKeygen) is the
+// production dealerless escape past this wall. What is genuinely barred is the
+// naive additive sum, not "dealerless ML-DSA" as a class.
 //
 // It mirrors rangeproof.go's pattern: the fail-closed decision is a
 // COMPUTED consequence of the FIPS 204 bounds (assessDealerlessFIPS), and a
-// test (distributed_bcc_dkg_test.go) pins the arithmetic so the obstruction
-// is reproducible, not a claim.
+// test (naive_additive_seta_obstruction_test.go) pins the arithmetic so the
+// obstruction is reproducible, not a claim.
 //
 // ─────────────────────────────────────────────────────────────────────────
 // THE OBSTRUCTION (precise; which step breaks).
@@ -108,19 +108,19 @@ package pulsar
 // Pulsar leg is FIPS-204-standard defence-in-depth.
 //
 // ─────────────────────────────────────────────────────────────────────────
-// CANDIDATE RESEARCH DIRECTIONS — a byte-FIPS-204 dealerless DKG. This package
-// implements none yet; direction (1) is published and adoptable.
+// DEALERLESS ESCAPE (implemented) + remaining research directions for a
+// byte-FIPS-204 dealerless threshold ML-DSA. Direction (1) is IMPLEMENTED
+// (mithril_rss.go); (2)–(4) remain open.
 //
 //  1. SHORT replicated secret sharing + local per-party rejection (Mithril:
 //     Celi–del Pino–Espitau–Niot–Prest, ia.cr/2026/013, USENIX Security 2026).
-//     This is the byte-FIPS-204 dealerless path: it keeps shares SHORT by
-//     construction (replicated, not Shamir/Lagrange — naive Lagrange blows up
-//     coefficient norms and breaks ML-DSA's short-vector requirement), enables
-//     local rejection (no global-abort MPC), supports DKG AND a-posteriori
-//     sharing of an existing key, and emits STANDARD ML-DSA-verifiable sigs.
-//     Practical at small N (≲8; replicated-share cost grows with (T,N)). This
-//     is the recommended adoption target for a dealerless Pulsar (see
-//     PULSAR-M committee architecture). Contrast Threshold Raccoon
+//     IMPLEMENTED — mithril_rss.go (MithrilRSSKeygen). This is the byte-FIPS-204
+//     dealerless path: it keeps shares SHORT by construction (replicated, not
+//     Shamir/Lagrange — naive Lagrange blows up coefficient norms and breaks
+//     ML-DSA's short-vector requirement), enables local rejection (no
+//     global-abort MPC), supports DKG AND a-posteriori sharing of an existing
+//     key, and emits STANDARD ML-DSA-verifiable sigs. Practical at small N
+//     (≲8; replicated-share cost grows with (T,N)). Contrast Threshold Raccoon
 //     (EUROCRYPT 2024 / NIST MPTC): noise-flooded, NON-FIPS verifier — that is
 //     Corona's dealerless lane, not byte-ML-DSA.
 //  2. Distributed-rejection DKG with an EXACT ℓ∞ lattice range proof: each
@@ -140,23 +140,22 @@ package pulsar
 
 import "errors"
 
-// ErrDealerlessByteFIPSUnreachable is returned by DealerlessMLDSADKG: this
-// package does not implement a dealerless byte-FIPS-204 ML-DSA DKG. The NAIVE
-// additive (Pedersen/Gennaro) construction is barred by the computed S_η
-// obstruction below; this is NOT a general impossibility — a short-replicated-
-// share construction (Mithril) achieves it at small N and is the adoption
-// target (see the file header). This entry point fails closed — it NEVER fakes
-// a key and NEVER silently falls back to a trusted dealer or a TEE (those are
-// the explicit, opt-in DealAlgShares / mldsa-tee paths). Today's dealerless
-// genesis is Corona's job in the AND-mode dual-PQ cert.
+// ErrDealerlessByteFIPSUnreachable is returned by DealerlessMLDSADKG: the NAIVE
+// additive (Pedersen/Gennaro) dealerless byte-FIPS-204 ML-DSA DKG is barred by
+// the computed S_η obstruction below. This is NOT a general impossibility — a
+// short-replicated-share construction (Mithril) achieves it at small N and is
+// IMPLEMENTED in mithril_rss.go. This entry point fails closed — it NEVER fakes
+// a key and NEVER silently falls back to a trusted dealer or a TEE; the
+// production dealerless keygen is Mithril RSS (mithril_rss.go), and Corona's
+// noise-flooded leg carries the second dealerless lane in the AND-mode dual-PQ
+// cert.
 var ErrDealerlessByteFIPSUnreachable = errors.New(
 	"pulsar: naive additive (Pedersen/Gennaro) dealerless byte-FIPS-204 ML-DSA " +
 		"DKG is unsound — a summed joint secret has ‖s2‖∞ ≤ Nη, violating the BCC " +
 		"boundary-clearance hypothesis ‖c·s2‖∞ ≤ β (and ML-DSA's S_η-calibrated " +
-		"EUF-CMA). This is the naive lift only, NOT a general impossibility: short " +
-		"replicated-share constructions (Mithril, ia.cr/2026/013) achieve dealerless " +
-		"byte-FIPS-204 at small N. Until adopted, use DealAlgShares (dealer/TEE " +
-		"genesis) for the Pulsar leg and rely on the dealerless Corona leg")
+		"EUF-CMA). This is the naive lift only, NOT a general impossibility: the " +
+		"production dealerless keygen is Mithril RSS (mithril_rss.go, ia.cr/2026/013) " +
+		"— short replicated shares that escape this wall at small N")
 
 // DealerlessFIPSObstruction is the COMPUTED obstruction for a dealerless DKG
 // over `parties` contributors at a given parameter set. Every field is
@@ -231,14 +230,14 @@ func assessDealerlessFIPS(mode Mode, parties int) (DealerlessFIPSObstruction, bo
 	return o, true
 }
 
-// DealerlessMLDSADKG is the fail-closed dealerless-DKG entry point. There is
-// no byte-FIPS-204 dealerless construction (see the file header and
-// assessDealerlessFIPS), so for any real committee (parties ≥ 2) it returns
-// ErrDealerlessByteFIPSUnreachable with the COMPUTED obstruction. It NEVER
-// fabricates a key and NEVER falls back to a dealer/TEE — those are the
-// explicit, opt-in DealAlgShares / mldsa-tee paths a caller must choose by
-// name. The Corona leg provides the dealerless guarantee in the AND-mode
-// dual-PQ cert.
+// DealerlessMLDSADKG is the fail-closed guard against the NAIVE additive
+// dealerless DKG. There is no byte-FIPS-204 dealerless construction via the
+// naive Pedersen/Gennaro sum (see the file header and assessDealerlessFIPS), so
+// for any real committee (parties ≥ 2) it returns ErrDealerlessByteFIPSUnreachable
+// with the COMPUTED obstruction. It NEVER fabricates a key and NEVER falls back
+// to a dealer/TEE; the production dealerless keygen is Mithril RSS
+// (mithril_rss.go), and Corona's leg carries the second dealerless lane in the
+// AND-mode dual-PQ cert.
 func DealerlessMLDSADKG(params *Params, committee []NodeID, threshold int) (*DealerlessFIPSObstruction, error) {
 	if err := params.Validate(); err != nil {
 		return nil, err
@@ -248,8 +247,9 @@ func DealerlessMLDSADKG(params *Params, committee []NodeID, threshold int) (*Dea
 		return nil, ErrBCCParamSet
 	}
 	if o.ByteFIPSReachable {
-		// parties ≤ 1 — degenerate (a single contributor is a dealer). There
-		// is no dealerless setting to satisfy; route through DealAlgShares.
+		// parties ≤ 1 — degenerate (a single contributor IS a dealer). There is
+		// no dealerless setting for the naive lift to satisfy; the production
+		// dealerless keygen is Mithril RSS (mithril_rss.go).
 		return &o, ErrDealerlessByteFIPSUnreachable
 	}
 	return &o, ErrDealerlessByteFIPSUnreachable
