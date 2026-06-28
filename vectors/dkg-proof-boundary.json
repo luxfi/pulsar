@@ -1,0 +1,256 @@
+{
+  "schema": "pulsar.dkg-proof-boundary.v1",
+  "description": "Structured DKG + threshold-signing behavioral vectors for the Pulsar proof boundary. Spec-level state vectors (positive + negative), each grounded in the exact v0.5.0 code constant that enforces it. Distinct from the byte-level wire KATs under vectors/{keygen,sign,verify,threshold-sign,dkg}.json (see cross_version_kats).",
+  "grounded_in": {
+    "tag": "v0.5.0",
+    "commit": "53ed1c2",
+    "tree": "ref/go/pkg/pulsar/",
+    "companion_docs": ["DKG-PROOF-BOUNDARY.md", "PROOF-CLAIMS.md", "VERSIONS.md", "BLOCKERS.md", "PULSAR.md"]
+  },
+  "claim_discipline": {
+    "A_verifier_compat": "PROVEN: threshold (c-tilde,z,h) is byte-FIPS-204; unmodified circl mldsa{65,87}.Verify accepts (bcc_sign_test.go:86). interop-tested.",
+    "B_construction": "SCOPED (Lux-authored). PROOF-CLAIMS.md §0: dealerless committee key/nonce gen + CEF/CSCP no-reconstruct signing + standard-ML-DSA-verifier output, semi-honest/no-leak today; malicious-CSCP + networked-MPC are gated residuals.",
+    "never_claim": ["FIPS/NIST-certified threshold ML-DSA", "fully-malicious-secure-proven", "global-1000-validator DKG"],
+    "keygen_residual": "SIGNING is no-reconstruct + malicious-hardened (v0.5.0). KEYGEN is dealerless-but-forms-sk in the seed domain (dkg.go:426 / large_dkg.go:363, the latter quarantined behind //go:build legacy_trusted_dealer) OR trusted-dealer for the s1-share path (DealAlgShares, quarantined to bootstrap_dealer_test.go). Structural seed-equivalence GroupPK==KeyFromSeed(masterSeed).Pub is proven (dkg_test.go:206); full FIPS-204 KeyGen-distribution-equivalence (unbiased seed, hiding vs <t, abort-bias) is NOT proven (open-research). Permissionless dealerless safety is carried by the Corona leg."
+  },
+  "complaint_kinds": {
+    "ComplaintEquivocation": {"value": 1, "site": "types.go:285"},
+    "ComplaintBadDelivery": {"value": 2, "site": "types.go:290"},
+    "ComplaintBadPartial": {"value": 5, "site": "types.go:307"}
+  },
+  "positive_vectors": [
+    {
+      "id": "dkg/happy-path",
+      "layer": "dkg",
+      "scenario": "All committee members run Round1/Round2/Round3 honestly over the canonical sorted committee.",
+      "expected": "accept",
+      "invariant": "every honest party outputs the SAME GroupPubkey and TranscriptHash",
+      "code_ref": "dkg.go:329-472",
+      "test_ref": "TestDKG_HappyPath dkg_test.go:19 (agreement asserted dkg_test.go:86-88); large_e2e_test.go:102-103",
+      "property": "consistency"
+    },
+    {
+      "id": "dkg/seed-equivalence",
+      "layer": "dkg",
+      "scenario": "Reconstruct the master seed from a threshold share set, recompute KeyFromSeed(masterSeed), compare to the DKG GroupPubkey; then sign and FIPS-204-verify.",
+      "expected": "accept",
+      "invariant": "GroupPK == KeyFromSeed(masterSeed).Pub AND Verify(GroupPK, msg, sig)==ok",
+      "code_ref": "dkg.go:422-426 (masterSeed=cSHAKE256(byteSum||committeeRoot,'PULSAR-SEED-SHARE-V1'); sk=KeyFromSeed)",
+      "test_ref": "TestDKG_ProducesValidPubkey_VerifiableSign dkg_test.go:189-207 (equal at :206), sign+verify :211-217",
+      "property": "correctness (structural seed-equivalence; NOT KeyGen-distribution-equivalence — see keygen_residual)"
+    },
+    {
+      "id": "sign/circl-roundtrip",
+      "layer": "sign",
+      "scenario": "No-reconstruct BCC/CEF threshold signature verified under an independent circl public key re-derived from the seed (no pulsar code in the verify path).",
+      "expected": "accept",
+      "invariant": "mldsa65.Verify(pk, msg, ctx, sig)==true; transcript carries no leaking secret",
+      "code_ref": "distributed_bcc.go:830-995 (AggregateBCCWithBlame)",
+      "test_ref": "TestBCCSignRoundTripVerifiesCIRCL bcc_sign_test.go:86 (circl verify :140,:163); assertBCCTranscriptNoLeak bcc_sign_test.go:217",
+      "property": "claim-A verifier-compatibility; secrecy/no-reconstruct"
+    }
+  ],
+  "negative_vectors": [
+    {
+      "id": "dkg/malformed-commitment",
+      "layer": "dkg",
+      "scenario": "A Round-2 digest does not match the canonical recomputed digest over the ordered envelope set (a dealer presented inconsistent commitment material).",
+      "expected": "reject",
+      "expected_outcome": "AbortEvidence{Kind: ComplaintEquivocation}",
+      "code_ref": "dkg.go:344-355 (ctEqual32 mismatch); computeRound2Digest dkg.go:492-510",
+      "test_ref": "TestDKG_Equivocation_Detected dkg_test.go:111",
+      "property": "binding (equivocation)"
+    },
+    {
+      "id": "dkg/bad-share",
+      "layer": "dkg",
+      "scenario": "An envelope addressed to me is missing, or sealOpenEnvelope fails to authenticate/open (a corrupted or undelivered Shamir share).",
+      "expected": "reject",
+      "expected_outcome": "AbortEvidence{Kind: ComplaintBadDelivery}",
+      "code_ref": "dkg.go:377-385 (missing), dkg.go:387-397 (open fails)",
+      "property": "robustness (bad-delivery attribution)"
+    },
+    {
+      "id": "dkg/equivocation",
+      "layer": "dkg",
+      "scenario": "Large-committee (GF(q)) path: a dealer ships divergent envelope sets to different recipients; the equivocation gate detects the digest mismatch.",
+      "expected": "reject",
+      "expected_outcome": "AbortEvidence{Kind: ComplaintEquivocation}",
+      "code_ref": "large_dkg.go:289-300 (quarantined: //go:build legacy_trusted_dealer)",
+      "property": "binding (equivocation)"
+    },
+    {
+      "id": "dkg/missing-participant",
+      "layer": "dkg",
+      "scenario": "Fewer than the full committee delivered Round-1 or Round-2 messages.",
+      "expected": "reject",
+      "expected_outcome": "ErrTooFewRound1 / ErrTooFewRound2",
+      "code_ref": "dkg.go:54-55, dkg.go:330-335; orderRound1ByCommittee dkg.go:526-543",
+      "property": "robustness (completeness)"
+    },
+    {
+      "id": "dkg/node-not-in-committee",
+      "layer": "dkg",
+      "scenario": "A party whose NodeID is not in the canonical committee attempts to construct a session.",
+      "expected": "reject",
+      "expected_outcome": "ErrNotInCommittee",
+      "code_ref": "dkg.go:50, dkg.go:171",
+      "test_ref": "TestDKG_NodeNotInCommittee dkg_test.go:220",
+      "property": "binding (participant set)"
+    },
+    {
+      "id": "dkg/duplicate-committee",
+      "layer": "dkg",
+      "scenario": "Committee list contains a duplicate NodeID.",
+      "expected": "reject",
+      "expected_outcome": "ErrCommitteeDuplicate",
+      "code_ref": "dkg.go:49, dkg.go:150-153",
+      "property": "binding (participant set)"
+    },
+    {
+      "id": "dkg/empty-committee",
+      "layer": "dkg",
+      "scenario": "Empty committee, or threshold outside [1, len(committee)].",
+      "expected": "reject",
+      "expected_outcome": "ErrCommitteeEmpty / ErrInvalidThreshold",
+      "code_ref": "dkg.go:48, dkg.go:129-133",
+      "property": "binding (threshold/participant validity)"
+    },
+    {
+      "id": "dkg/wrong-epoch",
+      "layer": "dkg+sign",
+      "scenario": "DKG: a different epoch yields a different committeeRoot and hence a structurally distinct GroupPK (no cross-epoch confusion). Sign: a reserved nonce re-presented under a different (epoch,committee,policy,kind,digest) binding.",
+      "expected": "reject",
+      "expected_outcome": "structurally-distinct GroupPK (dkg); ErrNonceBindingMismatch (sign)",
+      "code_ref": "dkg.go:61-63 (replay against distinct committee root -> distinct pubkey); nonce_ledger.go:87 (ErrNonceBindingMismatch); NonceBinding nonce_ledger.go:98-104",
+      "property": "binding (key-epoch)"
+    },
+    {
+      "id": "sign/nonce-reuse",
+      "layer": "sign",
+      "scenario": "The same joint nonce (same w1) is consumed for a second partial, even relabeled under a fresh nonceID or across two committees sharing the victim.",
+      "expected": "reject",
+      "expected_outcome": "ErrNonceReused (no second z-partial emitted; (c_A-c_B)*s1 system never assembled)",
+      "code_ref": "nonce_ledger.go:80, nonceMaterialKey nonce_ledger.go:321-328; reserve at distributed_bcc.go:626-635",
+      "test_ref": "TestRED_NonceReuse_RecoversS1, TestRED_PoC_DefaultLedger_NonceReuse_Refused, TestRED_LOW_CrossCommittee_SameNonce_Deduped (VERSIONS.md)",
+      "property": "unforgeability (nonce single-use)"
+    },
+    {
+      "id": "sign/session-mismatch",
+      "layer": "sign",
+      "scenario": "A partial's SessionID/NonceID does not match the round.",
+      "expected": "reject",
+      "expected_outcome": "PartialBlame{Reason: BlameSessionMismatch}",
+      "code_ref": "blame.go:37; AggregateBCCWithBlame distributed_bcc.go:884-887",
+      "property": "robustness (identifiable abort)"
+    },
+    {
+      "id": "sign/duplicate-partyid",
+      "layer": "sign",
+      "scenario": "A second partial carrying an already-seen PartyID (sub-threshold-via-duplicates vector).",
+      "expected": "reject",
+      "expected_outcome": "PartialBlame{Reason: BlameDuplicatePartyID}",
+      "code_ref": "blame.go:33; distributed_bcc.go:892-894",
+      "property": "robustness (threshold-distinctness)"
+    },
+    {
+      "id": "sign/unknown-party",
+      "layer": "sign",
+      "scenario": "A partial's PartyID is outside the signing quorum's eval-point range.",
+      "expected": "reject",
+      "expected_outcome": "PartialBlame{Reason: BlameUnknownParty}",
+      "code_ref": "blame.go:35; distributed_bcc.go:888-890",
+      "property": "robustness (identifiable abort)"
+    },
+    {
+      "id": "sign/malformed-partial",
+      "layer": "sign",
+      "scenario": "A partial's ZShare/Proof does not parse for the mode (unpackPolyVecChecked fails, no panic).",
+      "expected": "reject",
+      "expected_outcome": "PartialBlame{Reason: BlameMalformed}",
+      "code_ref": "blame.go:31; distributed_bcc.go:896-901",
+      "property": "robustness (identifiable abort)"
+    },
+    {
+      "id": "sign/invalid-proof",
+      "layer": "sign",
+      "scenario": "A partial's linear-sigma proof fails verification (bound to session,nonce,party,c,lambda).",
+      "expected": "reject",
+      "expected_outcome": "PartialBlame{Reason: BlameProofInvalid}",
+      "code_ref": "blame.go:39; VerifyPartialProof distributed_bcc.go:915-919",
+      "property": "robustness (identifiable abort)"
+    },
+    {
+      "id": "sign/forged-victim-slot",
+      "layer": "sign",
+      "scenario": "An attacker stamps a victim's PartyID on a forged partial to get the victim blamed or front-run-excluded.",
+      "expected": "reject",
+      "expected_outcome": "dropped pre-attribution; NO blame against the slot's honest owner; victim's real partial stands",
+      "code_ref": "authenticatePartial distributed_bcc.go:777-794; auth gate distributed_bcc.go:849-862",
+      "test_ref": "TestRED_PoC_MEDIUM_CannotFrameOrExcludeHonestVictim (VERSIONS.md)",
+      "property": "robustness (authenticated origin)"
+    },
+    {
+      "id": "sign/valid-sigma-wrong-z",
+      "layer": "sign",
+      "scenario": "A malicious member submits a VALID-sigma but WRONG-z partial (picks (y',s') it knows, proves the correct statement for z'=phi(y',s')).",
+      "expected": "liveness-fault (NOT yet attributable)",
+      "expected_outcome": "wrong aggregate fails FIPS-204 verify (no forgery, no leak); attribution requires BDLOP dealt-share binding -> ErrIdentifiableAbortResidual",
+      "code_ref": "share_commit.go:70-75 (ErrIdentifiableAbortResidual); shareCommitmentsFor returns nil today share_commit.go:94-106",
+      "property": "robustness residual (BDLOP plug point, Residual A) — flagged honestly, fail-closed-pending-review"
+    },
+    {
+      "id": "keygen/dealerless-byte-fips",
+      "layer": "keygen",
+      "scenario": "Attempt a naive additive (Pedersen/Gennaro) dealerless byte-FIPS-204 ML-DSA DKG for any committee of parties>=2.",
+      "expected": "reject (fail-closed, never fakes a key, never silently falls back to dealer/TEE)",
+      "expected_outcome": "ErrDealerlessByteFIPSUnreachable; computed obstruction JointS2Linf=N*eta, JointCS2Linf=N*beta > beta",
+      "code_ref": "naive_additive_seta_obstruction.go:152 (err), :196 (assessDealerlessFIPS), :242 (DealerlessMLDSADKG)",
+      "property": "keygen residual (parameter-derived obstruction; Mithril ia.cr/2026/013 is the adoption target; Corona carries dealerless safety)"
+    }
+  ],
+  "cross_version_kats": {
+    "note": "Committed wire KATs replayed every CI run; drift from runtime output is a gate failure (kat_test.go:21-23). These prove OLD WIRE COMPATIBILITY across versions.",
+    "runner": "ref/go/pkg/pulsar/kat_test.go",
+    "files": [
+      {"file": "vectors/keygen.json", "entries": 9, "pins": "seed -> public_key, private_key", "test": "TestKAT_Keygen_Replay kat_test.go:50", "claim": "A"},
+      {"file": "vectors/sign.json", "entries": 9, "pins": "seed,message,context -> signature", "test": "TestKAT_Sign_Replay kat_test.go:91", "claim": "A"},
+      {"file": "vectors/verify.json", "entries": 6, "pins": "public_key,message,signature -> accept", "test": "TestKAT_Verify_Replay kat_test.go:127", "claim": "A"},
+      {"file": "vectors/threshold-sign.json", "entries": 4, "pins": "n,t,message,public_key -> signature (Class N1 interchangeability)", "test": "TestKAT_ThresholdSign_Replay kat_test.go:159", "claim": "A"},
+      {"file": "vectors/dkg.json", "entries": 3, "pins": "DKG replay", "test": "TestKAT_DKG_Replay kat_test.go:197", "claim": "B"}
+    ],
+    "example_entry": {
+      "file": "vectors/keygen.json[0]",
+      "mode": "Pulsar-44",
+      "seed_prefix": "d433e36e513466e12d9e0b558b7803ea...",
+      "public_key_prefix": "d0e601a2da4f05464c607e5be76b20a1...",
+      "must_reproduce": "KeyFromSeed(seed).Pub bytes byte-identical (kat_test.go:79)"
+    },
+    "cross_implementation": {
+      "test": "TestDKGVSS_RingMLDSA65_ExpandABinding_KAT dkg_vss_kat_test.go:104",
+      "proves": "shared luxfi/dkg ring reproduces pulsar's FIPS-204 t1 byte-identical to circl; A-matrix round-trips with no spurious Montgomery factor",
+      "honest_note": "the stock-verifiable threshold signature keeps the trusted-dealer key; the vss no-reconstruct group key T=A*s1+B*u (large s2=B*u) is not directly BCC-signable (dkg_vss_kat_test.go:26-34)"
+    }
+  },
+  "proof_checklist_summary": {
+    "note": "Full table in DKG-PROOF-BOUNDARY.md §7. Assurance tags per PROOF-CLAIMS.md vocabulary.",
+    "rows": [
+      {"property": "correctness", "test": "dkg_test.go:147", "claim": "B", "assurance": "test-proven"},
+      {"property": "consistency", "test": "dkg_test.go:86-88; large_e2e_test.go:102-103", "claim": "B", "assurance": "test-proven"},
+      {"property": "verifier-compatibility", "test": "bcc_sign_test.go:86", "claim": "A", "assurance": "interop-tested"},
+      {"property": "secrecy/no-reconstruct", "test": "bcc_sign_test.go:217; gate2_reachability_test.go; Lean NoLeakAggregate", "claim": "B", "assurance": "machine-checked(core)+test-proven; reduction sound-by-reduction (M-LWE/M-SIS)"},
+      {"property": "binding/domain-separation", "test": "transcript.go:33-66 + KAT-pinned", "claim": "B", "assurance": "test-proven"},
+      {"property": "binding/equivocation", "test": "dkg_test.go:111; protocol_auth.go:97", "claim": "B", "assurance": "test-proven"},
+      {"property": "robustness/identifiable-abort", "test": "blame_gate_test.go; distributed_bcc.go:830", "claim": "B", "assurance": "test-proven (semi-honest)"},
+      {"property": "robustness/valid-sigma-wrong-z", "test": "share_commit.go:70-75", "claim": "B", "assurance": "fail-closed-pending-review (BDLOP residual)"},
+      {"property": "unforgeability/nonce-single-use", "test": "nonce_ledger.go; RED nonce tests", "claim": "B", "assurance": "test-proven"},
+      {"property": "unforgeability/base-EUF-CMA", "test": "output bytes = FIPS-204", "claim": "A->B", "assurance": "sound-by-reduction (inherited)"},
+      {"property": "authenticated-origin", "test": "distributed_bcc.go:777; RED victim test", "claim": "B", "assurance": "test-proven"},
+      {"property": "cross-version-wire-compat", "test": "kat_test.go vs vectors/*.json", "claim": "A", "assurance": "interop-tested/test-proven"},
+      {"property": "cross-impl-arithmetic", "test": "dkg_vss_kat_test.go:104", "claim": "A", "assurance": "interop-tested"},
+      {"property": "keygen/dealerless-byte-fips-obstruction", "test": "naive_additive_seta_obstruction.go:196,242", "claim": "B", "assurance": "sound-by-reduction (parameter-derived)"},
+      {"property": "keygen/KeyGen-distribution-equivalence", "test": "NOT PROVEN (structural seed-equivalence only, dkg_test.go:206)", "claim": "B", "assurance": "open-research"},
+      {"property": "nonce-leak-freedom (production NonceMPC)", "test": "DealNonceMPCDebug stand-in distributed_bcc.go:232-257", "claim": "B", "assurance": "fail-closed-pending-review (W-LEAK residual)"}
+    ]
+  }
+}
