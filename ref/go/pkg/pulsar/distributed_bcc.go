@@ -352,14 +352,28 @@ type DistributedBCCSigner struct {
 	ctx, msg   []byte
 	rng        io.Reader
 
+	// committeeID binds nonce reservations to THIS (group key, sorted quorum).
+	committeeID [32]byte
+	// ledger is the per-VALIDATOR nonce single-use guard (RED nonce-reuse fix).
+	// Defaults to a fresh in-memory ledger; a validator that runs more than one
+	// signer instance over the SAME share MUST inject ONE shared ledger via
+	// SetNonceLedger so cross-instance reuse is also caught.
+	ledger NonceLedger
+	// optional domain-binding context recorded with each reservation (audit /
+	// domain separation). Zero by default; set via SetNonceBinding.
+	epoch       uint64
+	policy      [32]byte
+	messageKind uint32
+
 	// per-nonce state.
-	nonceID [32]byte
-	yShare  polyVec // this node's Shamir share of the joint nonce ȳ
-	haveY   bool
-	w1      polyVec // public HighBits(w), unpacked from the NonceCert
-	c       poly    // challenge = SampleInBall(H(μ, w1)); set by Round1
-	cHat    poly    // c in NTT/Montgomery form
-	haveC   bool
+	nonceID  [32]byte
+	yShare   polyVec // this node's Shamir share of the joint nonce ȳ
+	haveY    bool
+	w1       polyVec // public HighBits(w), unpacked from the NonceCert
+	w1Packed []byte  // packed HighBits(w) as carried on the cert — nonce material
+	c        poly    // challenge = SampleInBall(H(μ, w1)); set by Round1
+	cHat     poly    // c in NTT/Montgomery form
+	haveC    bool
 }
 
 // compile-time witness: the concrete signer is a Quasar RoundSigner.
@@ -415,18 +429,46 @@ func NewDistributedBCCSigner(params *Params, setup *AlgSetup, share *AlgShare, q
 		ctxCopy = append([]byte{}, ctx...)
 	}
 	return &DistributedBCCSigner{
-		params:     params,
-		setup:      setup,
-		share:      share,
-		quorum:     append([]NodeID{}, quorum...),
-		evalPoints: append([]uint32{}, evalPoints...),
-		partyIdx:   uint32(myIdx),
-		lambda:     LagrangeAtZeroQ(share.EvalPoint, evalPoints),
-		sid:        sid,
-		ctx:        ctxCopy,
-		msg:        append([]byte{}, msg...),
-		rng:        rng,
+		params:      params,
+		setup:       setup,
+		share:       share,
+		quorum:      append([]NodeID{}, quorum...),
+		evalPoints:  append([]uint32{}, evalPoints...),
+		partyIdx:    uint32(myIdx),
+		lambda:      LagrangeAtZeroQ(share.EvalPoint, evalPoints),
+		sid:         sid,
+		ctx:         ctxCopy,
+		msg:         append([]byte{}, msg...),
+		rng:         rng,
+		committeeID: deriveCommitteeID(pkID(setup.Pub), quorum),
+		ledger:      NewInMemoryNonceLedger(),
 	}, nil
+}
+
+// SetNonceLedger injects a shared/persistent nonce single-use ledger. A
+// validator that runs more than one DistributedBCCSigner over the SAME key
+// share (e.g. one signer instance per signing request) MUST share ONE ledger
+// across all of them, so a second signing on the same nonce is caught even when
+// it crosses signer instances. Returns the signer for chaining. A nil ledger is
+// ignored (the default in-memory ledger is retained — fail-closed, never
+// fail-open). Production injects a PERSISTENT ledger here.
+func (d *DistributedBCCSigner) SetNonceLedger(l NonceLedger) *DistributedBCCSigner {
+	if l != nil {
+		d.ledger = l
+	}
+	return d
+}
+
+// SetNonceBinding sets the optional domain-binding context (epoch, policy,
+// message-kind) recorded with each nonce reservation for audit / domain
+// separation. The single-use guard is independent of this; the binding is the
+// auditable "what was this nonce spent on" record. Returns the signer for
+// chaining.
+func (d *DistributedBCCSigner) SetNonceBinding(epoch uint64, policy [32]byte, messageKind uint32) *DistributedBCCSigner {
+	d.epoch = epoch
+	d.policy = policy
+	d.messageKind = messageKind
+	return d
 }
 
 // Profile reports the Quasar cert profile this signer serves.
@@ -486,6 +528,9 @@ func (d *DistributedBCCSigner) Round1(sessionID, nonceID [32]byte, cert NonceCer
 		return SignRound1{}, err
 	}
 	d.w1 = w1
+	// Capture the canonical packed nonce commitment as the single-use material
+	// (keyed on w1, not the nonceID label, so a relabeled nonce cannot bypass).
+	d.w1Packed = append([]byte(nil), cert.W1...)
 
 	// c̃ = H(μ, packW1(w1)); c = SampleInBall(c̃). Same deriveCTilde the
 	// aggregator uses, so every party's c and the final signature's c̃ agree.
@@ -516,6 +561,29 @@ func (d *DistributedBCCSigner) Round2(r1 SignRound1, in PartialInput) (Partial, 
 	if r1.NonceID != d.nonceID {
 		return Partial{}, ErrAlgNonceMismatch
 	}
+	if d.ledger == nil {
+		return Partial{}, ErrNonceLedgerNil
+	}
+
+	// NONCE SINGLE-USE GUARD (RED nonce-reuse, HIGH). Reserve the nonce
+	// commitment BEFORE the secret is touched. A second use of the same joint
+	// nonce — even relabeled under a fresh nonceID — is refused FAIL-CLOSED, so
+	// the attacker can never obtain a second z-partial on the same nonce and the
+	// (c_A − c_B)·s1 key-recovery system can never be assembled. The reservation
+	// is never rolled back: if proof generation below fails, the nonce stays
+	// burned (an aborted attempt leaves no reusable nonce state).
+	key := nonceMaterialKey(d.committeeID, d.w1Packed)
+	binding := NonceBinding{
+		Epoch:       d.epoch,
+		CommitteeID: d.committeeID,
+		Policy:      d.policy,
+		MessageKind: d.messageKind,
+		Digest:      nonceBindingDigest(d.params.Mode, d.setup.tr, d.ctx, d.msg),
+	}
+	if err := d.ledger.Reserve(key, binding); err != nil {
+		return Partial{}, err
+	}
+
 	// z_i = partialLinearMap(λ_i, ĉ, y_i, s1_i) — byte-identical to the image
 	// the proof certifies, so the partial and its proof are consistent.
 	z := partialLinearMap(d.lambda, &d.cHat, d.yShare, d.share.S1Share)
