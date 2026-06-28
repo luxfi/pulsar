@@ -1,5 +1,11 @@
+//go:build legacy_trusted_dealer
+
 // Copyright (C) 2025-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
+//
+// LEGACY (quarantined) tests for the LargeShamir wrapper. Run with
+// `-tags legacy_trusted_dealer`. Shared GF(q) Shamir primitives are
+// covered by shamir_gfq_test.go (default build).
 
 package pulsar
 

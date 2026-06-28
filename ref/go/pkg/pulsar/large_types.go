@@ -1,5 +1,11 @@
+//go:build legacy_trusted_dealer
+
 // Copyright (C) 2025-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
+//
+// LEGACY (quarantined): wire types for the GF(q) SEED-share committee path
+// (LargeKeyShare, LargeDKG*, LargeRound*). NOT in the default production
+// build. Build with `-tags legacy_trusted_dealer` only.
 
 package pulsar
 
