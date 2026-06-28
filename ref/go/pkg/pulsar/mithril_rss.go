@@ -141,13 +141,7 @@ func MithrilRSSKeygen(mode Mode, t, n int, partySeeds [][]byte) (*MithrilKey, er
 	}
 
 	// A = ExpandA(rho), exactly as deriveKeyMaterial / circl.
-	mk.a = make([]polyVec, K)
-	for i := 0; i < K; i++ {
-		mk.a[i] = make(polyVec, L)
-		for j := 0; j < L; j++ {
-			polyDeriveUniform(&mk.a[i][j], &mk.rho, uint16(i)<<8|uint16(j))
-		}
-	}
+	mk.a = expandAPulsar(mk.rho, K, L)
 
 	// Per-subset short secret, sampled by the subset's leader; accumulate the
 	// composite secret s1 = Σ_S s1^(S), s2 = Σ_S s2^(S).
@@ -156,13 +150,8 @@ func MithrilRSSKeygen(mode Mode, t, n int, partySeeds [][]byte) (*MithrilKey, er
 	for _, mask := range rss.EnumerateSubsets(t, n) {
 		leader := rss.LeaderOf(mask)
 		seed := mithrilSubsetSeed(partySeeds[leader], mask)
-		ss := &mithrilSubsetSecret{mask: mask, s1: make(polyVec, L), s2: make(polyVec, K)}
-		for i := 0; i < L; i++ {
-			polyDeriveUniformLeqEta(&ss.s1[i], seed, uint16(i), eta)
-		}
-		for i := 0; i < K; i++ {
-			polyDeriveUniformLeqEta(&ss.s2[i], seed, uint16(i+L), eta)
-		}
+		ss := &mithrilSubsetSecret{mask: mask}
+		ss.s1, ss.s2 = expandSPulsar(*seed, K, L, int(eta))
 		mk.subsets[mask] = ss
 		for _, member := range rss.SubsetMembers(mask, n) {
 			mk.holdings[member][mask] = ss
