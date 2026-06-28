@@ -175,7 +175,7 @@ func TestMithrilRSSSignAPI(t *testing.T) {
 }
 
 func TestMithrilRSSRejectsBadCommittee(t *testing.T) {
-	for _, tn := range [][2]int{{1, 2}, {3, 2}, {2, 7}} {
+	for _, tn := range [][2]int{{1, 2}, {3, 2}, {12, 16}} {
 		if _, err := MithrilRSSKeygen(ModeP65, tn[0], tn[1], mithrilSeeds(maxI(tn[1], 7))); err == nil {
 			t.Fatalf("admitted non-viable committee (T=%d,N=%d)", tn[0], tn[1])
 		}
