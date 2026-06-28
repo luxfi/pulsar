@@ -158,6 +158,12 @@ func runBCCCeremony(t *testing.T, f *bccFixture, q int, sid [32]byte, ctx, msg [
 		if err != nil {
 			return nil, nil, err
 		}
+		// This helper exercises the no-reconstruct FIPS-validity math over a trusted
+		// in-memory bus; origin authentication is orthogonal and is exercised by the
+		// blame/capstone suite (bccRound wires a REAL identity set). Opt OUT of the
+		// origin-auth gate EXPLICITLY so aggregation is allowed (a bare nil verifier
+		// is now refused FAIL-CLOSED — ErrOriginAuthRequired).
+		nd.SetIdentity(nil, UnauthenticatedAggregation)
 		nodes[i] = nd
 	}
 
@@ -350,6 +356,10 @@ func TestDistributedBCC_SubQuorumCannotSign(t *testing.T) {
 		if err != nil {
 			t.Fatalf("signer %d: %v", i, err)
 		}
+		// Trusted in-memory bus: opt OUT of origin-auth explicitly (a bare nil
+		// verifier is now refused FAIL-CLOSED). The threshold bound under test is
+		// orthogonal to origin authentication.
+		nd.SetIdentity(nil, UnauthenticatedAggregation)
 		nodes[i] = nd
 		if err := nd.SetNonceShare(nonceID, deal.YShares[quorum[i]]); err != nil {
 			t.Fatalf("set nonce share %d: %v", i, err)
@@ -408,6 +418,10 @@ func TestDistributedBCC_SoundPartialZProofRejectsForgery(t *testing.T) {
 		if err != nil {
 			t.Fatalf("signer %d: %v", i, err)
 		}
+		// Trusted in-memory bus: opt OUT of origin-auth explicitly (a bare nil
+		// verifier is refused FAIL-CLOSED). This test probes the SOUND sigma proof
+		// catching a forged z, orthogonal to origin authentication.
+		nd.SetIdentity(nil, UnauthenticatedAggregation)
 		nodes[i] = nd
 		_ = nd.SetNonceShare(nonceID, deal.YShares[quorum[i]])
 		r1, _ := nd.Round1(sid, nonceID, deal.Cert)

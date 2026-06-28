@@ -322,12 +322,14 @@ func TestRED_PoC_MEDIUM_CannotFrameOrExcludeHonestVictim(t *testing.T) {
 		t.Fatalf("RED MEDIUM (impersonation): honest victim blamed off a forged victim-authored partial")
 	}
 
-	// (3) CONTRAST — the verifier is load-bearing. With NO identity verifier the
-	//     same front-run EXCLUDES the victim (the forged malformed partial occupies
-	//     the slot; the real one is dropped as a duplicate) -> t-1 valid ->
-	//     ErrInsufficientSigners. No blame is emitted either way (blame is gated on
-	//     auth), but exclusion-resistance REQUIRES the verifier.
-	_, _, blamesNoAuth, errNoAuth := AggregateBCCWithBlame(f.params, f.setup, agg.evalPoints, quorum, 0, nil,
+	// (3) CONTRAST — the verifier is load-bearing. On the EXPLICIT unauthenticated
+	//     opt-out (UnauthenticatedAggregation) the same front-run EXCLUDES the
+	//     victim (the forged malformed partial occupies the slot; the real one is
+	//     dropped as a duplicate) -> t-1 valid -> ErrInsufficientSigners. No blame
+	//     is emitted either way (blame is gated on auth), but exclusion-resistance
+	//     REQUIRES a real verifier. (A bare nil verifier is refused FAIL-CLOSED —
+	//     see TestGATE_OriginAuth_*; here we deliberately drive the opt-out path.)
+	_, _, blamesNoAuth, errNoAuth := AggregateBCCWithBlame(f.params, f.setup, agg.evalPoints, quorum, 0, UnauthenticatedAggregation,
 		nil, msg, agg.c, &agg.cHat, agg.w1, sid, partials[victim].NonceID, threshold, input)
 	if !errors.Is(errNoAuth, ErrInsufficientSigners) {
 		t.Fatalf("contrast: expected the un-authenticated path to drop to t-1 (front-run exclusion), got %v", errNoAuth)
