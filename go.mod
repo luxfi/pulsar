@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	github.com/cloudflare/circl v1.6.3
-	github.com/luxfi/dkg v0.3.0
+	github.com/luxfi/dkg v0.3.2
 	github.com/luxfi/lattice/v7 v7.1.4
 	golang.org/x/crypto v0.52.0
 )
@@ -22,4 +22,3 @@ require (
 	golang.org/x/sys v0.45.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
