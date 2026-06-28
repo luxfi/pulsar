@@ -1,5 +1,13 @@
+//go:build legacy_trusted_dealer
+
 // Copyright (C) 2025-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
+//
+// LEGACY (quarantined) tests for the GF(q) SEED-share reconstruct family
+// (LargeDKGSession / LargeThresholdSigner / LargeCombine / reshare). Run
+// with `-tags legacy_trusted_dealer`. The default build covers the
+// no-reconstruct committee path (distributed_bcc_test.go, talus_test.go,
+// no_reconstruct_committee_test.go).
 
 package pulsar
 
