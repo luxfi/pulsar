@@ -363,11 +363,12 @@ type DistributedBCCSigner struct {
 
 	// committeeID binds nonce reservations to THIS (group key, sorted quorum).
 	committeeID [32]byte
-	// ledger is the per-VALIDATOR nonce single-use guard (RED nonce-reuse fix).
-	// Defaults to a fresh in-memory ledger; a validator that runs more than one
-	// signer instance over the SAME share MUST inject ONE shared ledger via
-	// SetNonceLedger so cross-instance reuse is also caught.
-	ledger NonceLedger
+	// shareID is the committee-independent identity of this validator's key-share
+	// (shareIdentityKey). The nonce single-use ledger is resolved from the
+	// process-global registry by this key (shareLedgerFor), so EVERY signer
+	// instance over the same share shares ONE ledger — cross-instance nonce reuse
+	// is refused by DEFAULT, with no per-instance empty-ledger fail-open path.
+	shareID [32]byte
 	// optional domain-binding context recorded with each reservation (audit /
 	// domain separation). Zero by default; set via SetNonceBinding.
 	epoch       uint64
@@ -450,21 +451,21 @@ func NewDistributedBCCSigner(params *Params, setup *AlgSetup, share *AlgShare, q
 		msg:         append([]byte{}, msg...),
 		rng:         rng,
 		committeeID: deriveCommitteeID(pkID(setup.Pub), quorum),
-		ledger:      NewInMemoryNonceLedger(),
+		shareID:     shareIdentityKey(share),
 	}, nil
 }
 
-// SetNonceLedger injects a shared/persistent nonce single-use ledger. A
-// validator that runs more than one DistributedBCCSigner over the SAME key
-// share (e.g. one signer instance per signing request) MUST share ONE ledger
-// across all of them, so a second signing on the same nonce is caught even when
-// it crosses signer instances. Returns the signer for chaining. A nil ledger is
-// ignored (the default in-memory ledger is retained — fail-closed, never
-// fail-open). Production injects a PERSISTENT ledger here.
+// SetNonceLedger installs a PERSISTENT nonce single-use ledger for THIS signer's
+// key-share. It is the seam for crash-restart safety (a flagged residual): the
+// in-process default is already safe by construction (every signer over a share
+// resolves to ONE registry ledger keyed by share identity), so this is only
+// needed to upgrade that share's ledger to durable storage. It writes the
+// per-share registry slot — FIRST WRITER WINS — so ALL instances of the share
+// (default-constructed, no call needed) pick it up; call it once at startup
+// before any Round2 for the share. A nil ledger is ignored (the safe default is
+// retained — never fail-open). Returns the signer for chaining.
 func (d *DistributedBCCSigner) SetNonceLedger(l NonceLedger) *DistributedBCCSigner {
-	if l != nil {
-		d.ledger = l
-	}
+	setShareLedger(d.shareID, l)
 	return d
 }
 
@@ -570,19 +571,25 @@ func (d *DistributedBCCSigner) Round2(r1 SignRound1, in PartialInput) (Partial, 
 	if r1.NonceID != d.nonceID {
 		return Partial{}, ErrAlgNonceMismatch
 	}
-	if d.ledger == nil {
+
+	// NONCE SINGLE-USE GUARD (RED nonce-reuse, HIGH). Resolve THIS share's
+	// process-shared single-use ledger by share identity (shareLedgerFor) — every
+	// signer instance over the same share gets the SAME ledger by construction, so
+	// the guard is enforced even across the per-message signer objects an
+	// integrator necessarily creates (no per-instance empty-ledger fail-open).
+	// Mint the nonce ticket and reserve its MATERIAL key BEFORE the secret is
+	// touched. A second use of the same joint nonce — even relabeled under a fresh
+	// nonceID or a different message — is refused FAIL-CLOSED (dedup keys on the
+	// nonce commitment, not the ticket id), so the attacker can never obtain a
+	// second z-partial on the same nonce and the (c_A − c_B)·s1 key-recovery
+	// system can never be assembled. The reservation is never rolled back: if
+	// proof generation below fails, the nonce stays burned (an aborted attempt
+	// leaves no reusable nonce state). ReserveNonceTicket is the one and only
+	// nonce-consume path.
+	ledger := shareLedgerFor(d.shareID)
+	if ledger == nil {
 		return Partial{}, ErrNonceLedgerNil
 	}
-
-	// NONCE SINGLE-USE GUARD (RED nonce-reuse, HIGH). Mint the nonce ticket and
-	// reserve its MATERIAL key BEFORE the secret is touched. A second use of the
-	// same joint nonce — even relabeled under a fresh nonceID or a different
-	// message — is refused FAIL-CLOSED (dedup keys on committeeID‖w1, not the
-	// ticket id), so the attacker can never obtain a second z-partial on the
-	// same nonce and the (c_A − c_B)·s1 key-recovery system can never be
-	// assembled. The reservation is never rolled back: if proof generation below
-	// fails, the nonce stays burned (an aborted attempt leaves no reusable nonce
-	// state). ReserveNonceTicket is the one and only nonce-consume path.
 	ticket := NewNonceTicket(d.committeeID, d.w1Packed, NonceBinding{
 		Epoch:       d.epoch,
 		CommitteeID: d.committeeID,
@@ -590,7 +597,7 @@ func (d *DistributedBCCSigner) Round2(r1 SignRound1, in PartialInput) (Partial, 
 		MessageKind: d.messageKind,
 		Digest:      nonceBindingDigest(d.params.Mode, d.setup.tr, d.ctx, d.msg),
 	})
-	if err := ReserveNonceTicket(d.ledger, ticket); err != nil {
+	if err := ReserveNonceTicket(ledger, ticket); err != nil {
 		return Partial{}, err
 	}
 
