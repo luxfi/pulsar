@@ -146,6 +146,34 @@ func TestMithrilRSSAnyQuorumSameKey(t *testing.T) {
 	}
 }
 
+// TestMithrilRSSSignAPI exercises the production-facing dealerless FIPS-leg
+// signer: MithrilKey.Sign reconstructs from a quorum, BCC-signs, fail-closed
+// self-verifies, and the result verifies under stock circl mldsa65.Verify.
+func TestMithrilRSSSignAPI(t *testing.T) {
+	mk, err := MithrilRSSKeygen(ModeP65, 3, 5, mithrilSeeds(5))
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := []byte("dealerless RSS FIPS leg — Sign API")
+	ctx := []byte("quasar-pulsar-leg")
+	// Two different qualifying quorums both sign valid signatures under the
+	// same public key.
+	for _, active := range [][]int{{0, 1, 2}, {2, 3, 4}, {0, 2, 4}} {
+		rng := newBCCDeterministicRNG(fmt.Sprintf("sign/%v", active))
+		sig, err := mk.Sign(active, msg, ctx, rng, 1<<20)
+		if err != nil {
+			t.Fatalf("quorum %v Sign: %v", active, err)
+		}
+		var pkC mldsa65.PublicKey
+		if err := pkC.UnmarshalBinary(mk.pub); err != nil {
+			t.Fatal(err)
+		}
+		if !mldsa65.Verify(&pkC, msg, ctx, sig.Bytes) {
+			t.Fatalf("quorum %v: stock circl rejected the Sign output", active)
+		}
+	}
+}
+
 func TestMithrilRSSRejectsBadCommittee(t *testing.T) {
 	for _, tn := range [][2]int{{1, 2}, {3, 2}, {2, 7}} {
 		if _, err := MithrilRSSKeygen(ModeP65, tn[0], tn[1], mithrilSeeds(maxI(tn[1], 7))); err == nil {
