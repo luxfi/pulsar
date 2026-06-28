@@ -140,8 +140,7 @@ type KeyShare struct {
 //     interpolation over byte-wise GF(257) shares before calling
 //     FIPS 204 sign. TEE-attestation is required on funds-bearing
 //     networks; the aggregator process is in the TCB for the sign
-//     call. LargeCombine (large_threshold.go) is the large-committee
-//     variant.
+//     call.
 //
 //   - BCC/CEF (bcc_sign.go): the no-leak path. It never forms c·s2,
 //     c·t0, r0, or full w — the hint is recovered from public data
