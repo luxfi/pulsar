@@ -202,6 +202,8 @@ func ValidateAbortEvidence(e *AbortEvidence) error {
 		return validateMACFailureEvidence(e.Evidence)
 	case ComplaintRangeFailure:
 		return validateRangeFailureEvidence(e.Evidence)
+	case ComplaintBadPartial:
+		return validateBadPartialEvidence(e.Evidence)
 	default:
 		return ErrComplaintKind
 	}
@@ -355,7 +357,7 @@ func VerifyAbortEvidenceForm(e *AbortEvidence) error {
 	}
 	switch e.Kind {
 	case ComplaintEquivocation, ComplaintBadDelivery,
-		ComplaintMACFailure, ComplaintRangeFailure:
+		ComplaintMACFailure, ComplaintRangeFailure, ComplaintBadPartial:
 		// known kind
 	default:
 		return ErrComplaintKind
