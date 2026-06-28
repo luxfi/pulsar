@@ -25,10 +25,10 @@ package pulsar
 // no ±1 hint (weight > ω) and a stock-FIPS-204 signature CANNOT be produced
 // against this key. Concretely: this is the no-reconstruct DKG PRIMITIVE and the
 // no-reconstruct ROOT, NOT the stock-signable key. The stock-verifiable threshold
-// signature keeps the trusted-dealer key (DealAlgShares, test/bootstrap scope) —
-// dealerless byte-FIPS-204 keygen is unreachable (naive_additive_seta_obstruction
+// signature is keyed by the dealerless Mithril RSS keygen (mithril_rss.go) — the
+// NAIVE additive byte-FIPS-204 lift is unreachable (naive_additive_seta_obstruction
 // / assessDealerlessFIPS: the joint S_η sum violates the BCC norm bound at N≥2).
-// Permissionless safety rests on the genuinely-dealerless CORONA leg in the
+// Permissionless safety also carries the genuinely-dealerless CORONA leg in the
 // AND-mode dual-PQ cert. TestDKG_VSS_NotDirectlyBCCSignable pins the obstruction
 // so it is proven, not asserted.
 //
