@@ -291,30 +291,6 @@ func bccSign(km *mldsaKeyMaterial, mode Mode, message, ctx []byte, rng io.Reader
 	return nil, nil, ErrBCCExhausted
 }
 
-// expandMaskPoly samples one polynomial of the FIPS 204 §7.3 ExpandMask
-// mask: coefficients uniform in (−γ1, γ1], drawn by unpacking a
-// γ1-bit-packed SHAKE-256(seed || (μ_index + nonce)) stream. This is the
-// FIPS 204 ML-DSA mask sampler, byte-identical to circl's polyDeriveUniformLeGamma1
-// over the same (seed, nonce) — it reuses the package's polyUnpackLeGamma1
-// unpacker so the BCC mask is the same distribution the FIPS signer uses.
-//
-// nonce is the per-poly index l (FIPS 204 uses κ + l; here the seed is
-// per-attempt and the within-attempt index is l, giving fresh masks per
-// attempt without a global counter).
-func expandMaskPoly(p *poly, seed *[64]byte, nonce uint16, gamma1Bits uint32) {
-	var iv [66]byte
-	copy(iv[:64], seed[:])
-	iv[64] = byte(nonce)
-	iv[65] = byte(nonce >> 8)
-	h := sha3.NewShake256()
-	_, _ = h.Write(iv[:])
-
-	polyLeGamma1Size := int((gamma1Bits + 1) * mldsaN / 8)
-	buf := make([]byte, polyLeGamma1Size)
-	_, _ = h.Read(buf)
-	polyUnpackLeGamma1(p, buf, gamma1Bits)
-}
-
 // polyVecExceeds reports whether any coefficient of v exceeds bound in
 // centered (FIPS 204 ‖·‖∞) magnitude — the rejection-sampling norm gate.
 func polyVecExceeds(v polyVec, bound uint32) bool {
