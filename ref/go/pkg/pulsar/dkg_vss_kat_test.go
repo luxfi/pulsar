@@ -74,10 +74,14 @@ func extractACoeffViaPulsar(km *mldsaKeyMaterial, K, L int) []polyVec {
 	return aCoeff
 }
 
-// dkgMatrixFromCoeff builds a dkg-ring NTT-Montgomery Matrix from a standard
+// katDKGMatrixFromCoeff builds a dkg-ring NTT-Montgomery Matrix from a standard
 // coefficient-form A (the WithMatrices injection path: coeff -> NTT -> MForm,
 // matching dkg/ring.DeriveUniformMatrix's domain convention).
-func dkgMatrixFromCoeff(r *dkgring.Ring, aCoeff []polyVec, K, L int) dkgring.Matrix {
+//
+// KAT-private name: the production no-reconstruct DKG (talus_dkg_vss.go) owns the
+// canonical dkgMatrixFromCoeff; this self-contained KAT keeps its own copy so it
+// compiles standalone regardless of that file's presence.
+func katDKGMatrixFromCoeff(r *dkgring.Ring, aCoeff []polyVec, K, L int) dkgring.Matrix {
 	m := make(dkgring.Matrix, K)
 	for i := 0; i < K; i++ {
 		m[i] = make([]dkgring.Poly, L)
@@ -121,7 +125,7 @@ func TestDKGVSS_RingMLDSA65_ExpandABinding_KAT(t *testing.T) {
 	if R.Q() != mldsaQ || R.N() != mldsaN {
 		t.Fatalf("dkg ring mismatch: q=%d n=%d, want q=%d n=%d", R.Q(), R.N(), mldsaQ, mldsaN)
 	}
-	dkgA := dkgMatrixFromCoeff(R, aCoeff, K, L)
+	dkgA := katDKGMatrixFromCoeff(R, aCoeff, K, L)
 	bound := profile.WithMatrices(dkgA, profile.B)
 	if err := bound.Validate(); err != nil {
 		t.Fatalf("bound profile invalid: %v", err)
