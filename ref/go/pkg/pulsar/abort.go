@@ -19,6 +19,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+
+	"github.com/luxfi/mlwe/transcript"
 )
 
 // Errors returned by abort-evidence verification.
@@ -319,9 +321,9 @@ func TranscriptForComplaint(e *AbortEvidence) []byte {
 	binary.BigEndian.PutUint64(epochBuf[:], e.Epoch)
 	parts = append(parts, epochBuf[:])
 	parts = append(parts, e.Evidence)
-	out := append([]byte{}, leftEncode(uint64(len(parts)))...)
+	out := append([]byte{}, transcript.LeftEncode(uint64(len(parts)))...)
 	for _, p := range parts {
-		out = append(out, encodeString(p)...)
+		out = append(out, transcript.EncodeString(p)...)
 	}
 	return out
 }

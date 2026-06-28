@@ -31,6 +31,8 @@ package pulsar
 import (
 	"encoding/binary"
 	"errors"
+
+	"github.com/luxfi/mlwe/share"
 )
 
 // shamirPrimeQ is the FIPS 204 prime q = 2^23 - 2^13 + 1.
@@ -145,7 +147,8 @@ func shamirReconstructGFQ(shares []shamirShareQ) ([SeedSize]uint32, error) {
 		return out, ErrNotEnoughShares
 	}
 	seen := make(map[uint32]struct{}, len(shares))
-	for _, s := range shares {
+	xs := make([]uint64, len(shares))
+	for i, s := range shares {
 		if s.X == 0 {
 			return out, ErrZeroEvalPoint
 		}
@@ -153,58 +156,26 @@ func shamirReconstructGFQ(shares []shamirShareQ) ([SeedSize]uint32, error) {
 			return out, ErrDuplicateEvalPoint
 		}
 		seen[s.X] = struct{}{}
+		xs[i] = uint64(s.X)
 	}
 
-	t := len(shares)
-	lambdas := make([]uint32, t)
-	for i := 0; i < t; i++ {
-		num := uint64(1)
-		den := uint64(1)
-		for j := 0; j < t; j++ {
-			if i == j {
-				continue
-			}
-			// num *= (-x_j) mod q
-			negXj := (shamirPrimeQ - uint64(shares[j].X)) % shamirPrimeQ
-			num = (num * negXj) % shamirPrimeQ
-			// den *= (x_i - x_j) mod q
-			diff := (shamirPrimeQ + uint64(shares[i].X) - uint64(shares[j].X)) % shamirPrimeQ
-			den = (den * diff) % shamirPrimeQ
-		}
-		denInv := modInvQ(den)
-		lambdas[i] = uint32((num * denInv) % shamirPrimeQ)
+	// Lagrange basis at x=0 over GF(q): λ_i = Π_{j≠i} (-x_j)/(x_i-x_j). The
+	// interpolation and field arithmetic are the shared mlwe/share primitive
+	// over its FIPS-204 prime field; eval points are in [1, q) so they need no
+	// pre-reduction. Zero/dup are already rejected above with Pulsar's errors.
+	lambda, err := share.Lagrange(xs, 0, share.MLDSAField)
+	if err != nil {
+		return out, err
 	}
 
 	for b := 0; b < SeedSize; b++ {
 		var acc uint64
-		for i := 0; i < t; i++ {
-			acc = (acc + uint64(lambdas[i])*uint64(shares[i].Y[b])) % shamirPrimeQ
+		for i := range shares {
+			acc = (acc + lambda[i]*uint64(shares[i].Y[b])) % shamirPrimeQ
 		}
 		out[b] = uint32(acc)
 	}
 	return out, nil
-}
-
-// modInvQ computes a^-1 mod q via Fermat's little theorem (q is prime).
-// Constant-time in the bit pattern of a but not in q-2; q is a fixed
-// compile-time constant so this is acceptable. Used only on
-// non-secret Lagrange denominators.
-func modInvQ(a uint64) uint64 {
-	return modPowQ(a, shamirPrimeQ-2)
-}
-
-// modPowQ computes base^exp mod q via square-and-multiply.
-func modPowQ(base, exp uint64) uint64 {
-	result := uint64(1)
-	b := base % shamirPrimeQ
-	for exp > 0 {
-		if exp&1 == 1 {
-			result = (result * b) % shamirPrimeQ
-		}
-		b = (b * b) % shamirPrimeQ
-		exp >>= 1
-	}
-	return result
 }
 
 // shareToBytesQ serialises a shamirShareQ's Y component to wire form
@@ -243,16 +214,21 @@ func EvalPointFromIDQ(id NodeID) uint32 {
 // Exposed for reshare contributions that need to pre-multiply old
 // shares by their old-quorum Lagrange coefficient.
 func LagrangeAtZeroQ(myX uint32, allEvals []uint32) uint32 {
+	// Single Lagrange basis coefficient ℓ_myX(0) over GF(q), in O(n). This is
+	// a Pulsar specialisation kept here on purpose: mlwe/share vends only the
+	// all-coefficients Lagrange (O(n²)), so routing the per-party callers (BGW
+	// degree-reduction, reshare contributions) through it would turn their
+	// per-i loops into O(n³). The modular arithmetic IS the shared mlwe/share
+	// GF(q) Field, so no field arithmetic is duplicated.
+	f := share.MLDSAField
 	num := uint64(1)
 	den := uint64(1)
 	for _, xj := range allEvals {
 		if xj == myX {
 			continue
 		}
-		negXj := (shamirPrimeQ - uint64(xj)) % shamirPrimeQ
-		num = (num * negXj) % shamirPrimeQ
-		diff := (shamirPrimeQ + uint64(myX) - uint64(xj)) % shamirPrimeQ
-		den = (den * diff) % shamirPrimeQ
+		num = f.Mul(num, f.Sub(0, uint64(xj)))
+		den = f.Mul(den, f.Sub(uint64(myX), uint64(xj)))
 	}
-	return uint32((num * modInvQ(den)) % shamirPrimeQ)
+	return uint32(f.Mul(num, f.Inv(den)))
 }

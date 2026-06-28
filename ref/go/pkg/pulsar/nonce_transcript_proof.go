@@ -41,6 +41,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/luxfi/mlwe/transcript"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -217,7 +218,7 @@ func VerifyNonceConsistency(st *NonceConsistencyStatement, proof []byte) error {
 // id, per-party commitments) and all round commitments.
 func nonceFSChallenges(st *NonceConsistencyStatement, ts []polyVec) []uint32 {
 	h := sha3.NewCShake256([]byte(functionName), []byte(nonceFSTag))
-	writePart := func(b []byte) { _, _ = h.Write(encodeString(b)) }
+	writePart := func(b []byte) { _, _ = h.Write(transcript.EncodeString(b)) }
 	var u8 [8]byte
 	writePart([]byte{byte(st.Mode)})
 	binary.BigEndian.PutUint64(u8[:], uint64(len(st.Lambdas)))
