@@ -16,7 +16,11 @@ package pulsar
 // consensus layer (round.go) and is a flagged residual — this package supplies
 // the signable bytes and the detector, not the sockets.
 
-import "bytes"
+import (
+	"bytes"
+
+	"github.com/luxfi/mlwe/transcript"
+)
 
 // ProtocolRound enumerates the signable protocol message slots. Equivocation is
 // defined per (Author, Epoch, SessionID, Round): one author may sign at most one
@@ -62,9 +66,9 @@ func ProtocolMessageTBS(author NodeID, ctx ProtocolContext, payloadDigest [32]by
 		{byte(ctx.Round)},
 		payloadDigest[:],
 	}
-	out := append([]byte{}, leftEncode(uint64(len(parts)))...)
+	out := append([]byte{}, transcript.LeftEncode(uint64(len(parts)))...)
 	for _, p := range parts {
-		out = append(out, encodeString(p)...)
+		out = append(out, transcript.EncodeString(p)...)
 	}
 	return out
 }
