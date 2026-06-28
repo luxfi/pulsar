@@ -3,17 +3,23 @@
 
 package pulsar
 
-// transcript.go — FIPS 202 / SP 800-185 transcript primitives used by
-// every Pulsar protocol round.
+// transcript.go — Pulsar's transcript-binding layer over the shared
+// SP 800-185 surface in github.com/luxfi/mlwe/transcript.
 //
-// All hashing in Pulsar routes through this file. Direct use of
-// stdlib hashes anywhere else in the package is a CI failure per
-// pulsar.tex §6.1 (DD-002 hash family) and CONTRIBUTING.md.
+// The SP 800-185 IMPLEMENTATION (cSHAKE256, KMAC256, and the
+// left_encode/right_encode/encode_string/bytepad encoders) lives
+// exactly once, in mlwe/transcript. This file holds only what is
+// Pulsar-specific:
 //
-// The two primitives we vend are:
+//   - functionName: the cSHAKE function-name N pinned to "Pulsar".
+//   - the customisation tag constants.
+//   - cshake256: the Pulsar-bound cSHAKE256 entry point (pins N).
+//   - transcriptHash / transcriptHash32: the Pulsar tuple framing.
 //
-//   - cSHAKE256(K, X, L, S)         — FIPS 202 §6.3 + SP 800-185 §3
-//   - KMAC256  (K, X, L, S)         — SP 800-185 §4
+// All hashing in Pulsar routes through this file (or, for streaming
+// call sites, through sha3.NewCShake256 with functionName). Pure
+// SP 800-185 encoders and KMAC256 are taken directly from
+// mlwe/transcript at their call sites.
 //
 // All Pulsar customisation strings live in this file as named
 // constants so that the audit footprint of the hash layer is one
@@ -21,9 +27,7 @@ package pulsar
 // tag — bumping a tag is a deliberate, audited move.
 
 import (
-	"encoding/binary"
-
-	"golang.org/x/crypto/sha3"
+	"github.com/luxfi/mlwe/transcript"
 )
 
 // Customisation tags for cSHAKE256/KMAC256. These match
@@ -66,96 +70,13 @@ const (
 const functionName = "Pulsar"
 
 // cshake256 returns the first outLen bytes of cSHAKE256(input, N,
-// customisation) per SP 800-185 §3. Implemented over Go's
-// golang.org/x/crypto/sha3.NewCShake256, which is the FIPS 202 +
-// SP 800-185 reference engine we already depend on.
+// customisation) per SP 800-185 §3, with the function-name N pinned to
+// the Pulsar domain tag (functionName). This is Pulsar's bound entry
+// point into the shared cSHAKE256 in mlwe/transcript: the SP 800-185
+// implementation lives there exactly once; the "Pulsar" binding lives
+// here exactly once.
 func cshake256(input []byte, outLen int, customisation string) []byte {
-	h := sha3.NewCShake256([]byte(functionName), []byte(customisation))
-	_, _ = h.Write(input)
-	out := make([]byte, outLen)
-	_, _ = h.Read(out)
-	return out
-}
-
-// kmac256 returns KMAC256(key, msg, outLen, customisation) per
-// SP 800-185 §4.
-//
-// SP 800-185 §4 specifies the construction as:
-//
-//	KMAC256(K, X, L, S) :=
-//	  cSHAKE256(newX, L, "KMAC", S),
-//	  where newX = bytepad(encode_string(K), 136) || X || right_encode(L)
-//
-// 136 = SHA-3-256 rate / 8 = (1600 - 2*256) / 8.
-func kmac256(key, msg []byte, outLen int, customisation string) []byte {
-	preamble := bytepad(encodeString(key), 136)
-	body := append(append([]byte{}, preamble...), msg...)
-	body = append(body, rightEncode(uint64(outLen)*8)...)
-	// KMAC's function-name is fixed to "KMAC" per SP 800-185 §4.
-	h := sha3.NewCShake256([]byte("KMAC"), []byte(customisation))
-	_, _ = h.Write(body)
-	out := make([]byte, outLen)
-	_, _ = h.Read(out)
-	return out
-}
-
-// SP 800-185 §2.3 encoders.
-
-// leftEncode returns left_encode(x) per SP 800-185 §2.3.1. Operates on
-// the BIT length: input must be the value to be encoded, callers
-// pre-multiply by 8 when encoding a byte-length.
-func leftEncode(x uint64) []byte {
-	if x == 0 {
-		return []byte{0x01, 0x00}
-	}
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], x)
-	i := 0
-	for i < 7 && buf[i] == 0 {
-		i++
-	}
-	out := make([]byte, 0, 9-i)
-	out = append(out, byte(8-i))
-	out = append(out, buf[i:]...)
-	return out
-}
-
-// rightEncode returns right_encode(x) per SP 800-185 §2.3.1.
-func rightEncode(x uint64) []byte {
-	if x == 0 {
-		return []byte{0x00, 0x01}
-	}
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], x)
-	i := 0
-	for i < 7 && buf[i] == 0 {
-		i++
-	}
-	out := make([]byte, 0, 9-i)
-	out = append(out, buf[i:]...)
-	out = append(out, byte(8-i))
-	return out
-}
-
-// encodeString returns encode_string(s) = left_encode(bit_len(s)) || s
-// per SP 800-185 §2.3.2.
-func encodeString(s []byte) []byte {
-	out := leftEncode(uint64(len(s)) * 8)
-	out = append(out, s...)
-	return out
-}
-
-// bytepad returns bytepad(x, w) = left_encode(w) || x || pad-to-w-bytes
-// per SP 800-185 §2.3.3.
-func bytepad(x []byte, w int) []byte {
-	prefix := leftEncode(uint64(w))
-	out := make([]byte, 0, len(prefix)+len(x)+w)
-	out = append(out, prefix...)
-	out = append(out, x...)
-	for len(out)%w != 0 {
-		out = append(out, 0x00)
-	}
-	return out
+	return transcript.CShake256(functionName, customisation, input, outLen)
 }
 
 // transcriptHash binds an ordered tuple of byte-strings into a single
@@ -169,9 +90,9 @@ func bytepad(x []byte, w int) []byte {
 // pulsar/hash/sp800_185.go: TranscriptHash on the Pulsar-SHA3 suite.
 func transcriptHash(customisation string, parts ...[]byte) [48]byte {
 	buf := make([]byte, 0, 64+len(parts)*40)
-	buf = append(buf, leftEncode(uint64(len(parts)))...)
+	buf = append(buf, transcript.LeftEncode(uint64(len(parts)))...)
 	for _, p := range parts {
-		buf = append(buf, encodeString(p)...)
+		buf = append(buf, transcript.EncodeString(p)...)
 	}
 	out := cshake256(buf, 48, customisation)
 	var ret [48]byte
@@ -183,9 +104,9 @@ func transcriptHash(customisation string, parts ...[]byte) [48]byte {
 // digest is sufficient (commit digests, MAC tags).
 func transcriptHash32(customisation string, parts ...[]byte) [32]byte {
 	buf := make([]byte, 0, 64+len(parts)*40)
-	buf = append(buf, leftEncode(uint64(len(parts)))...)
+	buf = append(buf, transcript.LeftEncode(uint64(len(parts)))...)
 	for _, p := range parts {
-		buf = append(buf, encodeString(p)...)
+		buf = append(buf, transcript.EncodeString(p)...)
 	}
 	out := cshake256(buf, 32, customisation)
 	var ret [32]byte

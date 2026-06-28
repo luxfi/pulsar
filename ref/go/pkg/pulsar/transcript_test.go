@@ -8,65 +8,13 @@ import (
 	"testing"
 )
 
-func TestSP800_185_LeftEncode(t *testing.T) {
-	// NIST SP 800-185 §A.1 examples.
-	for _, tc := range []struct {
-		x    uint64
-		want []byte
-	}{
-		{0, []byte{0x01, 0x00}},
-		{12 * 8, []byte{0x01, 96}}, // 12 bytes = 96 bits
-		{255, []byte{0x01, 0xff}},
-		{256, []byte{0x02, 0x01, 0x00}},
-		{65535, []byte{0x02, 0xff, 0xff}},
-		{65536, []byte{0x03, 0x01, 0x00, 0x00}},
-	} {
-		got := leftEncode(tc.x)
-		if !bytes.Equal(got, tc.want) {
-			t.Errorf("leftEncode(%d): got %x want %x", tc.x, got, tc.want)
-		}
-	}
-}
-
-func TestSP800_185_RightEncode(t *testing.T) {
-	for _, tc := range []struct {
-		x    uint64
-		want []byte
-	}{
-		{0, []byte{0x00, 0x01}},
-		{255, []byte{0xff, 0x01}},
-		{256, []byte{0x01, 0x00, 0x02}},
-	} {
-		got := rightEncode(tc.x)
-		if !bytes.Equal(got, tc.want) {
-			t.Errorf("rightEncode(%d): got %x want %x", tc.x, got, tc.want)
-		}
-	}
-}
-
-func TestSP800_185_EncodeString_EmptyInput(t *testing.T) {
-	// encode_string("") = left_encode(0) || "" = 0x0100
-	got := encodeString([]byte{})
-	if !bytes.Equal(got, []byte{0x01, 0x00}) {
-		t.Errorf("encodeString(empty): got %x", got)
-	}
-}
-
-func TestSP800_185_BytepadAligned(t *testing.T) {
-	// bytepad("abc", 4): left_encode(4) || "abc" || padding to multiple of 4.
-	// left_encode(4) = 0x0104, then "abc" + 1 zero byte = 6 bytes, padded to 8.
-	got := bytepad([]byte("abc"), 4)
-	if len(got)%4 != 0 {
-		t.Errorf("bytepad not aligned: %d bytes", len(got))
-	}
-	want := append([]byte{0x01, 0x04}, []byte("abc")...)
-	for len(want)%4 != 0 {
-		want = append(want, 0x00)
-	}
-	if !bytes.Equal(got, want) {
-		t.Errorf("bytepad: got %x want %x", got, want)
-	}
-}
+// The SP 800-185 string encoders (left_encode/right_encode/
+// encode_string/bytepad) and KMAC256 now live in
+// github.com/luxfi/mlwe/transcript and are anchored against the NIST
+// worked examples by that module's own test suite. Pulsar no longer
+// duplicates either the implementation or its KATs; the tests below
+// cover only the Pulsar-specific bindings (the "Pulsar"-pinned cSHAKE
+// entry point and the transcriptHash tuple framing).
 
 func TestCSHAKE256_Deterministic(t *testing.T) {
 	a := cshake256([]byte("test"), 32, "PULSAR-TEST")
@@ -78,20 +26,6 @@ func TestCSHAKE256_Deterministic(t *testing.T) {
 	c := cshake256([]byte("test"), 32, "OTHER-TAG")
 	if bytes.Equal(a, c) {
 		t.Fatalf("cSHAKE256 customisation has no effect")
-	}
-}
-
-func TestKMAC256_Deterministic(t *testing.T) {
-	key := []byte("a-key-32-bytes-long-for-kmac256-")
-	a := kmac256(key, []byte("test"), 32, "PULSAR-TEST")
-	b := kmac256(key, []byte("test"), 32, "PULSAR-TEST")
-	if !bytes.Equal(a, b) {
-		t.Fatalf("KMAC256 not deterministic")
-	}
-	// Different key → different output.
-	c := kmac256([]byte("b-key-32-bytes-long-for-kmac256-"), []byte("test"), 32, "PULSAR-TEST")
-	if bytes.Equal(a, c) {
-		t.Fatalf("KMAC256 key has no effect")
 	}
 }
 
