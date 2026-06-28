@@ -39,16 +39,23 @@ layer is unbuilt.
   (`TestCSCP_WrongW1_CaughtByFindHint`). This is the open **Residual A** (the
   CSCP malicious-secure / identifiable-abort layer + a networked,
   non-simulation MPC deployment).
-- **KEYGEN stays trusted-dealer (Residual B).** Dealerless byte-FIPS-204 KEY
-  DKG is *proven unreachable*: FIPS-204 KeyGen samples `s1,s2` from
-  `S_η = {p : ‖p‖∞ ≤ η}`, but a dealerless sum/Lagrange combination of N ≥ 2
-  contributions has ℓ∞-support up to `N·η > η`, breaking BCC byte-validity
-  (`‖c·s2‖∞ ≤ N·β > β`) and the FIPS-204 security-equivalence
-  (`distributed_bcc_dkg.go` returns `ErrDealerlessByteFIPSUnreachable`). KEYGEN
-  therefore stays trusted-dealer (`DealAlgShares`); the
-  **permissionless-public guarantee is carried by Corona** (natively dealerless
-  via Pedersen DKG over `R_q`), composed alongside Pulsar in the Quasar AND-mode
-  dual-PQ cert.
+- **KEYGEN is now DEALERLESS (RSS) — the dealer is dead at keygen (v0.6.0+).**
+  Superseded the earlier "trusted-dealer / Residual B" status. Only the NAIVE
+  additive lift is unreachable: a naive sum/Lagrange of N ≥ 2 `S_η` contributions
+  has ℓ∞-support up to `N·η > η`, breaking BCC byte-validity (`‖c·s2‖∞ ≤ N·β > β`)
+  — `naive_additive_seta_obstruction.go` returns `ErrDealerlessByteFIPSUnreachable`
+  for THAT construction only, **not as a class impossibility**. The published
+  escape is **Mithril short replicated secret sharing** (`mithril_rss.go`
+  `MithrilRSSKeygen`): committee keygen with no dealer and no centralized
+  reconstruction, whose group key signs under **stock unmodified** `mldsa65.Verify`
+  (gold-proof at (t=8,n=8), (t=16,n=16), and all small committees `N≤6`;
+  `accumulateSubset` per-subset reduction unblocks large committees, v0.6.3). The
+  HYPERBALL 3-round signer (`mithril_rss_hyperball.go`) is the Mithril-native
+  no-reconstruct signer over that key. **Scope:** standard-verifier-compatible is
+  PROVEN; full FIPS-204 KeyGen-distribution-equivalence (simulation/hiding/
+  abort-bias) remains a labeled residual. The dealerless **Corona** leg (Pedersen
+  DKG over `R_q`) continues to carry permissionless-public safety alongside Pulsar
+  in the Quasar AND-mode dual-PQ cert.
 
 ## v1.1.0 – v1.1.5 — BCC/CEF byte-equal threshold ML-DSA + honest-status hardening
 
