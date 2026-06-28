@@ -204,9 +204,11 @@ func CEFComputeW1(setup *AlgSetup, commitmentShares []polyVec, evalPoints []uint
 	if len(commitmentShares) == 0 {
 		return nil, ErrCEFNoShares
 	}
-	// REAL CarryCompare (CSCP): secure HighBits over the per-party additive
-	// commitment shares — no node (and no process) ever forms w, w0, or A0.
-	w1, err := cscpSecureHighBitsVec(setup.Mode, commitmentShares, evalPoints, threshold, rng, nil)
+	// REAL CarryCompare (CSCP): malicious-secure HighBits over the per-party
+	// additive commitment shares via the shared luxfi/dkg cscp package — no node
+	// (and no process) ever forms w, w0, or A0. The in-house semi-honest
+	// cscpSecureHighBitsVec is retained as a test oracle (talus_cscp.go).
+	w1, err := cscpSecureHighBitsVecDKG(setup.Mode, commitmentShares, evalPoints, threshold, rng)
 	if err != nil {
 		return nil, err
 	}
