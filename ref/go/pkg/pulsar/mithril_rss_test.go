@@ -36,7 +36,14 @@ func canonicalActive(t int) []int {
 // the signature verifies BYTE-FOR-BYTE under unmodified cloudflare/circl
 // mldsa65.Verify. Tamper and wrong-message are rejected (verifier non-vacuous).
 func TestMithrilRSSStockCirclVerify(t *testing.T) {
-	committees := [][2]int{{2, 2}, {2, 3}, {3, 3}, {2, 4}, {4, 4}}
+	// EVERY admissible Mithril committee (all 15 pairs, 2 ≤ T ≤ N ≤ 6). All
+	// verify under stock circl within a small attempt budget — the dealerless
+	// key is stock-FIPS-204-signable across the entire viability range.
+	committees := [][2]int{
+		{2, 2}, {2, 3}, {3, 3}, {2, 4}, {3, 4}, {4, 4},
+		{2, 5}, {3, 5}, {4, 5}, {5, 5},
+		{2, 6}, {3, 6}, {4, 6}, {5, 6}, {6, 6},
+	}
 	msg := []byte("Pulsar dealerless RSS (Mithril) — stock circl ML-DSA-65 round-trip")
 	var ctx []byte
 	for _, tn := range committees {
