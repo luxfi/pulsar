@@ -34,9 +34,19 @@ This is the single sentence the project stands behind. Its honest decomposition:
   release-gate to a **liveness fault, never a forge/leak**.
 - **malicious-CSCP + networked-MPC are gated residuals** — UNBUILT, fail-closed,
   tracked (Residual A). The `harden/malicious-security` branch advances this:
-  nonce single-use, identifiable-abort plumbing, reachability GATE-2; the **sound
-  valid-sigma wrong-`z` blame** (needs BDLOP lattice commitments) remains residual.
-  See `ref/go/pkg/pulsar/VERSIONS.md`.
+  **nonce single-use safe by construction** (per-share registry enforces it on the
+  DEFAULT API, not opt-in; `w1`-only dedup closes cross-committee reuse),
+  **authenticated-PartyID blame** (blame is gated on identity-signature validity —
+  an attacker cannot frame or front-run-exclude an honest victim; no blame is ever
+  emitted off a raw unauthenticated PartyID), identifiable-abort plumbing, and
+  GATE-2 reachability **paired with an indirection lint** (the name call-graph is
+  complete for DIRECT calls only — the lint forbids function-value/closure/
+  `go:linkname` indirection of the banned primitives, so the pair is complete).
+  Still residual: the **sound valid-sigma wrong-`z` blame** (needs BDLOP lattice
+  commitments), a **persistent (crash-safe) nonce ledger** (the in-process default
+  is safe now), and **networked transport authentication** (the partial→producer
+  crypto binding is in place; authenticated delivery is consensus-owned). See
+  `ref/go/pkg/pulsar/VERSIONS.md`.
 
 **NEVER claim:** FIPS/NIST-certified threshold ML-DSA · fully-malicious-secure-proven
 · global-1000-validator DKG. (Any artifact asserting these is wrong — fix the
