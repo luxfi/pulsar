@@ -11,6 +11,8 @@ package pulsar
 
 import (
 	"go/build"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,4 +138,90 @@ func TestCI_TrustedDealerKeygenIsTestOnly(t *testing.T) {
 		t.Fatalf("bootstrap_dealer_test.go missing — trusted-dealer keygen quarantine file gone: %v", err)
 	}
 	t.Logf("CI PASS: DealAlgShares is test-only (bootstrap_dealer_test.go); never in the production build")
+}
+
+// TestCI_NoAssemblyOrCgoFiles seals GATE-C's blind spot (RED LOW/INFO). GATE-C's
+// reachability + indirection lint (gate2_reachability_test.go) is complete for Go
+// ASTs (+ go:linkname), but it CANNOT model hand-written assembly (.s) or C
+// (.c / cgo): a banned reconstruct primitive implemented in asm/C, or a cgo
+// escape hatch, would be INVISIBLE to the AST gates. The no-reconstruct soundness
+// claim therefore rests on the package being PURE GO. This asserts exactly that —
+// no non-Go compiled source units and no cgo — so the GATE-C pair stays complete
+// for the WHOLE linked package, not just its .go files.
+func TestCI_NoAssemblyOrCgoFiles(t *testing.T) {
+	pkg, err := build.Default.ImportDir(".", 0)
+	if err != nil {
+		t.Fatalf("enumerate default-build package: %v", err)
+	}
+
+	// (a) go/build's own classification of the DEFAULT (production) build: every
+	//     non-Go compiled-source bucket MUST be empty, and there must be no cgo.
+	classified := []struct {
+		name  string
+		files []string
+	}{
+		{".s assembly", pkg.SFiles},
+		{".c C", pkg.CFiles},
+		{".h C header", pkg.HFiles},
+		{".cc/.cpp C++", pkg.CXXFiles},
+		{".m Objective-C", pkg.MFiles},
+		{".f Fortran", pkg.FFiles},
+		{`cgo (import "C")`, pkg.CgoFiles},
+		{"SWIG .swig", pkg.SwigFiles},
+		{"SWIG .swigcxx", pkg.SwigCXXFiles},
+		{".syso prebuilt object", pkg.SysoFiles},
+	}
+	for _, b := range classified {
+		if len(b.files) != 0 {
+			t.Fatalf("GATE-C blind spot OPENED: default build contains %s file(s) %v — the AST reachability/indirection gates cannot model these; the no-reconstruct soundness claim no longer holds", b.name, b.files)
+		}
+	}
+
+	// (b) RAW directory scan — catches non-Go source files that build.Default
+	//     EXCLUDES by a build constraint (e.g. a //go:build-guarded .s that still
+	//     ships in the tree and could be linked under some tag). Any compiled
+	//     source-unit extension is a blind spot regardless of constraints.
+	bannedExt := map[string]bool{
+		".s": true, ".c": true, ".h": true,
+		".cc": true, ".cpp": true, ".cxx": true, ".hpp": true, ".hh": true,
+		".m": true, ".mm": true, ".f": true, ".f90": true,
+		".syso": true, ".swig": true, ".swigcxx": true,
+	}
+	entries, err := os.ReadDir(pkg.Dir)
+	if err != nil {
+		t.Fatalf("read package dir: %v", err)
+	}
+	var extOffenders []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if bannedExt[strings.ToLower(filepath.Ext(e.Name()))] {
+			extOffenders = append(extOffenders, e.Name())
+		}
+	}
+	if len(extOffenders) != 0 {
+		t.Fatalf("GATE-C blind spot OPENED: package directory contains non-Go source file(s) %v (even if build-constrained out today) — pure-Go is required for the AST gates' soundness", extOffenders)
+	}
+
+	// (c) Scan EVERY .go file in the dir (incl. build-constrained and _test files)
+	//     for a cgo import. A constraint-hidden `import "C"` escapes both the build
+	//     classification (a) and the extension scan (b), yet still exposes C to a
+	//     tagged build. Robust AST parse (ImportsOnly), not a text grep.
+	fset := token.NewFileSet()
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		f, perr := parser.ParseFile(fset, filepath.Join(pkg.Dir, e.Name()), nil, parser.ImportsOnly)
+		if perr != nil {
+			t.Fatalf("parse %s: %v", e.Name(), perr)
+		}
+		for _, imp := range f.Imports {
+			if imp.Path.Value == `"C"` {
+				t.Fatalf("GATE-C blind spot OPENED: %s imports \"C\" (cgo) — C code is invisible to the AST gates", e.Name())
+			}
+		}
+	}
+	t.Logf("GATE-C blind spot SEALED: %d default-build .go files, ZERO .s/.c/.h/.cc/.cpp/.m/.f/.syso/SWIG/cgo units — the reachability + indirection gates are complete for the whole linked package", len(pkg.GoFiles))
 }
