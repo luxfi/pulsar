@@ -57,6 +57,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/luxfi/mlwe/transcript"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -258,7 +259,7 @@ func VerifyPartialProof(st *PartialStatement, proof []byte) error {
 func partialFSChallenges(st *PartialStatement, ts []polyVec) []uint32 {
 	h := sha3.NewCShake256([]byte(functionName), []byte(partialFSTag))
 	// Statement binding (SP 800-185 encode_string framing for each part).
-	writePart := func(b []byte) { _, _ = h.Write(encodeString(b)) }
+	writePart := func(b []byte) { _, _ = h.Write(transcript.EncodeString(b)) }
 	var u4 [4]byte
 	var u8 [8]byte
 	u4[0] = byte(st.Mode)
