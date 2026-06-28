@@ -521,3 +521,54 @@ func samePolyVec(a, b polyVec, L int) bool {
 	}
 	return true
 }
+
+// TestHyperballMaskNeverOnWire proves the secret mask y_j is never serialised:
+// the wire carries only w_{j,k} = A·y_{j,k} (Module-SIS hides y) and the public
+// response z_{j,k}. Using the manual harness (where the exact yInt is readable)
+// it asserts no party's mask bytes appear in the Round-2 / Round-3 wire data.
+func TestHyperballMaskNeverOnWire(t *testing.T) {
+	s := setupHBSession(t, 4, 6, []byte("mask never on wire"), nil, "mask")
+	r1s := s.round1()
+	r2s := s.round2()
+	if err := s.co.aggregateCommitments(s.sid, r1s, r2s); err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	r3s := s.round3()
+
+	wire := make([]byte, 0, 1<<16)
+	for _, m := range r2s {
+		for _, w := range m.W {
+			wire = append(wire, packPolyVec(w)...)
+		}
+	}
+	for _, m := range r3s {
+		for _, z := range m.Z {
+			if z != nil {
+				wire = append(wire, packPolyVec(z)...)
+			}
+		}
+	}
+
+	for j, p := range s.parties {
+		for k := range p.yInt {
+			ny := make(polyVec, len(p.yInt[k]))
+			for i := range p.yInt[k] {
+				ny[i] = p.yInt[k][i]
+				ny[i].normalize()
+			}
+			if bytes.Contains(wire, packPolyVec(ny)) {
+				t.Fatalf("party %d slot %d mask y bytes appear on the wire — LEAK", j, k)
+			}
+		}
+		// And the share, for good measure.
+		ns := make(polyVec, len(p.s1Share))
+		for i := range p.s1Share {
+			ns[i] = p.s1Share[i]
+			ns[i].reduceLe2Q()
+			ns[i].normalize()
+		}
+		if bytes.Contains(wire, packPolyVec(ns)) {
+			t.Fatalf("party %d share s1_(j) bytes appear on the wire — LEAK", j)
+		}
+	}
+}
