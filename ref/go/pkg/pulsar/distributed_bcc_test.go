@@ -13,23 +13,84 @@ package pulsar
 // (VerifyBytes → cloudflare/circl mldsa{65,87}.Verify).
 
 import (
+	"bytes"
 	"crypto/rand"
 	"errors"
 	"reflect"
 	"sort"
 	"testing"
+
+	"golang.org/x/crypto/sha3"
 )
+
+// ── per-validator identity layer for authenticated-partial tests (RED MEDIUM) ──
+//
+// testIdentitySet models an identity layer with PER-VALIDATOR keys: each NodeID
+// owns a random secret, so an attacker lacking a victim's key cannot forge the
+// victim's signature. It is BOTH faces of the one identity layer — the verifier
+// (VerifyAbortSignature) and, via signerFor, the producer (IdentitySigner).
+// MAC = SHAKE256(key ‖ tbs)[:64] stands in for a real Ed25519/PQ identity key.
+type testIdentitySet struct{ keys map[NodeID][]byte }
+
+func newTestIdentitySet(ids ...NodeID) *testIdentitySet {
+	s := &testIdentitySet{keys: make(map[NodeID][]byte, len(ids))}
+	for _, id := range ids {
+		k := make([]byte, 32)
+		if _, err := rand.Read(k); err != nil {
+			panic(err)
+		}
+		s.keys[id] = k
+	}
+	return s
+}
+
+func idMAC(key, tbs []byte) []byte {
+	h := sha3.NewShake256()
+	_, _ = h.Write(key)
+	_, _ = h.Write(tbs)
+	out := make([]byte, 64)
+	_, _ = h.Read(out)
+	return out
+}
+
+// VerifyAbortSignature is the verifier face (AbortSignatureVerifier).
+func (s *testIdentitySet) VerifyAbortSignature(author NodeID, transcript, signature []byte) bool {
+	k, ok := s.keys[author]
+	if !ok || len(signature) == 0 {
+		return false
+	}
+	return bytes.Equal(signature, idMAC(k, transcript))
+}
+
+// signerFor returns an IdentitySigner holding ONLY id's key (producer face).
+func (s *testIdentitySet) signerFor(id NodeID) IdentitySigner {
+	return keyedSigner{key: append([]byte(nil), s.keys[id]...)}
+}
+
+type keyedSigner struct{ key []byte }
+
+func (k keyedSigner) SignProtocolMessage(tbs []byte) []byte { return idMAC(k.key, tbs) }
+
+// signPartial stamps p with author + a valid identity signature over its
+// (possibly tampered) content — models a validator that SIGNS a bad partial
+// (authenticated misbehavior, attributable) as opposed to a transport-tampered
+// partial (signature breaks, dropped, not attributed). Requires keys[author].
+func (s *testIdentitySet) signPartial(p *Partial, author NodeID, epoch uint64) {
+	p.Author = author
+	p.AuthSig = idMAC(s.keys[author], partialAuthTBS(*p, epoch))
+}
 
 // bccFixture is a dealt (t, n) committee: the public setup plus one AlgShare
 // per member. The shares come from the Part-1 trusted dealer; the GATE under
 // test is that AFTER dealing, each share lives in a SEPARATE signer and the
 // SIGNING ceremony never co-locates them or reconstructs s1/the seed.
 type bccFixture struct {
-	params     *Params
-	setup      *AlgSetup
-	committee  []NodeID
-	shares     []*AlgShare // sorted ascending by NodeID
-	threshold  int
+	params    *Params
+	setup     *AlgSetup
+	committee []NodeID
+	shares    []*AlgShare // sorted ascending by NodeID
+	threshold int
+	idset     *testIdentitySet // per-validator identity layer (authenticated partials)
 }
 
 func newBCCFixture(t *testing.T, mode Mode, n, threshold int) *bccFixture {
@@ -62,7 +123,10 @@ func newBCCFixture(t *testing.T, mode Mode, n, threshold int) *bccFixture {
 	for i, s := range shares {
 		committee[i] = s.NodeID
 	}
-	return &bccFixture{params: params, setup: setup, committee: committee, shares: shares, threshold: threshold}
+	return &bccFixture{
+		params: params, setup: setup, committee: committee, shares: shares, threshold: threshold,
+		idset: newTestIdentitySet(committee...), // one identity key per committee member
+	}
 }
 
 // quorum returns the first q shares (sorted) and their eval points.

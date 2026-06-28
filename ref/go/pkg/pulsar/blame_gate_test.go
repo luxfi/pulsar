@@ -42,6 +42,10 @@ func bccRound(t *testing.T, f *bccFixture, msg []byte, sid [32]byte) (partials [
 		if err != nil {
 			t.Fatalf("signer %d: %v", i, err)
 		}
+		// Wire the identity layer so partials are authenticated and the aggregator
+		// can attribute blame soundly (RED MEDIUM). Producer = this node's key;
+		// verifier = the shared per-validator set.
+		nd.SetIdentity(f.idset.signerFor(quorum[i]), f.idset)
 		nodes[i] = nd
 		if err := nd.SetNonceShare(nonceID, deal.YShares[quorum[i]]); err != nil {
 			t.Fatalf("set nonce share %d: %v", i, err)
@@ -111,7 +115,9 @@ func TestGATE_B_DuplicatePartyID(t *testing.T) {
 	// (b) duplicates of ONE party can NOT reach threshold: t copies of party 0
 	//     => 1 distinct signer => ErrInsufficientSigners + every extra blamed.
 	onlyDups := []Partial{partials[0], partials[0], partials[0]}
-	_, _, blames, err := AggregateBCCWithBlame(f.params, f.setup, []uint32{f.shares[0].EvalPoint, f.shares[1].EvalPoint, f.shares[2].EvalPoint},
+	_, _, blames, err := AggregateBCCWithBlame(f.params, f.setup,
+		[]uint32{f.shares[0].EvalPoint, f.shares[1].EvalPoint, f.shares[2].EvalPoint},
+		[]NodeID{f.shares[0].NodeID, f.shares[1].NodeID, f.shares[2].NodeID}, 0, f.idset,
 		nil, []byte("dup test"), agg.c, &agg.cHat, agg.w1, sid, partials[0].NonceID, threshold, onlyDups)
 	if !errors.Is(err, ErrInsufficientSigners) {
 		t.Fatalf("GATE B FAILED: %d duplicates of one party produced err=%v, want ErrInsufficientSigners (duplicates inflated the threshold!)", len(onlyDups), err)
@@ -133,10 +139,14 @@ func TestGATE_B_InvalidProofAttributed(t *testing.T) {
 
 	const badParty = 1
 	// Tamper party 1's z WITHOUT updating its proof => sigma equation breaks.
+	// The malicious validator SIGNS the bad partial (authenticated misbehavior),
+	// so it passes origin-auth and is attributed BlameProofInvalid — vs a
+	// transport-tampered partial (stale sig) which would be dropped unattributed.
 	tampered := append([]Partial(nil), partials...)
 	z := unpackPolyVec(tampered[badParty].ZShare, mldsaL(f.params.Mode))
 	z[0][0] = (z[0][0] + 1) % mldsaQ
 	tampered[badParty].ZShare = packPolyVec(z)
+	f.idset.signPartial(&tampered[badParty], quorum[badParty], 0)
 
 	_, _, ev, err := agg.FinalizeWithBlame(aggR1, tampered)
 	if !errors.Is(err, ErrInsufficientSigners) {
@@ -159,8 +169,8 @@ func TestGATE_B_InvalidProofAttributed(t *testing.T) {
 		t.Fatalf("attributed AbortEvidence malformed: %v", vErr)
 	}
 	// Confirm the raw reason is proof-invalid.
-	_, _, blames, _ := AggregateBCCWithBlame(f.params, f.setup, agg.evalPoints, nil, []byte("invalid proof test"),
-		agg.c, &agg.cHat, agg.w1, sid, partials[badParty].NonceID, threshold, tampered)
+	_, _, blames, _ := AggregateBCCWithBlame(f.params, f.setup, agg.evalPoints, quorum, 0, f.idset,
+		nil, []byte("invalid proof test"), agg.c, &agg.cHat, agg.w1, sid, partials[badParty].NonceID, threshold, tampered)
 	if b, ok := blameFor(blames, badParty); !ok || b.Reason != BlameProofInvalid {
 		t.Fatalf("GATE B FAILED: party %d not blamed BlameProofInvalid (got %+v)", badParty, blames)
 	}
@@ -174,14 +184,17 @@ func TestGATE_B_MalformedShareNoPanic(t *testing.T) {
 	f := newBCCFixture(t, ModeP65, n, threshold)
 	var sid [32]byte
 	copy(sid[:], []byte("gate-b-malformed"))
-	partials, agg, _, _, _ := bccRound(t, f, []byte("malformed test"), sid)
+	partials, agg, _, quorum, _ := bccRound(t, f, []byte("malformed test"), sid)
 
 	const badParty = 2
 	mangled := append([]Partial(nil), partials...)
 	mangled[badParty].ZShare = []byte{0x00, 0x01} // truncated — would panic unpackPolyVec
+	// Malicious validator SIGNS the malformed partial so it passes origin-auth
+	// and is attributed BlameMalformed (not dropped as transport corruption).
+	f.idset.signPartial(&mangled[badParty], quorum[badParty], 0)
 
-	_, _, blames, err := AggregateBCCWithBlame(f.params, f.setup, agg.evalPoints, nil, []byte("malformed test"),
-		agg.c, &agg.cHat, agg.w1, sid, partials[badParty].NonceID, threshold, mangled)
+	_, _, blames, err := AggregateBCCWithBlame(f.params, f.setup, agg.evalPoints, quorum, 0, f.idset,
+		nil, []byte("malformed test"), agg.c, &agg.cHat, agg.w1, sid, partials[badParty].NonceID, threshold, mangled)
 	if !errors.Is(err, ErrInsufficientSigners) {
 		t.Fatalf("malformed share should drop to t-1 => ErrInsufficientSigners, got %v", err)
 	}
@@ -201,7 +214,7 @@ func TestGATE_B_ValidSigmaWrongZ_ResidualNoForgery(t *testing.T) {
 	var sid [32]byte
 	copy(sid[:], []byte("gate-b-wrongz-residual"))
 	msg := []byte("valid-sigma wrong-z residual")
-	partials, agg, aggR1, _, evalPoints := bccRound(t, f, msg, sid)
+	partials, agg, aggR1, quorum, evalPoints := bccRound(t, f, msg, sid)
 
 	const badParty = 1
 	_, L, _ := modeShape(f.params.Mode)
@@ -222,6 +235,10 @@ func TestGATE_B_ValidSigmaWrongZ_ResidualNoForgery(t *testing.T) {
 	}
 	wrong := append([]Partial(nil), partials...)
 	wrong[badParty] = Partial{PartyID: badParty, NonceID: partials[badParty].NonceID, SessionID: sid, ZShare: packPolyVec(zeros), Proof: proof}
+	// The malicious validator SIGNS its valid-sigma wrong-z partial (authenticated),
+	// so origin-auth passes and the partial reaches the sigma check — which it
+	// passes (valid statement for a wrong z). This is the residual: not attributed.
+	f.idset.signPartial(&wrong[badParty], quorum[badParty], 0)
 
 	agg2, cert, ev, ferr := agg.FinalizeWithBlame(aggR1, wrong)
 	_ = agg2
@@ -238,8 +255,8 @@ func TestGATE_B_ValidSigmaWrongZ_ResidualNoForgery(t *testing.T) {
 		for _, e := range ev {
 			_ = e
 		}
-		_, _, blames, _ := AggregateBCCWithBlame(f.params, f.setup, agg.evalPoints, nil, msg,
-			agg.c, &agg.cHat, agg.w1, sid, partials[badParty].NonceID, threshold, wrong)
+		_, _, blames, _ := AggregateBCCWithBlame(f.params, f.setup, agg.evalPoints, quorum, 0, f.idset,
+			nil, msg, agg.c, &agg.cHat, agg.w1, sid, partials[badParty].NonceID, threshold, wrong)
 		return blameFor(blames, badParty)
 	}(); attributed {
 		t.Fatalf("unexpected: valid-sigma wrong-z was attributed — update the residual claim (now SOUND)")
@@ -248,4 +265,75 @@ func TestGATE_B_ValidSigmaWrongZ_ResidualNoForgery(t *testing.T) {
 		t.Fatal("residual marker missing")
 	}
 	t.Logf("GATE B.4 PASS (honest residual): valid-sigma wrong-z yields NO FIPS-valid signature (no forgery/leak) but is NOT yet attributed — BDLOP share-commitment residual (ErrIdentifiableAbortResidual)")
+}
+
+// TestRED_PoC_MEDIUM_CannotFrameOrExcludeHonestVictim is RED's MEDIUM PoCs
+// (UnauthenticatedPartyID_BlameShift / MalformedFrontRun_ExcludesAndBlamesHonest)
+// FLIPPED. An attacker front-runs an honest victim's slot with a forged,
+// malformed partial STAMPED with the victim's PartyID. Pre-fix this got the
+// victim BLAMED (BlameMalformed/Duplicate) and EXCLUDED off a raw unauthenticated
+// PartyID. Post-fix:
+//   - origin-auth drops the forgery (the attacker cannot sign as the victim), so
+//     the victim's real partial stands -> NOT excluded, the round still signs;
+//   - blame is gated on signature validity, so the victim is NEVER blamed.
+func TestRED_PoC_MEDIUM_CannotFrameOrExcludeHonestVictim(t *testing.T) {
+	const n, threshold = 5, 3
+	f := newBCCFixture(t, ModeP65, n, threshold)
+	var sid [32]byte
+	copy(sid[:], []byte("red-medium-frame"))
+	msg := []byte("attacker tries to frame an honest victim")
+	partials, agg, aggR1, quorum, _ := bccRound(t, f, msg, sid)
+
+	const victim = 1 // a non-aggregator slot
+	// The attacker is NOT in the quorum; it holds its OWN identity key, never the
+	// victim's. So it cannot produce the victim's signature.
+	var attacker NodeID
+	attacker[0] = 0xEE
+	attackerSet := newTestIdentitySet(attacker)
+
+	// (1) Forged partial: victim's PartyID, malformed content, signed with the
+	//     ATTACKER's key (author = attacker). Front-run: placed BEFORE the real one.
+	forged := Partial{PartyID: victim, SessionID: sid, NonceID: partials[victim].NonceID, ZShare: []byte{0xde, 0xad}}
+	attackerSet.signPartial(&forged, attacker, 0)
+	input := []Partial{partials[0], forged, partials[1], partials[2]}
+
+	_, cert, ev, err := agg.FinalizeWithBlame(aggR1, input)
+	if err != nil {
+		t.Fatalf("RED MEDIUM: honest victim EXCLUDED — round failed with the victim's real partial present: %v", err)
+	}
+	if !fipsVerify(t, f.setup, msg, &cert.Signature) {
+		t.Fatalf("RED MEDIUM: round did not produce a FIPS-valid signature with the victim included")
+	}
+	if blamedNode(ev, quorum[victim]) {
+		t.Fatalf("RED MEDIUM: honest victim %x was BLAMED off an unauthenticated forged PartyID", quorum[victim][:4])
+	}
+
+	// (2) Impersonation variant: author CLAIMS to be the victim but signs with the
+	//     wrong key (attacker lacks the victim's key) -> signature invalid -> dropped.
+	forged2 := Partial{PartyID: victim, SessionID: sid, NonceID: partials[victim].NonceID, ZShare: []byte{0xba, 0xad}}
+	forged2.Author = quorum[victim]
+	forged2.AuthSig = idMAC(attackerSet.keys[attacker], partialAuthTBS(forged2, 0)) // wrong key
+	input2 := []Partial{partials[0], forged2, partials[1], partials[2]}
+	_, cert2, ev2, err2 := agg.FinalizeWithBlame(aggR1, input2)
+	if err2 != nil || !fipsVerify(t, f.setup, msg, &cert2.Signature) {
+		t.Fatalf("RED MEDIUM (impersonation): victim excluded (err=%v)", err2)
+	}
+	if blamedNode(ev2, quorum[victim]) {
+		t.Fatalf("RED MEDIUM (impersonation): honest victim blamed off a forged victim-authored partial")
+	}
+
+	// (3) CONTRAST — the verifier is load-bearing. With NO identity verifier the
+	//     same front-run EXCLUDES the victim (the forged malformed partial occupies
+	//     the slot; the real one is dropped as a duplicate) -> t-1 valid ->
+	//     ErrInsufficientSigners. No blame is emitted either way (blame is gated on
+	//     auth), but exclusion-resistance REQUIRES the verifier.
+	_, _, blamesNoAuth, errNoAuth := AggregateBCCWithBlame(f.params, f.setup, agg.evalPoints, quorum, 0, nil,
+		nil, msg, agg.c, &agg.cHat, agg.w1, sid, partials[victim].NonceID, threshold, input)
+	if !errors.Is(errNoAuth, ErrInsufficientSigners) {
+		t.Fatalf("contrast: expected the un-authenticated path to drop to t-1 (front-run exclusion), got %v", errNoAuth)
+	}
+	if len(blamesNoAuth) != 0 {
+		t.Fatalf("contrast: blame MUST NOT be emitted off raw unauthenticated PartyIDs, got %+v", blamesNoAuth)
+	}
+	t.Logf("RED MEDIUM FLIPPED: origin-auth drops the forged victim-slot partial (attacker cannot sign as the victim) -> victim NOT excluded, round still signs, victim NEVER blamed; the un-authenticated path neither blames nor (alone) resists exclusion — the verifier is load-bearing")
 }
