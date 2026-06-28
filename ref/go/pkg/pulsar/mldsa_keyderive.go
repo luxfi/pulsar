@@ -15,6 +15,7 @@ package pulsar
 // under unmodified mldsa{44,65,87}.Verify.
 
 import (
+	"github.com/luxfi/mlwe/sample/shake"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -116,19 +117,25 @@ func deriveKeyMaterial(mode Mode, seed *[SeedSize]byte) (*mldsaKeyMaterial, erro
 	copy(sSeed[:], eSeed[32:96])
 	copy(km.key[:], eSeed[96:128])
 
-	// Derive A from ρ: K × L block of polynomials.
+	// Derive A from ρ via the shared FIPS 204 ExpandA (sampled directly
+	// in the NTT domain), K × L block. Narrow each element into the poly
+	// core.
+	profile := mlweProfile(mode)
+	A := shake.ExpandA(profile, km.rho)
 	for i := 0; i < K; i++ {
 		for j := 0; j < L; j++ {
-			polyDeriveUniform(&km.a[i][j], &km.rho, uint16(i)<<8|uint16(j))
+			km.a[i][j] = polyFromMLWE(A[i][j])
 		}
 	}
 
-	// Sample s1 (length L) and s2 (length K).
+	// Sample s1 (length L) and s2 (length K) via the shared ExpandS;
+	// coefficients land un-normalised in [q-η, q+η] exactly as before.
+	s1, s2 := shake.ExpandS(profile, sSeed)
 	for i := 0; i < L; i++ {
-		polyDeriveUniformLeqEta(&km.s1[i], &sSeed, uint16(i), eta)
+		km.s1[i] = polyFromMLWE(s1[i])
 	}
 	for i := 0; i < K; i++ {
-		polyDeriveUniformLeqEta(&km.s2[i], &sSeed, uint16(i+L), eta)
+		km.s2[i] = polyFromMLWE(s2[i])
 	}
 
 	// Compute t = A · s1 + s2 (NTT-domain mul, then InvNTT).

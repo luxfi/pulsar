@@ -13,17 +13,6 @@ import (
 	"encoding/binary"
 )
 
-// modeGamma1Bits returns the FIPS 204 γ_1 bit-width for the given mode.
-func modeGamma1Bits(mode Mode) uint32 {
-	switch mode {
-	case ModeP44:
-		return 17
-	case ModeP65, ModeP87:
-		return 19
-	}
-	return 0
-}
-
 // packPolyVec packs a polynomial vector into a flat byte buffer
 // (4 bytes per coefficient, little-endian, un-NTT'd, normalised in
 // [0, q)). Used wherever a polynomial vector is serialized for the
