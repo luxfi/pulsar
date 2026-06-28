@@ -107,6 +107,25 @@ func mithrilRho(partySeeds [][]byte) [32]byte {
 	return rho
 }
 
+// accumulateSubset adds a subset secret into a running total and reduces it mod q
+// IMMEDIATELY, per subset. This per-step reduction is mandatory, not cosmetic:
+// every χ_η coefficient is stored in pulsar's [q−η, q+η] representation (≈ q ≈ 2²³),
+// and poly.add is a raw uint32 add with no reduction (reduction is batched
+// elsewhere in the NTT hot path). Summing all C(N,M) subset secrets without
+// intermediate reduction would push the accumulator past 2³²: it overflows once
+// C ≥ ⌊2³²/q⌋ = 512 — e.g. the owner default n=16,t=14 with C(16,3)=560 — wrapping
+// the coefficient and corrupting the key into a large-secret (unsignable) wall
+// key. Because reduction mod q is an additive homomorphism, reducing per subset
+// yields the IDENTICAL short Σ_S secret as a single final reduction would for a
+// small committee (so n≤8 results are unchanged), while keeping every intermediate
+// accumulator below 2q ≪ 2³². total and add are equal-length (L or K) poly vectors.
+func accumulateSubset(total, add polyVec) {
+	for i := range total {
+		total[i].add(&total[i], &add[i])
+		total[i].normalize()
+	}
+}
+
 // MithrilRSSKeygen runs the dealerless RSS DKG for an (T, N) committee at the
 // given ML-DSA mode, driven by one contributed 32-byte seed per party. It is
 // deterministic in (mode, t, n, partySeeds). Fail-closed outside the Mithril
@@ -167,18 +186,10 @@ func MithrilRSSKeygen(mode Mode, t, n int, partySeeds [][]byte) (*MithrilKey, er
 		for _, member := range rss.SubsetMembers(mask, n) {
 			mk.holdings[member][mask] = ss
 		}
-		for i := 0; i < L; i++ {
-			s1Tot[i].add(&s1Tot[i], &ss.s1[i])
-		}
-		for i := 0; i < K; i++ {
-			s2Tot[i].add(&s2Tot[i], &ss.s2[i])
-		}
-	}
-	for i := 0; i < L; i++ {
-		s1Tot[i].normalize()
-	}
-	for i := 0; i < K; i++ {
-		s2Tot[i].normalize()
+		// Reduce mod q PER SUBSET (accumulateSubset) — summing all C(N,M) subsets
+		// raw would overflow the uint32 coefficient for a large committee.
+		accumulateSubset(s1Tot, ss.s1)
+		accumulateSubset(s2Tot, ss.s2)
 	}
 
 	// Public key t = A·s1 + s2, Power2Round → (t0, t1), pack pub, tr.
@@ -235,19 +246,10 @@ func (mk *MithrilKey) ReconstructKeyMaterial(active []int) (*mldsaKeyMaterial, e
 			if !ok {
 				return nil, fmt.Errorf("pulsar: signer %d missing assigned subset 0b%b", active[j], mask)
 			}
-			for i := 0; i < L; i++ {
-				s1[i].add(&s1[i], &ss.s1[i])
-			}
-			for i := 0; i < K; i++ {
-				s2[i].add(&s2[i], &ss.s2[i])
-			}
+			// Reduce mod q PER SUBSET (accumulateSubset) — see ReconstructKeyMaterial.
+			accumulateSubset(s1, ss.s1)
+			accumulateSubset(s2, ss.s2)
 		}
-	}
-	for i := 0; i < L; i++ {
-		s1[i].normalize()
-	}
-	for i := 0; i < K; i++ {
-		s2[i].normalize()
 	}
 
 	km := &mldsaKeyMaterial{rho: mk.rho, tr: mk.tr, s1: s1, s2: s2, pub: mk.pub}
