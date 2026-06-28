@@ -1,5 +1,16 @@
+//go:build legacy_trusted_dealer
+
 // Copyright (C) 2025-2026, Lux Industries Inc. All rights reserved.
 // See the file LICENSE for licensing terms.
+//
+// LEGACY (quarantined): GF(q) SEED-share committee path that RECONSTRUCTS
+// the master key at sign time (KeyFromSeed in LargeCombine — the H-1
+// footgun). NOT in the default production build. The production committee
+// threshold-sign path is the no-reconstruct AlgShare/AggregateBCC
+// RoundSigner (distributed_bcc.go), which never forms s1/seed/sk at the
+// combiner. Build with `-tags legacy_trusted_dealer` only for the
+// explicitly opt-in audit-attestation / bootstrap deployment that accepts
+// centralized reconstruction.
 
 package pulsar
 
