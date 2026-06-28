@@ -24,9 +24,9 @@ package pulsar
 //	response and cannot be patched in the algebra. The defence is the same as
 //	FROST's: an HONEST signer MUST consume each nonce AT MOST ONCE.
 //
-// THE GUARD (this file + Round2 wiring).
+// THE GUARD (this file + Round2 wiring), SAFE BY CONSTRUCTION.
 //
-//	A NonceLedger records, per signer/validator, the nonce material that has
+//	A NonceLedger records, per VALIDATOR KEY-SHARE, the nonce material that has
 //	already been consumed. Before a signer emits its secret z-partial it
 //	RESERVES the nonce; a second reservation of the same material is rejected
 //	FAIL-CLOSED (ErrNonceReused) and NO partial is produced. The dedup key is
@@ -37,9 +37,21 @@ package pulsar
 //
 //	One nonce ⇒ one signature, ever. Even ONE honest member refusing the
 //	second use starves the attacker of that member's z_B partial, so the
-//	(c_A − c_B)·s1 system can never be assembled. The guard is per-VALIDATOR
-//	(per-share), shared across every signer instance that uses the same share —
-//	see SetNonceLedger.
+//	(c_A − c_B)·s1 system can never be assembled.
+//
+//	SAFE BY DEFAULT — NO OPT-IN (closes the RED HIGH re-finding). The single-use
+//	store is NOT a per-signer-instance object an integrator must remember to
+//	share. Because a DistributedBCCSigner fixes (sid,ctx,msg) at construction,
+//	signing two messages needs two signer objects — so a per-instance ledger
+//	(the prior default) let cross-message reuse through unless the caller hand-
+//	threaded ONE ledger. Instead the ledger is now resolved from a process-global
+//	registry keyed by SHARE IDENTITY (shareIdentityKey): EVERY signer constructed
+//	over the SAME key-share resolves to the SAME ledger, so cross-instance reuse
+//	is refused WITHOUT the caller doing anything. There is NO construction path
+//	that yields a per-instance empty ledger. SetNonceLedger remains the seam to
+//	install a PERSISTENT ledger for a share (crash-restart safety, a flagged
+//	residual); it writes the SAME per-share registry slot, so all instances of
+//	the share share it.
 //
 // FAIL-CLOSED LIFECYCLE. Reservation happens BEFORE the secret is touched and
 // is NEVER rolled back: if proof generation later fails, the nonce stays
@@ -149,6 +161,83 @@ func (l *InMemoryNonceLedger) CheckBinding(key [32]byte, binding NonceBinding) (
 		return true, ErrNonceBindingMismatch
 	}
 	return true, nil
+}
+
+// ── safe-by-construction per-share single-use ledger registry ─────────────
+//
+// The single-use guard MUST be shared across every signer instance holding the
+// SAME key-share (signing two messages needs two signer objects, since a signer
+// fixes (sid,ctx,msg) at construction). Rather than make that an opt-in the
+// integrator can forget — the fail-open default RED re-found — the ledger is
+// resolved from this process-global registry keyed by SHARE IDENTITY. Same
+// share ⇒ same ledger ⇒ cross-instance nonce reuse is refused by DEFAULT.
+//
+// In-memory only (does not survive a process restart). A PERSISTENT per-share
+// ledger (crash-restart safety) is a flagged residual; install it once at
+// startup via (*DistributedBCCSigner).SetNonceLedger, which writes this same
+// registry slot so every instance of the share picks it up.
+var (
+	shareLedgerMu       sync.Mutex
+	shareLedgerRegistry = map[[32]byte]NonceLedger{}
+)
+
+// shareLedgerFor returns the ONE process-wide single-use ledger for a key-share
+// identity, creating an in-memory ledger on first use. Same identity ⇒ same
+// instance, so all signers over a share enforce single-use jointly. Never nil.
+func shareLedgerFor(identity [32]byte) NonceLedger {
+	shareLedgerMu.Lock()
+	defer shareLedgerMu.Unlock()
+	l, ok := shareLedgerRegistry[identity]
+	if !ok {
+		l = NewInMemoryNonceLedger()
+		shareLedgerRegistry[identity] = l
+	}
+	return l
+}
+
+// setShareLedger installs a (typically persistent) ledger for a share identity.
+// FIRST WRITER WINS: it never replaces a ledger already established for the
+// share, so it cannot silently drop reservations already recorded — one ledger
+// per share for the process lifetime. Call it at startup, before any Round2 for
+// the share, to upgrade that share to crash-restart-safe persistence.
+func setShareLedger(identity [32]byte, l NonceLedger) {
+	if l == nil {
+		return
+	}
+	shareLedgerMu.Lock()
+	defer shareLedgerMu.Unlock()
+	if _, exists := shareLedgerRegistry[identity]; !exists {
+		shareLedgerRegistry[identity] = l
+	}
+}
+
+// shareIdentityKey is the committee-INDEPENDENT identity of a validator key-
+// share: the SAME secret share (across any committee, session, or signer
+// instance) hashes to the SAME key, so all of its signers resolve to ONE
+// single-use ledger. The secret S1Share is bound one-way (SHAKE256 is
+// preimage-resistant — the digest leaks nothing) so a re-shared / proactively
+// refreshed key (same NodeID+EvalPoint, NEW S1Share) maps to a DISTINCT ledger
+// and is not wrongly bound to the retired key's reservations (a liveness over-
+// restriction). Committee membership is deliberately NOT in the identity: the
+// same share used across two committees must share ONE ledger so the same joint
+// nonce cannot be spent once per committee (the RED LOW cross-committee gap).
+func shareIdentityKey(share *AlgShare) [32]byte {
+	h := sha3.NewShake256()
+	_, _ = h.Write([]byte("PULSAR/share-ledger-identity/v1"))
+	_, _ = h.Write([]byte{byte(share.Mode)})
+	_, _ = h.Write(share.NodeID[:])
+	var u4 [4]byte
+	binary.BigEndian.PutUint32(u4[:], share.EvalPoint)
+	_, _ = h.Write(u4[:])
+	for l := range share.S1Share {
+		for j := 0; j < mldsaN; j++ {
+			binary.BigEndian.PutUint32(u4[:], share.S1Share[l][j])
+			_, _ = h.Write(u4[:])
+		}
+	}
+	var out [32]byte
+	_, _ = h.Read(out[:])
+	return out
 }
 
 // NonceTicket is the public, auditable handle for one nonce's single use. The
