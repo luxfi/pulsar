@@ -6,6 +6,8 @@ package pulsar
 import (
 	"bytes"
 	"testing"
+
+	"github.com/luxfi/mlwe/sample/shake"
 )
 
 // nonce_transcript_proof_test.go — soundness/ZK tests for the SOUND
@@ -44,9 +46,10 @@ func nonceFixture(t *testing.T, mode Mode, parties int, seed string) (*NonceCons
 		// often enough; use bounded mask like the BCC signer.
 		var ySeed [64]byte
 		_, _ = rng.Read(ySeed[:])
+		yVec := shake.ExpandMask(mlweProfile(mode), ySeed, 0)
 		y := make(polyVec, L)
 		for l := 0; l < L; l++ {
-			expandMaskPoly(&y[l], &ySeed, uint16(l), modeGamma1Bits(mode))
+			y[l] = polyFromMLWE(yVec[l])
 		}
 		ys[i] = y
 

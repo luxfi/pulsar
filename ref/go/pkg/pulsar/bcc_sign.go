@@ -56,6 +56,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/luxfi/mlwe/sample/shake"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -173,9 +174,13 @@ func bccSign(km *mldsaKeyMaterial, mode Mode, message, ctx []byte, rng io.Reader
 		if _, err := io.ReadFull(rng, ySeed[:]); err != nil {
 			return nil, nil, err
 		}
+		// Mask y ∈ (−γ1, γ1]^L via the shared FIPS 204 ExpandMask. The
+		// per-attempt seed is the customisation; kappa=0 makes poly i use
+		// nonce i, matching the prior per-poly derivation byte-for-byte.
+		yVec := shake.ExpandMask(mlweProfile(mode), ySeed, 0)
 		y := make(polyVec, L)
 		for i := 0; i < L; i++ {
-			expandMaskPoly(&y[i], &ySeed, uint16(i), gamma1Bits)
+			y[i] = polyFromMLWE(yVec[i])
 		}
 
 		// 2. w = A·y. ŷ = NTT(y); ŵ_k = Σ_l A[k][l]·ŷ[l]; w = InvNTT(ŵ).
@@ -291,29 +296,10 @@ func bccSign(km *mldsaKeyMaterial, mode Mode, message, ctx []byte, rng io.Reader
 	return nil, nil, ErrBCCExhausted
 }
 
-// expandMaskPoly samples one polynomial of the FIPS 204 §7.3 ExpandMask
-// mask: coefficients uniform in (−γ1, γ1], drawn by unpacking a
-// γ1-bit-packed SHAKE-256(seed || (μ_index + nonce)) stream. This is the
-// FIPS 204 ML-DSA mask sampler, byte-identical to circl's polyDeriveUniformLeGamma1
-// over the same (seed, nonce) — it reuses the package's polyUnpackLeGamma1
-// unpacker so the BCC mask is the same distribution the FIPS signer uses.
-//
-// nonce is the per-poly index l (FIPS 204 uses κ + l; here the seed is
-// per-attempt and the within-attempt index is l, giving fresh masks per
-// attempt without a global counter).
-func expandMaskPoly(p *poly, seed *[64]byte, nonce uint16, gamma1Bits uint32) {
-	var iv [66]byte
-	copy(iv[:64], seed[:])
-	iv[64] = byte(nonce)
-	iv[65] = byte(nonce >> 8)
-	h := sha3.NewShake256()
-	_, _ = h.Write(iv[:])
-
-	polyLeGamma1Size := int((gamma1Bits + 1) * mldsaN / 8)
-	buf := make([]byte, polyLeGamma1Size)
-	_, _ = h.Read(buf)
-	polyUnpackLeGamma1(p, buf, gamma1Bits)
-}
+// The per-poly ExpandMask sampler is single-sourced in
+// mlwe/sample/shake (shake.ExpandMask); the BCC mask loop above calls
+// it directly. The γ1 unpacker it used to wrap (polyUnpackLeGamma1) is
+// gone with it.
 
 // polyVecExceeds reports whether any coefficient of v exceeds bound in
 // centered (FIPS 204 ‖·‖∞) magnitude — the rejection-sampling norm gate.

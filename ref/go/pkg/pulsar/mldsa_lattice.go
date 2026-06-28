@@ -24,10 +24,42 @@ package pulsar
 // surface lives in threshold.go and bcc_sign.go.
 
 import (
-	"encoding/binary"
-
-	"golang.org/x/crypto/sha3"
+	"github.com/luxfi/mlwe"
+	"github.com/luxfi/mlwe/sample/shake"
 )
+
+// mlweProfile adapts a Pulsar Mode to the mlwe.Profile shape consumed
+// by the shared FIPS 204 samplers in mlwe/sample/shake. Pulsar's own
+// params.go remains the parameter source of truth; this only reshapes
+// those values. The (N, Q, K, L, Eta, Tau, Gamma1) fields are the ones
+// the samplers read.
+func mlweProfile(mode Mode) mlwe.Profile {
+	p := MustParamsFor(mode)
+	_, _, gamma1Bits, gamma2 := modeTauOmega(mode)
+	return mlwe.Profile{
+		Name:   mode.String(),
+		N:      p.N,
+		Q:      p.Q,
+		K:      p.K,
+		L:      p.L,
+		Eta:    p.Eta,
+		Tau:    p.Tau,
+		Gamma1: uint32(1) << gamma1Bits,
+		Gamma2: gamma2,
+		Omega:  p.Omega,
+	}
+}
+
+// polyFromMLWE narrows an mlwe.Poly (uint64 coefficients) into Pulsar's
+// fixed [256]uint32 core. Every value the samplers produce is < 2q <
+// 2^24, so the cast is lossless.
+func polyFromMLWE(m mlwe.Poly) poly {
+	var p poly
+	for i := 0; i < mldsaN; i++ {
+		p[i] = uint32(m.Coeffs[i])
+	}
+	return p
+}
 
 // Ring parameters per FIPS 204 §4. These are fixed across all three
 // parameter sets (Pulsar-44, Pulsar-65, Pulsar-87).
@@ -328,113 +360,15 @@ func (p *poly) invNTT() {
 	}
 }
 
-// polyDeriveUniform samples p uniformly from SHAKE-128(seed || nonce).
-// Output normalised in [0, q).
-func polyDeriveUniform(p *poly, seed *[32]byte, nonce uint16) {
-	var iv [34]byte
-	copy(iv[:32], seed[:])
-	iv[32] = byte(nonce)
-	iv[33] = byte(nonce >> 8)
-	h := sha3.NewShake128()
-	_, _ = h.Write(iv[:])
-	var buf [168]byte
-	i := 0
-	for i < mldsaN {
-		_, _ = h.Read(buf[:])
-		for j := 0; j+3 <= 168 && i < mldsaN; j += 3 {
-			t := (uint32(buf[j]) | (uint32(buf[j+1]) << 8) | (uint32(buf[j+2]) << 16)) & 0x7fffff
-			if t < mldsaQ {
-				p[i] = t
-				i++
-			}
-		}
-	}
-}
-
-// polyDeriveUniformLeqEta samples p with coefficients in [-η, η]
-// (centred-rep). Output stored in [q-η, q+η] (un-normalised).
-func polyDeriveUniformLeqEta(p *poly, seed *[64]byte, nonce uint16, eta uint32) {
-	var iv [66]byte
-	copy(iv[:64], seed[:])
-	iv[64] = byte(nonce)
-	iv[65] = byte(nonce >> 8)
-	h := sha3.NewShake256()
-	_, _ = h.Write(iv[:])
-	var buf [136]byte
-	i := 0
-	for i < mldsaN {
-		_, _ = h.Read(buf[:])
-		for j := 0; j < 136 && i < mldsaN; j++ {
-			t1 := uint32(buf[j]) & 15
-			t2 := uint32(buf[j]) >> 4
-			if eta == 2 {
-				if t1 <= 14 {
-					t1 -= ((205 * t1) >> 10) * 5
-					p[i] = mldsaQ + eta - t1
-					i++
-				}
-				if t2 <= 14 && i < mldsaN {
-					t2 -= ((205 * t2) >> 10) * 5
-					p[i] = mldsaQ + eta - t2
-					i++
-				}
-			} else if eta == 4 {
-				if t1 <= 2*eta {
-					p[i] = mldsaQ + eta - t1
-					i++
-				}
-				if t2 <= 2*eta && i < mldsaN {
-					p[i] = mldsaQ + eta - t2
-					i++
-				}
-			}
-		}
-	}
-}
-
-// polyUnpackLeGamma1 unpacks a γ₁-bit-packed polynomial from buf into p
-// (centered uniform in (-γ₁, γ₁]). gamma1Bits is 17 or 19. Output
-// normalised in [0, q).
-func polyUnpackLeGamma1(p *poly, buf []byte, gamma1Bits uint32) {
-	gamma1 := uint32(1) << gamma1Bits
-	if gamma1Bits == 17 {
-		j := 0
-		size := (17 + 1) * mldsaN / 8
-		for i := 0; i+9 <= size; i += 9 {
-			p0 := uint32(buf[i]) | (uint32(buf[i+1]) << 8) | (uint32(buf[i+2]&0x3) << 16)
-			p1 := uint32(buf[i+2]>>2) | (uint32(buf[i+3]) << 6) | (uint32(buf[i+4]&0xf) << 14)
-			p2 := uint32(buf[i+4]>>4) | (uint32(buf[i+5]) << 4) | (uint32(buf[i+6]&0x3f) << 12)
-			p3 := uint32(buf[i+6]>>6) | (uint32(buf[i+7]) << 2) | (uint32(buf[i+8]) << 10)
-			p0 = gamma1 - p0
-			p1 = gamma1 - p1
-			p2 = gamma1 - p2
-			p3 = gamma1 - p3
-			p0 += uint32(int32(p0)>>31) & mldsaQ
-			p1 += uint32(int32(p1)>>31) & mldsaQ
-			p2 += uint32(int32(p2)>>31) & mldsaQ
-			p3 += uint32(int32(p3)>>31) & mldsaQ
-			p[j] = p0
-			p[j+1] = p1
-			p[j+2] = p2
-			p[j+3] = p3
-			j += 4
-		}
-	} else if gamma1Bits == 19 {
-		j := 0
-		size := (19 + 1) * mldsaN / 8
-		for i := 0; i+5 <= size; i += 5 {
-			p0 := uint32(buf[i]) | (uint32(buf[i+1]) << 8) | (uint32(buf[i+2]&0xf) << 16)
-			p1 := uint32(buf[i+2]>>4) | (uint32(buf[i+3]) << 4) | (uint32(buf[i+4]) << 12)
-			p0 = gamma1 - p0
-			p1 = gamma1 - p1
-			p0 += uint32(int32(p0)>>31) & mldsaQ
-			p1 += uint32(int32(p1)>>31) & mldsaQ
-			p[j] = p0
-			p[j+1] = p1
-			j += 2
-		}
-	}
-}
+// The per-poly FIPS 204 SHAKE samplers — ExpandA's RejNTTPoly (was
+// polyDeriveUniform), ExpandS's RejBoundedPoly (was
+// polyDeriveUniformLeqEta), and ExpandMask's γ1 unpacker (was
+// polyUnpackLeGamma1) — now live exactly once in
+// github.com/luxfi/mlwe/sample/shake. Callers use the vector-level
+// shake.ExpandA / shake.ExpandS / shake.ExpandMask (see
+// mldsa_keyderive.go and bcc_sign.go) and narrow the result with
+// polyFromMLWE. The γ1 PACKER below is the FIPS 204 wire frame and
+// stays Pulsar-owned.
 
 // polyPackLeGamma1 packs p (coefficients in (-γ₁, γ₁]) into buf using
 // gamma1Bits+1 bits per coefficient.
@@ -481,37 +415,12 @@ func polyPackLeGamma1(p *poly, buf []byte, gamma1Bits uint32) {
 	}
 }
 
-// polyDeriveUniformBall samples p with τ non-zero coefficients in {-1, +1}
-// using SHAKE-256(seed). Implementation follows FIPS 204 SampleInBall.
+// polyDeriveUniformBall samples p with τ non-zero coefficients in
+// {-1, +1} using SHAKE-256(seed), per FIPS 204 SampleInBall. The
+// sampler body is single-sourced in mlwe/sample/shake; this narrows the
+// result into Pulsar's poly core. Only (N, Q, Tau) are read.
 func polyDeriveUniformBall(p *poly, seed []byte, tau int) {
-	var buf [136]byte
-	h := sha3.NewShake256()
-	_, _ = h.Write(seed)
-	_, _ = h.Read(buf[:])
-
-	signs := binary.LittleEndian.Uint64(buf[:8])
-	bufOff := 8
-
-	*p = poly{}
-	for i := uint16(mldsaN - uint16(tau)); i < mldsaN; i++ {
-		var b uint16
-		for {
-			if bufOff >= 136 {
-				_, _ = h.Read(buf[:])
-				bufOff = 0
-			}
-			b = uint16(buf[bufOff])
-			bufOff++
-			if b <= i {
-				break
-			}
-		}
-		p[i] = p[b]
-		p[b] = 1
-		// XOR-trick: 1 ^ (1 | (Q-1)) = Q-1.
-		p[b] ^= uint32((-(signs & 1)) & (1 | (mldsaQ - 1)))
-		signs >>= 1
-	}
+	*p = polyFromMLWE(shake.SampleInBall(mlwe.Profile{N: mldsaN, Q: mldsaQ, Tau: tau}, seed))
 }
 
 // polyPackT1 packs p (coefficients ≤ 2^(QBits-D) = 2^10) into buf at
