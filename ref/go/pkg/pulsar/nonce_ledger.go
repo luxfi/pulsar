@@ -130,6 +130,22 @@ type NonceLedger interface {
 	CheckBinding(key [32]byte, binding NonceBinding) (reserved bool, err error)
 }
 
+// NoncePruner is the OPTIONAL epoch-pruning capability of a NonceLedger. The
+// in-memory ledger implements it to bound its map to a sliding retained-epoch
+// window (so the single-use store cannot grow unbounded over a validator's
+// lifetime); a persistent (crash-safe) ledger may instead rely on storage-side
+// retention/TTL. It is kept OFF the base NonceLedger interface — pruning is a
+// distinct capability, not part of the reserve/check contract — and reached
+// generically via PruneShareLedgers, which type-asserts to it.
+type NoncePruner interface {
+	// PruneBefore drops reservations minted in an epoch STRICTLY OLDER than
+	// minEpoch (binding.Epoch < minEpoch) and returns the count dropped. It MUST
+	// NOT drop any reservation in the retained window [minEpoch, ∞): reuse there
+	// stays refused (ErrNonceReused). Pruning therefore frees memory WITHOUT
+	// reopening the nonce-reuse key-recovery vector inside the live window.
+	PruneBefore(minEpoch uint64) int
+}
+
 // InMemoryNonceLedger is the default mutex-guarded in-process ledger. It is
 // correct for a single long-lived validator process; it does NOT persist
 // across restarts (production must inject a persistent ledger — see residuals).
@@ -166,6 +182,32 @@ func (l *InMemoryNonceLedger) CheckBinding(key [32]byte, binding NonceBinding) (
 		return true, ErrNonceBindingMismatch
 	}
 	return true, nil
+}
+
+// PruneBefore implements NoncePruner: it drops every reservation minted in an
+// epoch STRICTLY OLDER than minEpoch (binding.Epoch < minEpoch) and returns the
+// count dropped, bounding the in-memory map to a sliding retained-epoch window so
+// the single-use store cannot grow unbounded over a validator's lifetime.
+//
+// SECURITY INVARIANT — pruning NEVER reopens nonce reuse inside the live window.
+// It removes ONLY entries older than minEpoch; every reservation in the retained
+// window [minEpoch, ∞) is kept, so a second use there is still refused
+// (ErrNonceReused). The caller MUST pick minEpoch so the retained window is at
+// least as deep as the protocol's finality / reorg horizon: a signature bound to
+// a pruned (ancient) epoch is no longer acceptable on-chain, so a freed nonce
+// cannot be usefully replayed. Reservations with Epoch == 0 (no SetNonceBinding
+// domain context) sort as the lowest epoch and are pruned by any minEpoch > 0.
+func (l *InMemoryNonceLedger) PruneBefore(minEpoch uint64) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	dropped := 0
+	for k, b := range l.seen {
+		if b.Epoch < minEpoch {
+			delete(l.seen, k)
+			dropped++
+		}
+	}
+	return dropped
 }
 
 // ── safe-by-construction per-share single-use ledger registry ─────────────
@@ -214,6 +256,36 @@ func setShareLedger(identity [32]byte, l NonceLedger) {
 	if _, exists := shareLedgerRegistry[identity]; !exists {
 		shareLedgerRegistry[identity] = l
 	}
+}
+
+// PruneShareLedgers epoch-prunes EVERY per-share single-use ledger in the
+// process-global registry that supports pruning (implements NoncePruner),
+// dropping reservations older than minEpoch, and returns the total count dropped.
+// This is the operator lever that bounds the registry's lifetime memory growth:
+// the consensus layer calls it once per epoch (or per finalized checkpoint) with
+//
+//	minEpoch = currentEpoch − retainedWindow,   retainedWindow ≥ finality/reorg depth
+//
+// Reservations in the retained window stay refused (single-use is never reopened
+// inside the live window — see PruneBefore). Ledgers that do not implement
+// NoncePruner (e.g. a storage-backed ledger that prunes itself via TTL) are
+// skipped. The registry snapshot is taken under its own lock and each ledger is
+// pruned under its own lock, so this never holds two locks at once.
+func PruneShareLedgers(minEpoch uint64) int {
+	shareLedgerMu.Lock()
+	ledgers := make([]NonceLedger, 0, len(shareLedgerRegistry))
+	for _, l := range shareLedgerRegistry {
+		ledgers = append(ledgers, l)
+	}
+	shareLedgerMu.Unlock()
+
+	total := 0
+	for _, l := range ledgers {
+		if p, ok := l.(NoncePruner); ok {
+			total += p.PruneBefore(minEpoch)
+		}
+	}
+	return total
 }
 
 // shareIdentityKey is the committee-INDEPENDENT identity of a validator key-
