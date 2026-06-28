@@ -431,6 +431,10 @@ func runTalusMPCCeremony(t *testing.T, f *bccFixture, q int, sid [32]byte, ctx, 
 			if err != nil {
 				return nil, err
 			}
+			// Trusted in-memory bus: opt OUT of origin-auth explicitly (a bare nil
+			// verifier is refused FAIL-CLOSED). TALUS leak-free CSCP is orthogonal
+			// to origin authentication.
+			nd.SetIdentity(nil, UnauthenticatedAggregation)
 			if err := nd.SetNonceShare(nonceID, yShares[quorum[i]]); err != nil {
 				return nil, err
 			}
@@ -566,6 +570,9 @@ func TestTalus_MPC_SubQuorumCannotSign(t *testing.T) {
 	var aggR1 SignRound1
 	for i := 0; i < threshold; i++ {
 		nd, _ := NewDistributedBCCSigner(f.params, f.setup, qshares[i], quorum, evalPoints, sid, nil, msg, rand.Reader)
+		// Trusted in-memory bus: opt OUT of origin-auth explicitly (a bare nil
+		// verifier is refused FAIL-CLOSED); the threshold bound is orthogonal.
+		nd.SetIdentity(nil, UnauthenticatedAggregation)
 		_ = nd.SetNonceShare(nonceID, yShares[quorum[i]])
 		r1, _ := nd.Round1(sid, nonceID, *cert)
 		if nd.IsAggregator() {

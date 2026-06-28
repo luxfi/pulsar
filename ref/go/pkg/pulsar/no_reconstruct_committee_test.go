@@ -244,6 +244,10 @@ func TestCommittee_NoReconstruct_Invariant_CombinerSeesNoSecret(t *testing.T) {
 		if err != nil {
 			t.Fatalf("signer %d: %v", i, err)
 		}
+		// Trusted in-memory bus: opt OUT of origin-auth explicitly (a bare nil
+		// verifier is refused FAIL-CLOSED). The no-reconstruct / threshold bound
+		// under test is orthogonal to origin authentication.
+		nd.SetIdentity(nil, UnauthenticatedAggregation)
 		nodes[i] = nd
 		if err := nd.SetNonceShare(nonceID, deal.YShares[quorum[i]]); err != nil {
 			t.Fatalf("set nonce share %d: %v", i, err)
