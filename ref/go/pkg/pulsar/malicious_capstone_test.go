@@ -81,6 +81,7 @@ func TestMalicious_BadBehaviorNeverForgesOrLeaks(t *testing.T) {
 		z := unpackPolyVec(bad[1].ZShare, L)
 		z[0][0] = (z[0][0] + 1) % mldsaQ
 		bad[1].ZShare = packPolyVec(z)
+		f.idset.signPartial(&bad[1], quorum[1], 0) // bad validator SIGNS its bad partial
 		_, cert, ev, err := agg.FinalizeWithBlame(aggR1, bad)
 		noForgery(t, f, []byte("invalid"), cert, err)
 		if !errors.Is(err, ErrInsufficientSigners) {
@@ -95,10 +96,10 @@ func TestMalicious_BadBehaviorNeverForgesOrLeaks(t *testing.T) {
 	t.Run("duplicate-cannot-inflate", func(t *testing.T) {
 		var sid [32]byte
 		copy(sid[:], []byte("capstone-dup"))
-		partials, agg, _, _, evalPoints := bccRound(t, f, []byte("dup"), sid)
+		partials, agg, _, quorum, evalPoints := bccRound(t, f, []byte("dup"), sid)
 		dups := []Partial{partials[0], partials[0], partials[0]}
-		_, cert, blames, err := AggregateBCCWithBlame(f.params, f.setup, evalPoints, nil, []byte("dup"),
-			agg.c, &agg.cHat, agg.w1, sid, partials[0].NonceID, threshold, dups)
+		_, cert, blames, err := AggregateBCCWithBlame(f.params, f.setup, evalPoints, quorum, 0, f.idset,
+			nil, []byte("dup"), agg.c, &agg.cHat, agg.w1, sid, partials[0].NonceID, threshold, dups)
 		noForgery(t, f, []byte("dup"), cert, err)
 		if !errors.Is(err, ErrInsufficientSigners) {
 			t.Fatalf("duplicates inflated the threshold: %v", err)
@@ -112,11 +113,12 @@ func TestMalicious_BadBehaviorNeverForgesOrLeaks(t *testing.T) {
 	t.Run("malformed-no-panic", func(t *testing.T) {
 		var sid [32]byte
 		copy(sid[:], []byte("capstone-malformed"))
-		partials, agg, _, _, evalPoints := bccRound(t, f, []byte("malformed"), sid)
+		partials, agg, _, quorum, evalPoints := bccRound(t, f, []byte("malformed"), sid)
 		bad := append([]Partial(nil), partials...)
 		bad[2].ZShare = []byte{0xde, 0xad}
-		_, cert, blames, err := AggregateBCCWithBlame(f.params, f.setup, evalPoints, nil, []byte("malformed"),
-			agg.c, &agg.cHat, agg.w1, sid, partials[2].NonceID, threshold, bad)
+		f.idset.signPartial(&bad[2], quorum[2], 0) // bad validator SIGNS its malformed partial
+		_, cert, blames, err := AggregateBCCWithBlame(f.params, f.setup, evalPoints, quorum, 0, f.idset,
+			nil, []byte("malformed"), agg.c, &agg.cHat, agg.w1, sid, partials[2].NonceID, threshold, bad)
 		noForgery(t, f, []byte("malformed"), cert, err)
 		if b, ok := blameFor(blames, 2); !ok || b.Reason != BlameMalformed {
 			t.Fatalf("malformed not blamed")
@@ -128,7 +130,7 @@ func TestMalicious_BadBehaviorNeverForgesOrLeaks(t *testing.T) {
 		var sid [32]byte
 		copy(sid[:], []byte("capstone-wrongz"))
 		msg := []byte("wrongz")
-		partials, agg, aggR1, _, evalPoints := bccRound(t, f, msg, sid)
+		partials, agg, aggR1, quorum, evalPoints := bccRound(t, f, msg, sid)
 		zeros := make(polyVec, L)
 		lambda := LagrangeAtZeroQ(evalPoints[1], evalPoints)
 		st := &PartialStatement{Mode: f.params.Mode, Lambda: lambda, C: agg.c, Z: zeros,
@@ -139,6 +141,7 @@ func TestMalicious_BadBehaviorNeverForgesOrLeaks(t *testing.T) {
 		}
 		bad := append([]Partial(nil), partials...)
 		bad[1] = Partial{PartyID: 1, NonceID: partials[1].NonceID, SessionID: sid, ZShare: packPolyVec(zeros), Proof: proof}
+		f.idset.signPartial(&bad[1], quorum[1], 0) // bad validator SIGNS its valid-sigma wrong-z partial
 		_, cert, _, ferr := agg.FinalizeWithBlame(aggR1, bad)
 		noForgery(t, f, msg, cert, ferr) // the load-bearing property: NEVER a forgery
 	})
@@ -174,6 +177,7 @@ func TestMalicious_SelectiveAbort_ReformProducesValidSig(t *testing.T) {
 	z := unpackPolyVec(bad[1].ZShare, L)
 	z[0][0] = (z[0][0] + 1) % mldsaQ
 	bad[1].ZShare = packPolyVec(z)
+	f.idset.signPartial(&bad[1], quorum[1], 0) // deviator SIGNS its bad partial (attributable)
 	_, _, ev, err := agg.FinalizeWithBlame(aggR1, bad)
 	if !errors.Is(err, ErrInsufficientSigners) || !blamedNode(ev, quorum[1]) {
 		t.Fatalf("round 1 should abort+blame party 1: err=%v", err)
@@ -205,17 +209,17 @@ func TestMalicious_AggregationOrderIndependent(t *testing.T) {
 	f := newBCCFixture(t, ModeP65, n, threshold)
 	var sid [32]byte
 	copy(sid[:], []byte("order-independence"))
-	partials, agg, _, _, evalPoints := bccRound(t, f, []byte("order"), sid)
+	partials, agg, _, quorum, evalPoints := bccRound(t, f, []byte("order"), sid)
 
-	forward, certF, _, errF := AggregateBCCWithBlame(f.params, f.setup, evalPoints, nil, []byte("order"),
-		agg.c, &agg.cHat, agg.w1, sid, partials[0].NonceID, threshold, partials)
+	forward, certF, _, errF := AggregateBCCWithBlame(f.params, f.setup, evalPoints, quorum, 0, f.idset,
+		nil, []byte("order"), agg.c, &agg.cHat, agg.w1, sid, partials[0].NonceID, threshold, partials)
 	_ = forward
 	if errF != nil {
 		t.Fatalf("forward aggregate: %v", errF)
 	}
 	reversed := []Partial{partials[2], partials[1], partials[0]}
-	_, certR, _, errR := AggregateBCCWithBlame(f.params, f.setup, evalPoints, nil, []byte("order"),
-		agg.c, &agg.cHat, agg.w1, sid, partials[0].NonceID, threshold, reversed)
+	_, certR, _, errR := AggregateBCCWithBlame(f.params, f.setup, evalPoints, quorum, 0, f.idset,
+		nil, []byte("order"), agg.c, &agg.cHat, agg.w1, sid, partials[0].NonceID, threshold, reversed)
 	if errR != nil {
 		t.Fatalf("reversed aggregate: %v", errR)
 	}
