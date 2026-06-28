@@ -24,6 +24,8 @@ package pulsar
 import (
 	"crypto/rand"
 	"io"
+
+	"github.com/luxfi/mlwe/transcript"
 )
 
 // LargeThresholdSigner holds one party's state for one GF(q) threshold
@@ -148,7 +150,7 @@ func (s *LargeThresholdSigner) Round1(message []byte) (*LargeRound1Message, erro
 		}
 		key := s.MACKeys[peer]
 		macInput := append(append([]byte{}, s.myCommit[:]...), tau...)
-		mac := kmac256(key[:], macInput, 32, tagSignR1MAC)
+		mac := transcript.KMAC256(key[:], macInput, 32, tagSignR1MAC)
 		var macArr [32]byte
 		copy(macArr[:], mac)
 		macs[peer] = macArr
@@ -181,7 +183,7 @@ func (s *LargeThresholdSigner) Round2(round1Msgs []*LargeRound1Message) (*LargeR
 		key := s.MACKeys[m.NodeID]
 		tau := transcriptTau1Bytes(s.SessionID, s.Attempt, s.Quorum, m.NodeID, s.SecretShare.Pub, s.Message)
 		macInput := append(append([]byte{}, m.Commit[:]...), tau...)
-		expectedMAC := kmac256(key[:], macInput, 32, tagSignR1MAC)
+		expectedMAC := transcript.KMAC256(key[:], macInput, 32, tagSignR1MAC)
 		gotMAC, ok := m.MACs[s.NodeID]
 		if !ok {
 			return nil, &AbortEvidence{

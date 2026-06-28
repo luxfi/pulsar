@@ -43,6 +43,7 @@ import (
 
 	"github.com/cloudflare/circl/kem/mlkem/mlkem768"
 	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
+	"github.com/luxfi/mlwe/transcript"
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/sha3"
 )
@@ -435,7 +436,7 @@ func sealEnvelope(
 	authInput := append(append([]byte{}, dealerID[:]...), recipientID[:]...)
 	authInput = append(authInput, shareWire...)
 	authInput = append(authInput, contribution[:]...)
-	tag := kmac256(kEnv[:], authInput, envelopeAuthTagSize, dkgEnvelopeAuthTag)
+	tag := transcript.KMAC256(kEnv[:], authInput, envelopeAuthTagSize, dkgEnvelopeAuthTag)
 	copy(plaintext[len(shareWire)+SeedSize:], tag)
 
 	stream := cshake256(kEnv[:], sealedSize, dkgEnvelopeStreamTag)
@@ -506,7 +507,7 @@ func sealOpenEnvelope(
 	authInput := append(append([]byte{}, dealerID[:]...), recipientID[:]...)
 	authInput = append(authInput, gotShare...)
 	authInput = append(authInput, gotContrib[:]...)
-	expectedTag := kmac256(kEnv[:], authInput, envelopeAuthTagSize, dkgEnvelopeAuthTag)
+	expectedTag := transcript.KMAC256(kEnv[:], authInput, envelopeAuthTagSize, dkgEnvelopeAuthTag)
 	if !ctEqualSlice(expectedTag, plaintext[shareWireLen+SeedSize:]) {
 		err = ErrEnvelopeAuthBad
 		return

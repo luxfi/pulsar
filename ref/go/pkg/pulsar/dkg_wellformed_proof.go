@@ -48,6 +48,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/luxfi/mlwe/transcript"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -199,7 +200,7 @@ func VerifyDKGWellFormed(st *DKGWellFormedStatement, proof []byte) error {
 // ρ binds it.
 func dkgFSChallenges(st *DKGWellFormedStatement, ts []polyVec) []uint32 {
 	h := sha3.NewCShake256([]byte(functionName), []byte(dkgFSTag))
-	writePart := func(b []byte) { _, _ = h.Write(encodeString(b)) }
+	writePart := func(b []byte) { _, _ = h.Write(transcript.EncodeString(b)) }
 	var u8 [8]byte
 	writePart([]byte{byte(st.Mode)})
 	writePart(st.Rho[:])
