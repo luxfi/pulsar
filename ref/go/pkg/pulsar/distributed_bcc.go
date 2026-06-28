@@ -375,6 +375,16 @@ type DistributedBCCSigner struct {
 	policy      [32]byte
 	messageKind uint32
 
+	// identity layer (RED MEDIUM, authenticated PartyID). idSigner signs THIS
+	// node's z-partials with its long-term identity key (producer side); idVerify
+	// authenticates OTHER nodes' partials when this node aggregates (verifier
+	// side). Both nil by default: Round2 then emits an unsigned partial and
+	// FinalizeWithBlame aggregates sigma-checked partials WITHOUT emitting blame
+	// (no blame is ever produced off an unauthenticated PartyID). Wire both via
+	// SetIdentity to enable authenticated blame + front-run-exclusion resistance.
+	idSigner IdentitySigner
+	idVerify AbortSignatureVerifier
+
 	// per-nonce state.
 	nonceID  [32]byte
 	yShare   polyVec // this node's Shamir share of the joint nonce ȳ
@@ -466,6 +476,29 @@ func NewDistributedBCCSigner(params *Params, setup *AlgSetup, share *AlgShare, q
 // retained — never fail-open). Returns the signer for chaining.
 func (d *DistributedBCCSigner) SetNonceLedger(l NonceLedger) *DistributedBCCSigner {
 	setShareLedger(d.shareID, l)
+	return d
+}
+
+// IdentitySigner is the PRODUCER side of the protocol-message identity layer
+// (the verifier side is AbortSignatureVerifier — one identity layer, two faces).
+// A validator signs the canonical to-be-signed bytes of a protocol message with
+// its long-term identity key (Ed25519 / hybrid PQ / BLS — opaque here). It is
+// the same key whose public half a verifier looks up in the validator set.
+type IdentitySigner interface {
+	// SignProtocolMessage returns the identity-key signature over tbs.
+	SignProtocolMessage(tbs []byte) []byte
+}
+
+// SetIdentity wires this node's identity layer (RED MEDIUM, authenticated
+// PartyID). signer signs THIS node's z-partials so the aggregator can bind each
+// partial to its true producer; verifier authenticates OTHER nodes' partials
+// when this node aggregates, so a forged partial stamped with a victim's PartyID
+// is dropped (never blamed/excluded). Both must be set for authenticated blame;
+// production wires the validator's identity key + the validator-set verifier
+// here. Returns the signer for chaining.
+func (d *DistributedBCCSigner) SetIdentity(signer IdentitySigner, verifier AbortSignatureVerifier) *DistributedBCCSigner {
+	d.idSigner = signer
+	d.idVerify = verifier
 	return d
 }
 
@@ -626,13 +659,24 @@ func (d *DistributedBCCSigner) Round2(r1 SignRound1, in PartialInput) (Partial, 
 	if err != nil {
 		return Partial{}, err
 	}
-	return Partial{
+	p := Partial{
 		PartyID:   d.partyIdx,
 		NonceID:   d.nonceID,
 		SessionID: d.sid,
 		ZShare:    packPolyVec(z),
 		Proof:     proof,
-	}, nil
+	}
+	// AUTHENTICATE ORIGIN (RED MEDIUM). Sign the partial with this validator's
+	// long-term identity key so the aggregator can bind it to its true producer
+	// (Author == quorum[PartyID]) and refuse a forged partial stamped with this
+	// slot. The signature binds the slot AND the content (partialAuthTBS), so it
+	// is non-malleable. With no identity wired the partial is unsigned and the
+	// aggregator will not emit blame off it (fail-closed on attribution).
+	if d.idSigner != nil {
+		p.Author = d.NodeID()
+		p.AuthSig = d.idSigner.SignProtocolMessage(partialAuthTBS(p, d.epoch))
+	}
+	return p, nil
 }
 
 // Finalize is run by the designated aggregator (quorum[0]). It verifies
@@ -661,8 +705,8 @@ func (d *DistributedBCCSigner) FinalizeWithBlame(r1 SignRound1, partials []Parti
 	if !d.haveC {
 		return Aggregate{}, ConsensusCert{}, nil, ErrAlgNoNonceShare
 	}
-	agg, cert, blames, err := AggregateBCCWithBlame(d.params, d.setup, d.evalPoints, d.ctx, d.msg, d.c, &d.cHat, d.w1,
-		d.sid, d.nonceID, len(d.quorum), partials)
+	agg, cert, blames, err := AggregateBCCWithBlame(d.params, d.setup, d.evalPoints, d.quorum, d.epoch, d.idVerify,
+		d.ctx, d.msg, d.c, &d.cHat, d.w1, d.sid, d.nonceID, len(d.quorum), partials)
 	return agg, cert, d.blamesToEvidence(blames), err
 }
 
@@ -687,6 +731,68 @@ func (d *DistributedBCCSigner) blamesToEvidence(blames []PartialBlame) []AbortEv
 	return out
 }
 
+// ── partial origin authentication (RED MEDIUM) ────────────────────────────
+
+// partialAuthDigest is the 32-byte payload digest an authenticated z-partial's
+// identity signature binds. It commits to the partial's SLOT (PartyID) AND its
+// CONTENT (ZShare, Proof) under the round (session, nonce), so the signature is
+// non-malleable: changing the claimed PartyID or any byte invalidates it. (MAC,
+// Author, AuthSig are excluded — they are the envelope, not the signed payload.)
+func partialAuthDigest(p Partial) [32]byte {
+	h := sha3.NewShake256()
+	_, _ = h.Write([]byte("PULSAR/partial-auth-digest/v1"))
+	var u4 [4]byte
+	binary.BigEndian.PutUint32(u4[:], p.PartyID)
+	_, _ = h.Write(u4[:])
+	_, _ = h.Write(p.SessionID[:])
+	_, _ = h.Write(p.NonceID[:])
+	_, _ = h.Write(p.ZShare)
+	_, _ = h.Write(p.Proof)
+	var out [32]byte
+	_, _ = h.Read(out[:])
+	return out
+}
+
+// partialAuthTBS is the canonical to-be-signed bytes for an authenticated
+// z-partial: the producer's identity key signs (author ‖ slot ‖ payload-digest)
+// via the shared protocol-message framing (ProtocolMessageTBS, round = Partial).
+// One encoding, reused by the verifier — there is exactly one way to compute it.
+func partialAuthTBS(p Partial, epoch uint64) []byte {
+	return ProtocolMessageTBS(p.Author, ProtocolContext{
+		Epoch:     epoch,
+		SessionID: p.SessionID,
+		NonceID:   p.NonceID,
+		Round:     ProtocolRoundPartial,
+	}, partialAuthDigest(p))
+}
+
+// authenticatePartial reports whether p is a genuine partial from the validator
+// expected at p's slot. FAIL CLOSED on every doubt: nil verifier, a partial for
+// the wrong round, an author that is not the slot's validator (impersonation),
+// or a bad/absent signature all return false. This is the gate that stops an
+// attacker stamping a victim's PartyID on a forged partial to get the victim
+// blamed or front-run-excluded — the attacker cannot produce the victim's
+// identity signature, so the forgery is dropped and the victim's real partial
+// stands.
+func authenticatePartial(p Partial, expectedAuthor NodeID, epoch uint64, sid, nonceID [32]byte, v AbortSignatureVerifier) bool {
+	if v == nil {
+		return false
+	}
+	if p.Author != expectedAuthor {
+		return false // slot impersonation: author is not the slot's validator
+	}
+	if p.SessionID != sid || p.NonceID != nonceID {
+		return false // not a partial for this round
+	}
+	m := SignedProtocolMessage{
+		Author:        p.Author,
+		Context:       ProtocolContext{Epoch: epoch, SessionID: sid, NonceID: nonceID, Round: ProtocolRoundPartial},
+		PayloadDigest: partialAuthDigest(p),
+		Signature:     p.AuthSig,
+	}
+	return VerifySignedProtocolMessage(&m, v)
+}
+
 // AggregateBCC is the free-function aggregation surface: ANY process
 // holding the public setup, the challenge c, the public target w1, and the
 // collected z-partials can produce the FIPS 204 signature WITHOUT any
@@ -697,8 +803,8 @@ func (d *DistributedBCCSigner) blamesToEvidence(blames []PartialBlame) []AbortEv
 // threshold is the reconstruction threshold; partials is the collected set
 // (at least threshold valid ones required). The result verifies under
 // unmodified FIPS 204 ML-DSA.Verify (VerifyBytes / mldsa{65,87}.Verify).
-func AggregateBCC(params *Params, setup *AlgSetup, evalPoints []uint32, ctx, msg []byte, c poly, cHat *poly, w1 polyVec, sid, nonceID [32]byte, threshold int, partials []Partial) (Aggregate, ConsensusCert, error) {
-	agg, cert, _, err := AggregateBCCWithBlame(params, setup, evalPoints, ctx, msg, c, cHat, w1, sid, nonceID, threshold, partials)
+func AggregateBCC(params *Params, setup *AlgSetup, evalPoints []uint32, quorum []NodeID, epoch uint64, auth AbortSignatureVerifier, ctx, msg []byte, c poly, cHat *poly, w1 polyVec, sid, nonceID [32]byte, threshold int, partials []Partial) (Aggregate, ConsensusCert, error) {
+	agg, cert, _, err := AggregateBCCWithBlame(params, setup, evalPoints, quorum, epoch, auth, ctx, msg, c, cHat, w1, sid, nonceID, threshold, partials)
 	return agg, cert, err
 }
 
@@ -711,7 +817,17 @@ func AggregateBCC(params *Params, setup *AlgSetup, evalPoints []uint32, ctx, msg
 // does not dedupe, so a duplicate could otherwise satisfy the threshold with
 // fewer than t DISTINCT signers. Malformed ZShares are rejected without
 // panicking (unpackPolyVecChecked). It holds NO share, sk, or seed.
-func AggregateBCCWithBlame(params *Params, setup *AlgSetup, evalPoints []uint32, ctx, msg []byte, c poly, cHat *poly, w1 polyVec, sid, nonceID [32]byte, threshold int, partials []Partial) (Aggregate, ConsensusCert, []PartialBlame, error) {
+//
+// ORIGIN AUTHENTICATION (RED MEDIUM). quorum maps PartyID → expected validator
+// NodeID; auth is the identity-layer verifier; epoch binds the round. When auth
+// is non-nil, a partial is ACCEPTED only if it carries a valid identity
+// signature whose author IS quorum[PartyID] — a forged partial stamped with a
+// victim's slot is dropped, so an attacker can neither blame nor front-run-
+// exclude an honest victim. Blame is emitted ONLY for authenticated partials;
+// it is NEVER produced off a raw unauthenticated PartyID (with auth == nil no
+// blame is produced at all — attribution fails closed). The networked transport
+// that authenticates DELIVERY remains a flagged residual.
+func AggregateBCCWithBlame(params *Params, setup *AlgSetup, evalPoints []uint32, quorum []NodeID, epoch uint64, auth AbortSignatureVerifier, ctx, msg []byte, c poly, cHat *poly, w1 polyVec, sid, nonceID [32]byte, threshold int, partials []Partial) (Aggregate, ConsensusCert, []PartialBlame, error) {
 	gamma2, beta, omega, ok := bccParams(params.Mode)
 	if !ok {
 		return Aggregate{}, ConsensusCert{}, nil, ErrBCCParamSet
@@ -719,6 +835,31 @@ func AggregateBCCWithBlame(params *Params, setup *AlgSetup, evalPoints []uint32,
 	K, L, _ := modeShape(params.Mode)
 	_, _, gamma1Bits, _ := modeTauOmega(params.Mode)
 	gamma1 := uint32(1) << gamma1Bits
+
+	// 0. AUTHENTICATE ORIGIN before any attribution (RED MEDIUM). PartyID is an
+	// unauthenticated wire field; an attacker can stamp a victim's slot on a
+	// forged partial to get the victim blamed or front-run-excluded. When an
+	// identity verifier is supplied, ACCEPT a partial only if it carries a valid
+	// identity signature whose author IS the validator at that slot — drop any
+	// unauthenticated / wrong-slot / forged partial HERE, with NO blame against
+	// the slot's honest owner, BEFORE the first-per-PartyID and duplicate logic
+	// (so a forgery cannot occupy the victim's slot or evict the victim's real
+	// partial). With auth == nil the identity layer is not wired: the round still
+	// aggregates sigma-checked partials but produces NO blame (see below).
+	if auth != nil {
+		authed := make([]Partial, 0, len(partials))
+		for i := range partials {
+			p := partials[i]
+			if int(p.PartyID) >= len(quorum) {
+				continue // unknown slot — nobody to frame; drop
+			}
+			if !authenticatePartial(p, quorum[p.PartyID], epoch, sid, nonceID, auth) {
+				continue // forged / wrong-slot / unsigned — drop, never blame the victim
+			}
+			authed = append(authed, p)
+		}
+		partials = authed
+	}
 
 	// 1. Verify + ATTRIBUTE. A deviating partial is attributed to its PartyID
 	// (PartialBlame), never silently dropped. The FIRST partial per PartyID is
@@ -729,6 +870,13 @@ func AggregateBCCWithBlame(params *Params, setup *AlgSetup, evalPoints []uint32,
 	seen := make(map[uint32]bool, len(partials))
 	var blames []PartialBlame
 	blame := func(party uint32, reason BlameReason) {
+		// Never emit blame off an unauthenticated PartyID (RED MEDIUM): with no
+		// identity verifier wired, attribution is not sound, so produce none.
+		// With auth != nil only authenticated partials reach here, so the PartyID
+		// is the genuine slot owner and the blame is sound.
+		if auth == nil {
+			return
+		}
 		blames = append(blames, PartialBlame{PartyID: party, Reason: reason, SessionID: sid, NonceID: nonceID})
 	}
 	for i := range partials {
