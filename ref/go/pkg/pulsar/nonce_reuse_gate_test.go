@@ -362,3 +362,78 @@ func TestRED_NonceReuse_RecoversS1(t *testing.T) {
 
 	t.Logf("GATE A PASS: nonce reuse mathematically recovers the full key, but the single-use guard refuses the second partial (ErrNonceReused) — incl. the relabel bypass — so the (c_A−c_B)·s1 system can never be assembled via honest signers")
 }
+
+// TestRED_PoC_DefaultLedger_NonceReuse_Refused is GATE A on the DEFAULT
+// construction path — RED's re-finding PoC, FLIPPED.
+//
+// RED drove the REAL API the way an integrator (and runBCCCeremony) does: a
+// FRESH signer per message — forced, since a signer fixes (sid,ctx,msg) at
+// construction — and NO SetNonceLedger. On the old default each instance got
+// its OWN empty in-memory ledger, so the second Round2 on the same joint nonce
+// SUCCEEDED, handing the attacker z_B and recovering the victim's full s1-share.
+//
+// With the share-identity registry the bare default is safe by construction:
+// both signer instances over the same key-share resolve to ONE ledger, so the
+// second Round2 on the same nonce is refused FAIL-CLOSED. The attacker can never
+// collect (z_A, z_B), so the (c_A−c_B)·s1 system is never assembled. This gate
+// asserts the path an integrator ACTUALLY uses — NO SetNonceLedger anywhere.
+func TestRED_PoC_DefaultLedger_NonceReuse_Refused(t *testing.T) {
+	const n, threshold = 5, 3
+	f := newBCCFixture(t, ModeP65, n, threshold)
+	quorum, evalPoints, qshares := f.quorum(threshold)
+
+	// ONE joint nonce, reused across two signing requests (the attack input).
+	var nonceID [32]byte
+	nonceID[0] = 0xD1
+	deal, err := DealNonceMPCDebug(f.setup, quorum, evalPoints, threshold, nonceID, rand.Reader)
+	if err != nil {
+		t.Fatalf("DealNonceMPCDebug: %v", err)
+	}
+
+	// The victim validator is quorum[0], holding qshares[0]. The attacker tries
+	// to drive it to emit TWO partials on the same nonce via the REAL API,
+	// EXACTLY like runBCCCeremony: a fresh signer per message, NO SetNonceLedger.
+	victim := qshares[0]
+	yshare := deal.YShares[quorum[0]]
+
+	drive := func(sidSeed, msg string, ncID [32]byte, cert NonceCert) (Partial, error) {
+		var sid [32]byte
+		copy(sid[:], []byte(sidSeed))
+		s, err := NewDistributedBCCSigner(f.params, f.setup, victim, quorum, evalPoints, sid, nil, []byte(msg), rand.Reader)
+		if err != nil {
+			t.Fatalf("signer: %v", err)
+		}
+		// NOTE: NO SetNonceLedger — the bare default path RED exploited.
+		if err := s.SetNonceShare(ncID, yshare); err != nil {
+			t.Fatalf("SetNonceShare: %v", err)
+		}
+		r1, err := s.Round1(sid, ncID, cert)
+		if err != nil {
+			t.Fatalf("Round1: %v", err)
+		}
+		return s.Round2(r1, PartialInput{})
+	}
+
+	// First (honest) use succeeds and yields z_A.
+	if _, err := drive("poc-default-A", "transfer 1 LUX to alice", nonceID, deal.Cert); err != nil {
+		t.Fatalf("first partial (honest use) must succeed on the default path: %v", err)
+	}
+
+	// Second use on the SAME nonce, DIFFERENT message — RED obtained z_B here.
+	// The default registry ledger now refuses it: there is no second partial.
+	if _, err := drive("poc-default-B", "transfer 1000000 LUX to mallory", nonceID, deal.Cert); err != ErrNonceReused {
+		t.Fatalf("RED PoC NOT FLIPPED: default-path second Round2 returned %v, want ErrNonceReused — a SECOND z-partial on the reused nonce is obtainable, so s1 is recoverable", err)
+	}
+
+	// Relabel variant: same joint nonce (same W1) under a FRESH nonceID, still
+	// the default path. Keying on the nonce commitment (not the label) refuses it.
+	var nonceID2 [32]byte
+	nonceID2[0] = 0xD2
+	relabeled := deal.Cert
+	relabeled.NonceID = nonceID2
+	if _, err := drive("poc-default-relabel", "relabel attack", nonceID2, relabeled); err != ErrNonceReused {
+		t.Fatalf("RED PoC NOT FLIPPED (relabel): default-path reuse of the same w1 under a new nonceID returned %v, want ErrNonceReused", err)
+	}
+
+	t.Logf("RED PoC FLIPPED: on the BARE default path (no SetNonceLedger), two signer instances over the same share share ONE registry ledger; the second partial on the reused nonce is refused (ErrNonceReused), incl. relabel — the (c_A−c_B)·s1 system is never assembled, s1 is NOT recoverable")
+}
