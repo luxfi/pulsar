@@ -298,6 +298,13 @@ const (
 	// by an amount inconsistent with honest behaviour. Evidence: the
 	// per-party transcript line.
 	ComplaintRangeFailure ComplaintKind = 4
+
+	// ComplaintBadPartial: a SIGN-time z-partial deviation attributable to a
+	// PartyID — malformed encoding, duplicate / out-of-range PartyID,
+	// session/nonce mismatch, or a FAILED partial-z sigma proof. Evidence:
+	// (PartyID‖reason, sessionID, nonceID). See blame.go. A VALID-sigma
+	// WRONG-z is NOT covered here (BDLOP residual, share_commit.go).
+	ComplaintBadPartial ComplaintKind = 5
 )
 
 // String returns the canonical name of the complaint kind.
@@ -311,6 +318,8 @@ func (k ComplaintKind) String() string {
 		return "mac-failure"
 	case ComplaintRangeFailure:
 		return "range-failure"
+	case ComplaintBadPartial:
+		return "bad-partial"
 	default:
 		return "unknown"
 	}

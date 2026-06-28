@@ -41,6 +41,17 @@ type NonceCert struct {
 }
 
 // Partial is a proof-carrying z-share. No CS2/CT0/r0/LowBits/hint fields.
+//
+// AUTHENTICATED ORIGIN (RED MEDIUM). PartyID is an UNauthenticated routing
+// field; on its own an attacker can stamp a victim's slot on a forged partial to
+// get the victim blamed/excluded. Author + AuthSig bind the partial to the
+// validator's long-term identity key: AuthSig is that key's signature over the
+// canonical partial-auth TBS (partialAuthTBS — author ‖ slot ‖ H(PartyID,
+// session, nonce, ZShare, Proof)). The aggregator accepts a partial for a slot
+// ONLY if AuthSig verifies AND Author == quorum[PartyID]; blame is emitted only
+// for content faults on such authenticated partials, never off a raw PartyID.
+// (Producer: Round2 when an IdentitySigner is set. Verifier: AggregateBCCWith
+// Blame when an AbortSignatureVerifier is supplied.)
 type Partial struct {
 	PartyID   uint32
 	NonceID   [32]byte
@@ -48,6 +59,8 @@ type Partial struct {
 	ZShare    []byte // packed z_i
 	Proof     []byte // partial-correctness proof (PROTOTYPE)
 	MAC       []byte
+	Author    NodeID // authenticated producer identity (== quorum[PartyID])
+	AuthSig   []byte // identity-key signature over partialAuthTBS (origin auth)
 }
 
 // ConsensusCert is the two-certificate consensus artifact: the ML-DSA
