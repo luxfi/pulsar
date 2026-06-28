@@ -10,7 +10,8 @@
 |---|---|---|---|
 | **v0.3 — algebraic broadcast** | **REMOVED** | The `AlgebraicAggregate` path broadcast per-party `c·s2` / `c·t0` residual shares and reconstructed the leaking `MakeHint` residual at the aggregator. | Closed as **PULSAR-V13-HINT-LEAK** — broadcasting those shares leaks the long-term key. Ripped out (commit `b185533`); **no backward-compatible re-entry**. |
 | **v0.4 — BCC/CSCP no-reconstruct** | **CURRENT (production sign path)** | Boundary-Cleared Carry-elimination (BCC/CEF) + Comparison-Secure-Comparison-Protocol (CSCP). Each validator holds exactly one poly-vector Shamir share of `s1`; signing aggregates only masked `z`-partials; the hint is recovered from the **public** `w' = A·z − c·t1·2^d` and `w1`. No process forms `s1`, the seed, `sk`, `c·s2`, `c·t0`, `r0`, or full `w`. Output verifies under unmodified FIPS 204 ML-DSA (`mldsa{65,87}.Verify`). | Base `main` @ `v0.4.0` (commit `b652893`). The sole production path. |
-| **v0.4.x — `harden/malicious-security`** | **THIS BRANCH (in review, NOT merged)** | Hardens v0.4 from semi-honest/no-leak toward **malicious** security: nonce single-use **safe by construction** (per-share registry, default-path enforced; `w1`-only dedup closes cross-committee reuse), **authenticated-PartyID blame** (forged victim-slot partials dropped before attribution; blame gated on identity-signature validity — an attacker cannot frame/exclude an honest victim), identifiable-abort plumbing (duplicate-PartyID rejection, invalid/malformed blame, per-party commitment binding), GATE-2 reachability **+ indirection lint**, CI invariant against `legacy_trusted_dealer` in the prod build. | Branch off `origin/main`; **a RED agent re-verifies before any merge.** See "Malicious-hardening status" below for implemented-vs-residual. |
+| **v0.5.0 — malicious-hardening** | **MERGED (`main` @ `53ed1c2`, RED-verified 0 crit/high)** | Hardens v0.4 from semi-honest/no-leak toward **malicious** security: nonce single-use **safe by construction** (per-share registry, default-path enforced; `w1`-only dedup closes cross-committee reuse), **authenticated-PartyID blame** (forged victim-slot partials dropped before attribution; blame gated on identity-signature validity — an attacker cannot frame/exclude an honest victim), identifiable-abort plumbing (duplicate-PartyID rejection, invalid/malformed blame, per-party commitment binding), GATE-2 reachability **+ indirection lint**, CI invariant against `legacy_trusted_dealer` in the prod build. | Merged off `harden/malicious-security`. Still **malicious-HARDENED, not fully-malicious-secure-PROVEN** (see scope). |
+| **v0.5.1 — post-merge hardening** | **CURRENT (`main`)** | Closes 3 RED post-merge nits (all liveness/availability, no forgery/leak): **(1) origin-auth SAFE-BY-DEFAULT** — `AggregateBCC{,WithBlame}` now REFUSE FAIL-CLOSED (`ErrOriginAuthRequired`) when no verifier is wired, instead of silently aggregating unauthenticated partials; the unauthenticated path is reachable ONLY via the explicit `UnauthenticatedAggregation` opt-out (trusted-channel/test). **(2) epoch-pruned nonce ledger** — `(*InMemoryNonceLedger).PruneBefore` + registry sweep `PruneShareLedgers` bound the single-use map to a sliding retained-epoch window, never reopening reuse inside the live window. **(3) CI no-asm/no-cgo assertion** — `TestCI_NoAssemblyOrCgoFiles` seals GATE-C's blind spot (the AST gates cannot model `.s`/`.c`/cgo) by proving the package is pure Go. | Same honest scope as v0.5.0 — no new "proven" claim. RED re-reviews. |
 
 ## Keygen / nonce-gen track (separate from the sign path)
 
@@ -36,11 +37,18 @@ The no-reconstruct property above is a **SIGN-time** property. Key and nonce
   (committee-independent), so reuse is refused even when relabeled under a new
   `nonceID` AND when the same joint nonce is presented across two committees that
   share a victim. `Round2` reserves before emitting the secret `z`-partial.
+  - **EPOCH-PRUNED (v0.5.1)** so the in-memory map cannot grow unbounded over a
+    validator's lifetime: `(*InMemoryNonceLedger).PruneBefore(minEpoch)` drops
+    reservations older than `minEpoch`, and `PruneShareLedgers(minEpoch)` sweeps
+    the whole per-share registry. Pruning NEVER reopens reuse inside the retained
+    window `[minEpoch, ∞)` (caller picks `minEpoch ≥ finality/reorg depth`).
   - GATE A `TestRED_NonceReuse_RecoversS1` (key-recovery math is real + injected-
     ledger guard), `TestRED_PoC_DefaultLedger_NonceReuse_Refused` (the **DEFAULT**
     API — fresh signer per message, **no** `SetNonceLedger` — refuses the second
     partial + relabel), `TestRED_LOW_CrossCommittee_SameNonce_Deduped` (same nonce
-    across committees deduped).
+    across committees deduped), `TestNonceLedger_EpochPruneFreesOldRetainsWindow`
+    + `TestNonceLedger_PruneShareLedgers_SweepsRegistry` (pruning frees old entries;
+    retained-window reuse still `ErrNonceReused`).
 - **Authenticated PartyID → blame gated on signature validity** (RED MEDIUM,
   `distributed_bcc.go` / `protocol_auth.go`). Each `Partial` carries `Author +
   AuthSig` (the producer's identity-key signature over slot ‖ content);
@@ -48,11 +56,20 @@ The no-reconstruct property above is a **SIGN-time** property. Key and nonce
   `Author == quorum[PartyID]`) BEFORE attribution, dropping forged/wrong-slot
   partials with **no blame against the slot's honest owner**, before the
   first-per-PartyID/duplicate logic. Blame is **never** emitted off a raw
-  unauthenticated PartyID (with no verifier wired, no blame is produced at all).
+  unauthenticated PartyID.
+  - **SAFE BY DEFAULT (v0.5.1):** a **nil** verifier is now REFUSED FAIL-CLOSED
+    (`ErrOriginAuthRequired`) — a caller that FORGOT to wire the verifier can no
+    longer silently revert to the exclude-honest-victim footgun (matches the nonce
+    ledger's no-fail-open posture). The unauthenticated path (no origin check, no
+    blame) is reachable ONLY via the EXPLICIT `UnauthenticatedAggregation` opt-out
+    (trusted-channel / test); `DistributedBCCSigner.FinalizeWithBlame` forwards
+    `idVerify`, so a signer with no `SetIdentity` fails closed too.
   - GATE B (duplicate / invalid-proof / malformed all attributed to the SIGNING
     deviator) + `TestRED_PoC_MEDIUM_CannotFrameOrExcludeHonestVictim` (a forged
     victim-slot partial cannot blame or exclude the victim; the verifier is shown
-    load-bearing).
+    load-bearing) + `TestGATE_OriginAuth_FreeFn_DefaultRefuses` /
+    `TestGATE_OriginAuth_Signer_DefaultRefuses` (the default, no-verifier path
+    refuses; opt-out and a real verifier both aggregate to a FIPS-valid signature).
 - **Per-party DKG/nonce commitment binding** — `AggregateBCC` populates and verifies
   the commitments the sigma proof is bound to (non-transferability).
 - **GATE-2 → reachability + indirection lint** (`gate2_reachability_test.go`) — a
@@ -65,7 +82,11 @@ The no-reconstruct property above is a **SIGN-time** property. Key and nonce
   function-value / closure / linkname indirection — the pair (not either half) is
   complete for the banned set.
 - **CI invariant** — the production (default-tag) build never carries
-  `legacy_trusted_dealer`.
+  `legacy_trusted_dealer` (`TestCI_ProductionBuildExcludesLegacyTrustedDealer`),
+  and (v0.5.1) the package is **pure Go** — no `.s` / `.c` / cgo unit
+  (`TestCI_NoAssemblyOrCgoFiles`), sealing GATE-C's blind spot: the AST
+  reachability + indirection gates cannot model assembly/C, so the no-reconstruct
+  soundness claim requires (and now asserts) there is none.
 
 **Designed + scaffolded + FLAGGED (gated residuals — NOT done):**
 - **Sound valid-sigma wrong-`z` blame** needs a hiding lattice commitment
@@ -74,9 +95,11 @@ The no-reconstruct property above is a **SIGN-time** property. Key and nonce
   PULSAR-V13-W-LEAK / HINT-LEAK. Until then, a valid-sigma wrong-`z` is a
   **liveness fault (unattributed abort), never a forgery or leak**.
 - **Persistent nonce ledger (crash-restart safety).** The in-process default is
-  safe NOW (registry, above); the persistent per-share ledger that survives a
-  restart is the residual — install one at startup via `SetNonceLedger` (writes the
-  same per-share registry slot, first-writer-wins).
+  safe NOW (registry, above) and its lifetime memory is now BOUNDED by epoch
+  pruning (`PruneShareLedgers`, v0.5.1); the persistent per-share ledger that
+  survives a **restart** is the remaining residual — install one at startup via
+  `SetNonceLedger` (writes the same per-share registry slot, first-writer-wins).
+  The pruning retained-window MUST stay ≥ the finality/reorg depth.
 - **Networked / authenticated transport.** The partial→producer crypto binding is
   in place (above); the networked channel that authenticates message DELIVERY is
   owned by the consensus layer and remains a flagged residual.
