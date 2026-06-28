@@ -33,19 +33,29 @@ This is the single sentence the project stands behind. Its honest decomposition:
   in an in-process simulation; a malicious deviation is bounded by `FindHint` +
   release-gate to a **liveness fault, never a forge/leak**.
 - **malicious-CSCP + networked-MPC are gated residuals** — UNBUILT, fail-closed,
-  tracked (Residual A). The `harden/malicious-security` branch advances this:
+  tracked (Residual A). The merged **v0.5.0 + v0.5.1 malicious-HARDENING** (NOT
+  fully-malicious-secure-PROVEN) advances this:
   **nonce single-use safe by construction** (per-share registry enforces it on the
-  DEFAULT API, not opt-in; `w1`-only dedup closes cross-committee reuse),
-  **authenticated-PartyID blame** (blame is gated on identity-signature validity —
-  an attacker cannot frame or front-run-exclude an honest victim; no blame is ever
-  emitted off a raw unauthenticated PartyID), identifiable-abort plumbing, and
+  DEFAULT API, not opt-in; `w1`-only dedup closes cross-committee reuse; **epoch-
+  pruned** so lifetime memory is bounded WITHOUT reopening reuse in the live
+  window),
+  **authenticated-PartyID blame, SAFE BY DEFAULT** (blame is gated on identity-
+  signature validity — an attacker cannot frame or front-run-exclude an honest
+  victim; no blame is ever emitted off a raw unauthenticated PartyID; and a
+  **nil verifier is now refused FAIL-CLOSED** — `ErrOriginAuthRequired` — so a
+  forgotten verifier cannot silently revert to unauthenticated aggregation; the
+  unauthenticated path needs the explicit `UnauthenticatedAggregation` opt-out),
+  identifiable-abort plumbing, and
   GATE-2 reachability **paired with an indirection lint** (the name call-graph is
   complete for DIRECT calls only — the lint forbids function-value/closure/
-  `go:linkname` indirection of the banned primitives, so the pair is complete).
+  `go:linkname` indirection of the banned primitives, so the pair is complete),
+  now **sealed against the asm/C blind spot** (a CI test asserts the package is
+  pure Go — no `.s`/`.c`/cgo unit the AST gates cannot model).
   Still residual: the **sound valid-sigma wrong-`z` blame** (needs BDLOP lattice
   commitments), a **persistent (crash-safe) nonce ledger** (the in-process default
-  is safe now), and **networked transport authentication** (the partial→producer
-  crypto binding is in place; authenticated delivery is consensus-owned). See
+  is safe AND lifetime-bounded now; surviving a restart is the residual), and
+  **networked transport authentication** (the partial→producer crypto binding is
+  in place; authenticated delivery is consensus-owned). See
   `ref/go/pkg/pulsar/VERSIONS.md`.
 
 **NEVER claim:** FIPS/NIST-certified threshold ML-DSA · fully-malicious-secure-proven
