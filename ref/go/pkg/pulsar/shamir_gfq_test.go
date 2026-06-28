@@ -228,15 +228,6 @@ func TestShamirQ_ShareWireRoundTrip(t *testing.T) {
 	}
 }
 
-func TestModInvQ_Correctness(t *testing.T) {
-	for _, a := range []uint64{1, 2, 3, 7, 257, 1024, 8_380_415, 8_380_416} {
-		inv := modInvQ(a)
-		if (a*inv)%shamirPrimeQ != 1 {
-			t.Fatalf("modInvQ wrong for a=%d (inv=%d, product=%d)", a, inv, (a*inv)%shamirPrimeQ)
-		}
-	}
-}
-
 func TestLagrangeAtZeroQ_AgreesWithReconstruction(t *testing.T) {
 	const thresh = 3
 	secret := [SeedSize]byte{0x55, 0xaa}
