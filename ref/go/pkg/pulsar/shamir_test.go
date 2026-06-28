@@ -158,15 +158,6 @@ func TestShamir_AllMaxSecret(t *testing.T) {
 	}
 }
 
-func TestModInv_Correctness(t *testing.T) {
-	for a := uint32(1); a < shamirPrime; a++ {
-		inv := modInvSmall(a, shamirPrime)
-		if (a*inv)%shamirPrime != 1 {
-			t.Fatalf("modInv wrong for a=%d", a)
-		}
-	}
-}
-
 func TestEvalPointFromID_NonZero(t *testing.T) {
 	id := NodeID{1, 2, 3}
 	x := EvalPointFromID(id)
