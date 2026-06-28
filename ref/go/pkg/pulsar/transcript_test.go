@@ -3,70 +3,19 @@
 
 package pulsar
 
+// transcript_test.go — tests for Pulsar's hash entry points
+// (cshake256 / kmac256 / transcriptHash). The SP 800-185 string
+// encoders and the NIST §A.1 worked-example KATs (LeftEncode /
+// RightEncode / EncodeString / BytePad) now live in their single home,
+// github.com/luxfi/mlwe/transcript, and are asserted there. This file
+// keeps only what is Pulsar-specific: that the Pulsar-named entries are
+// deterministic and that transcriptHash's domain/boundary separation
+// holds.
+
 import (
 	"bytes"
 	"testing"
 )
-
-func TestSP800_185_LeftEncode(t *testing.T) {
-	// NIST SP 800-185 §A.1 examples.
-	for _, tc := range []struct {
-		x    uint64
-		want []byte
-	}{
-		{0, []byte{0x01, 0x00}},
-		{12 * 8, []byte{0x01, 96}}, // 12 bytes = 96 bits
-		{255, []byte{0x01, 0xff}},
-		{256, []byte{0x02, 0x01, 0x00}},
-		{65535, []byte{0x02, 0xff, 0xff}},
-		{65536, []byte{0x03, 0x01, 0x00, 0x00}},
-	} {
-		got := leftEncode(tc.x)
-		if !bytes.Equal(got, tc.want) {
-			t.Errorf("leftEncode(%d): got %x want %x", tc.x, got, tc.want)
-		}
-	}
-}
-
-func TestSP800_185_RightEncode(t *testing.T) {
-	for _, tc := range []struct {
-		x    uint64
-		want []byte
-	}{
-		{0, []byte{0x00, 0x01}},
-		{255, []byte{0xff, 0x01}},
-		{256, []byte{0x01, 0x00, 0x02}},
-	} {
-		got := rightEncode(tc.x)
-		if !bytes.Equal(got, tc.want) {
-			t.Errorf("rightEncode(%d): got %x want %x", tc.x, got, tc.want)
-		}
-	}
-}
-
-func TestSP800_185_EncodeString_EmptyInput(t *testing.T) {
-	// encode_string("") = left_encode(0) || "" = 0x0100
-	got := encodeString([]byte{})
-	if !bytes.Equal(got, []byte{0x01, 0x00}) {
-		t.Errorf("encodeString(empty): got %x", got)
-	}
-}
-
-func TestSP800_185_BytepadAligned(t *testing.T) {
-	// bytepad("abc", 4): left_encode(4) || "abc" || padding to multiple of 4.
-	// left_encode(4) = 0x0104, then "abc" + 1 zero byte = 6 bytes, padded to 8.
-	got := bytepad([]byte("abc"), 4)
-	if len(got)%4 != 0 {
-		t.Errorf("bytepad not aligned: %d bytes", len(got))
-	}
-	want := append([]byte{0x01, 0x04}, []byte("abc")...)
-	for len(want)%4 != 0 {
-		want = append(want, 0x00)
-	}
-	if !bytes.Equal(got, want) {
-		t.Errorf("bytepad: got %x want %x", got, want)
-	}
-}
 
 func TestCSHAKE256_Deterministic(t *testing.T) {
 	a := cshake256([]byte("test"), 32, "PULSAR-TEST")
