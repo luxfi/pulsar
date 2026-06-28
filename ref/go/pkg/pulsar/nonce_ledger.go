@@ -49,6 +49,7 @@ package pulsar
 // re-INVOKING Round2 for the same nonce is correctly refused.
 
 import (
+	"encoding/binary"
 	"errors"
 	"sync"
 
@@ -148,6 +149,65 @@ func (l *InMemoryNonceLedger) CheckBinding(key [32]byte, binding NonceBinding) (
 		return true, ErrNonceBindingMismatch
 	}
 	return true, nil
+}
+
+// NonceTicket is the public, auditable handle for one nonce's single use. The
+// TicketID is a UNIQUE label (it folds in the binding, so two tickets minted
+// for the same nonce material but different messages have DIFFERENT TicketIDs);
+// the SINGLE-USE dedup, however, keys on the nonce MATERIAL (committeeID‖W1) via
+// MaterialKey — NOT on TicketID — so a relabeled or different-message reuse of
+// the SAME joint nonce is still rejected. This separation is deliberate:
+// TicketID is for logs/correlation, MaterialKey is for security.
+type NonceTicket struct {
+	TicketID    [32]byte
+	CommitteeID [32]byte
+	W1          []byte // packed nonce commitment (the single-use material)
+	Binding     NonceBinding
+}
+
+// encodeBinding is the canonical byte encoding of a NonceBinding (for hashing).
+func encodeBinding(b NonceBinding) []byte {
+	out := make([]byte, 0, 8+32+32+4+32)
+	var u8 [8]byte
+	binary.BigEndian.PutUint64(u8[:], b.Epoch)
+	out = append(out, u8[:]...)
+	out = append(out, b.CommitteeID[:]...)
+	out = append(out, b.Policy[:]...)
+	var u4 [4]byte
+	binary.BigEndian.PutUint32(u4[:], b.MessageKind)
+	out = append(out, u4[:]...)
+	out = append(out, b.Digest[:]...)
+	return out
+}
+
+// NewNonceTicket mints a ticket for a nonce commitment + binding. TicketID =
+// SHAKE256(domain ‖ committeeID ‖ w1 ‖ encode(binding)) — unique per
+// (nonce, binding); MaterialKey (the dedup key) ignores the binding.
+func NewNonceTicket(committeeID [32]byte, w1 []byte, binding NonceBinding) NonceTicket {
+	h := sha3.NewShake256()
+	_, _ = h.Write([]byte("PULSAR/nonce-ticket-id/v1"))
+	_, _ = h.Write(committeeID[:])
+	_, _ = h.Write(w1)
+	_, _ = h.Write(encodeBinding(binding))
+	var id [32]byte
+	_, _ = h.Read(id[:])
+	return NonceTicket{TicketID: id, CommitteeID: committeeID, W1: append([]byte(nil), w1...), Binding: binding}
+}
+
+// MaterialKey is the single-use dedup key for the ticket's nonce material.
+func (tk NonceTicket) MaterialKey() [32]byte {
+	return nonceMaterialKey(tk.CommitteeID, tk.W1)
+}
+
+// ReserveNonceTicket is the ONE way a nonce is consumed: it reserves the
+// ticket's MATERIAL key in the ledger (single-use, fail-closed). On reuse of
+// the same nonce material — under any TicketID or message — it returns
+// ErrNonceReused and the secret is never emitted.
+func ReserveNonceTicket(l NonceLedger, tk NonceTicket) error {
+	if l == nil {
+		return ErrNonceLedgerNil
+	}
+	return l.Reserve(tk.MaterialKey(), tk.Binding)
 }
 
 // nonceMaterialKey derives the single-use dedup key from the committee identity

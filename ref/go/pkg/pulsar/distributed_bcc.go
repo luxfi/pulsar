@@ -574,22 +574,23 @@ func (d *DistributedBCCSigner) Round2(r1 SignRound1, in PartialInput) (Partial, 
 		return Partial{}, ErrNonceLedgerNil
 	}
 
-	// NONCE SINGLE-USE GUARD (RED nonce-reuse, HIGH). Reserve the nonce
-	// commitment BEFORE the secret is touched. A second use of the same joint
-	// nonce — even relabeled under a fresh nonceID — is refused FAIL-CLOSED, so
-	// the attacker can never obtain a second z-partial on the same nonce and the
-	// (c_A − c_B)·s1 key-recovery system can never be assembled. The reservation
-	// is never rolled back: if proof generation below fails, the nonce stays
-	// burned (an aborted attempt leaves no reusable nonce state).
-	key := nonceMaterialKey(d.committeeID, d.w1Packed)
-	binding := NonceBinding{
+	// NONCE SINGLE-USE GUARD (RED nonce-reuse, HIGH). Mint the nonce ticket and
+	// reserve its MATERIAL key BEFORE the secret is touched. A second use of the
+	// same joint nonce — even relabeled under a fresh nonceID or a different
+	// message — is refused FAIL-CLOSED (dedup keys on committeeID‖w1, not the
+	// ticket id), so the attacker can never obtain a second z-partial on the
+	// same nonce and the (c_A − c_B)·s1 key-recovery system can never be
+	// assembled. The reservation is never rolled back: if proof generation below
+	// fails, the nonce stays burned (an aborted attempt leaves no reusable nonce
+	// state). ReserveNonceTicket is the one and only nonce-consume path.
+	ticket := NewNonceTicket(d.committeeID, d.w1Packed, NonceBinding{
 		Epoch:       d.epoch,
 		CommitteeID: d.committeeID,
 		Policy:      d.policy,
 		MessageKind: d.messageKind,
 		Digest:      nonceBindingDigest(d.params.Mode, d.setup.tr, d.ctx, d.msg),
-	}
-	if err := d.ledger.Reserve(key, binding); err != nil {
+	})
+	if err := ReserveNonceTicket(d.ledger, ticket); err != nil {
 		return Partial{}, err
 	}
 
