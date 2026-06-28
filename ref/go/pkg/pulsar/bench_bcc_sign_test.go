@@ -4,12 +4,12 @@
 // bench_bcc_sign_test.go — DECOMPLECTED benchmark, ONE concern: the cost of the
 // BCC no-reconstruct DISTRIBUTED sign (distributed_bcc.go — the
 // DistributedBCCSigner ceremony culminating in the free-function AggregateBCC
-// combine). This is the Shamir-shared (DealAlgShares) no-reconstruct path: every
-// node holds exactly ONE share, emits only a proof-carrying z-partial, and the
-// aggregator combines z = Σ z_i and recovers the hint from the PUBLIC w' — no
-// process ever forms ≥ t shares or the seed.
+// combine). This is the Shamir s1-share no-reconstruct path: every node holds
+// exactly ONE share, emits only a proof-carrying z-partial, and the aggregator
+// combines z = Σ z_i and recovers the hint from the PUBLIC w' — no process ever
+// forms ≥ t shares or the seed.
 //
-// Two isolated measurements, both with keygen (DealAlgShares) in setup:
+// Two isolated measurements, both with the s1-share fixture in setup:
 //
 //   - BenchmarkBCCDistributedSign times the FULL per-signature ceremony: fresh
 //     signers + the NonceMPC-stand-in deal + Round1 (bind nonce) + Round2 (emit
@@ -27,9 +27,9 @@
 //     function of (R1, partials) over the aggregator's immutable fields, so
 //     re-running it on the captured inputs is deterministic and side-effect-free.
 //
-// Scope: ML-DSA-65/87 (the BCC proven scope). The DealAlgShares committees are
-// ordinary Shamir (n, threshold) sets — NOT subject to the RSS C(N,M) viability
-// bound — so the families here are the distributed-validator sizes the
+// Scope: ML-DSA-65/87 (the BCC proven scope). The s1-share fixture committees
+// are ordinary Shamir (n, threshold) sets — NOT subject to the RSS C(N,M)
+// viability bound — so the families here are the distributed-validator sizes the
 // no-reconstruct suite proves (5-of-3, 5-of-4, 7-of-5).
 //
 // Run:
@@ -61,7 +61,7 @@ var bccSignCases = []bccSignCase{
 	{mode: ModeP87, n: 7, thresh: 5},
 }
 
-// newBCCFixtureB builds a DealAlgShares group key for a (mode, n, threshold)
+// newBCCFixtureB builds a Shamir s1-share fixture for a (mode, n, threshold)
 // committee — the *testing.B twin of newBCCFixture. Keygen is setup, never timed.
 func newBCCFixtureB(b *testing.B, mode Mode, n, threshold int) *bccFixture {
 	b.Helper()
@@ -75,14 +75,14 @@ func newBCCFixtureB(b *testing.B, mode Mode, n, threshold int) *bccFixture {
 	}
 	var seed [SeedSize]byte
 	if _, err := rand.Read(seed[:]); err != nil {
-		b.Fatalf("master seed entropy: %v", err)
+		b.Fatalf("fixture seed entropy: %v", err)
 	}
-	setup, shares, err := DealAlgShares(params, committee, threshold, seed, rand.Reader)
-	for i := range seed { // wipe the master seed immediately
+	setup, shares, err := buildAlgShareFixture(params, committee, threshold, seed)
+	for i := range seed { // wipe the fixture seed immediately
 		seed[i] = 0
 	}
 	if err != nil {
-		b.Fatalf("DealAlgShares(%s,n=%d,t=%d): %v", mode, n, threshold, err)
+		b.Fatalf("buildAlgShareFixture(%s,n=%d,t=%d): %v", mode, n, threshold, err)
 	}
 	sort.Slice(shares, func(i, j int) bool { return nodeIDLess(shares[i].NodeID, shares[j].NodeID) })
 	committee = make([]NodeID, n)
