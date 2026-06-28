@@ -1,0 +1,248 @@
+{
+  "schema": "pulsar.dkg-proof-boundary.v1",
+  "description": "Structured DKG + threshold-signing behavioral vectors for the Pulsar proof boundary. Spec-level state vectors (positive + negative), each grounded in the exact v0.6.3 code constant that enforces it. Distinct from the byte-level wire KATs under vectors/{keygen,sign,verify,threshold-sign,dkg}.json (see cross_version_kats).",
+  "grounded_in": {
+    "tag": "v0.6.3",
+    "commit": "0650729",
+    "tree": "ref/go/pkg/pulsar/",
+    "deps": {"luxfi/dkg": "v0.3.5", "luxfi/mlwe": "v0.2.0", "luxfi/lattice/v7": "v7.1.4"},
+    "companion_docs": ["DKG-PROOF-BOUNDARY.md", "PROOF-CLAIMS.md", "VERSIONS.md", "BLOCKERS.md", "PULSAR.md"]
+  },
+  "claim_discipline": {
+    "A_verifier_compat": "PROVEN: threshold (c-tilde,z,h) is byte-FIPS-204; unmodified circl mldsa{65,87}.Verify accepts. Proven in three settings: no-reconstruct BCC (bcc_sign_test.go:86), DEALERLESS RSS key (mithril_rss_test.go:38 all N<=6; mithril_rss_n8_test.go:16 T==N at n=8,n=16), and NO-RECONSTRUCT HYPERBALL over the RSS key (mithril_rss_hyperball_test.go:41). interop-tested.",
+    "B_construction": "SCOPED (Lux-authored). Dealerless committee keygen (RSS/Mithril) + no-reconstruct signing (BCC/CSCP + Mithril hyperball) + standard-ML-DSA-verifier output, malicious-hardened; the full FIPS-204 KeyGen-distribution-equivalence proof and the malicious-secure CSCP/identifiable-abort layer are labelled residuals.",
+    "never_claim": ["FIPS/NIST-certified threshold ML-DSA", "fully-malicious-secure-proven (mechanized)", "global-1000-validator DKG"],
+    "keygen_residual": "v0.6 CLOSES the dealerless-keygen gap for Claim (A): MithrilRSSKeygen (mithril_rss.go:133) is DEALERLESS (no dealer; no party holds the whole (s1,s2); s2 stays small as ||s2||inf <= C(N,N-T+1)*eta), and its threshold signatures verify under stock circl (mithril_rss_test.go:70, mithril_rss_n8_test.go:40). The v0.6.3 accumulateSubset (mithril_rss.go:122) per-subset mod-q reduction fixes a uint32 overflow that wrapped the key once C>=512, unblocking large committees (e.g. n=16,t=14, C(16,3)=560). The naive-additive byte-FIPS DKG stays correctly fail-closed (ErrDealerlessByteFIPSUnreachable) — RSS is its named escape, not a weakening. WHAT REMAINS RESIDUAL: full FIPS-204 KeyGen-distribution-equivalence (unbiased composite secret, hiding vs <t, abort-bias) is open-research — structural facts + stock-circl-verifiability are proven, the distributional equivalence is not. SIGNING is no-reconstruct (BCC/CSCP and hyperball) + malicious-hardened; permissionless dealerless safety is additionally carried by the Corona leg."
+  },
+  "complaint_kinds": {
+    "ComplaintEquivocation": {"value": 1, "site": "types.go:285"},
+    "ComplaintBadDelivery": {"value": 2, "site": "types.go:290"},
+    "ComplaintBadPartial": {"value": 5, "site": "types.go:307"}
+  },
+  "positive_vectors": [
+    {
+      "id": "keygen/rss-dealerless-stock-circl",
+      "layer": "keygen",
+      "scenario": "Run the DEALERLESS Mithril RSS DKG (no trusted dealer) for every viable committee, reconstruct from a T-quorum, BCC-sign, and verify under unmodified circl mldsa65.Verify.",
+      "expected": "accept",
+      "invariant": "mldsa65.Verify(rss.pub, msg, ctx, sig)==true for all 15 committees 2<=T<=N<=6 and for T==N at n=8,n=16; tamper/wrong-message rejected",
+      "code_ref": "mithril_rss.go:133 (MithrilRSSKeygen), :223 (ReconstructKeyMaterial), :122 (accumulateSubset overflow fix)",
+      "test_ref": "TestMithrilRSSStockCirclVerify mithril_rss_test.go:38 (circl verify :70); TestMithrilRSS_LargeN_StockCircl mithril_rss_n8_test.go:16 (:40)",
+      "property": "claim-A verifier-compatibility (the gold proof of dealerless stock-FIPS-204 signability)"
+    },
+    {
+      "id": "keygen/rss-dealerless-structural",
+      "layer": "keygen",
+      "scenario": "For the whole viability range, assert no single party holds all subsets and no (T-1)-coalition covers all subsets.",
+      "expected": "accept",
+      "invariant": "for all id: |holdings[id]| < C(N,N-T+1); for all (T-1)-coalitions: covered != full",
+      "code_ref": "mithril_rss.go:72 (Holdings), :169-182 (per-subset leader sampling + replication)",
+      "test_ref": "TestMithrilRSSDealerless mithril_rss_test.go:91",
+      "property": "claim-B dealerless guarantee (structural)"
+    },
+    {
+      "id": "sign/hyperball-no-reconstruct",
+      "layer": "sign",
+      "scenario": "Sign the dealerless RSS key via the Mithril 3-round HYPERBALL protocol; NO party or coordinator forms the full s1/s2/y/w0/sk; the signing path never calls ReconstructKeyMaterial.",
+      "expected": "accept",
+      "invariant": "mldsa65.Verify accepts; AST scan finds no ReconstructKeyMaterial call; public transcript contains no share s1_(j) nor full s1/s2; mask y never on the wire",
+      "code_ref": "mithril_rss_hyperball.go:780 (SignHyperball), :261 (newHyperballParty no-reconstruct boundary), :870 (partyShareS1 never sums across parties), :518 (finalize fail-closed VerifyCtx :613)",
+      "test_ref": "TestHyperballStockCirclVerify mithril_rss_hyperball_test.go:41; TestHyperballNoReconstructStructural :100 (AST :109, transcript oracle :149); TestHyperballMaskNeverOnWire :529",
+      "property": "claim-A verifier-compatibility; claim-B secrecy/no-reconstruct over the dealerless key"
+    },
+    {
+      "id": "sign/circl-roundtrip",
+      "layer": "sign",
+      "scenario": "No-reconstruct BCC/CEF threshold signature (single group key) verified under an independent circl public key re-derived from the seed (no pulsar code in the verify path).",
+      "expected": "accept",
+      "invariant": "mldsa65.Verify(pk, msg, ctx, sig)==true; transcript carries no leaking secret",
+      "code_ref": "distributed_bcc.go:875 (AggregateBCCWithBlame); :645 (partial z_i = lambda_i*y_i + c*lambda_i*s1_i)",
+      "test_ref": "TestBCCSignRoundTripVerifiesCIRCL bcc_sign_test.go:86; assertBCCTranscriptNoLeak bcc_sign_test.go:217",
+      "property": "claim-A verifier-compatibility; secrecy/no-reconstruct"
+    },
+    {
+      "id": "dkg/seed-equivalence",
+      "layer": "dkg",
+      "scenario": "Legacy seed-share lineage: reconstruct the master seed from a threshold share set, recompute KeyFromSeed(masterSeed), compare to the DKG GroupPubkey; then sign and FIPS-204-verify.",
+      "expected": "accept",
+      "invariant": "GroupPK == KeyFromSeed(masterSeed).Pub AND Verify(GroupPK, msg, sig)==ok",
+      "code_ref": "dkg.go:423-426 (masterSeed=cSHAKE256(byteSum||committeeRoot,'PULSAR-SEED-SHARE-V1'); sk=KeyFromSeed)",
+      "test_ref": "TestDKG_ProducesValidPubkey_VerifiableSign dkg_test.go:147 (equal at :206)",
+      "property": "correctness of the legacy seed-share map (structural seed-equivalence; NOT KeyGen-distribution-equivalence; superseded by RSS for the dealerless claim)"
+    }
+  ],
+  "negative_vectors": [
+    {
+      "id": "keygen/rss-bad-committee",
+      "layer": "keygen",
+      "scenario": "Attempt RSS keygen for a non-viable committee: structurally invalid (T<2 or T>N) or norm-blown (tau*C(N,N-T+1)*eta >= gamma2, e.g. n=16,t=12).",
+      "expected": "reject (fail-closed)",
+      "expected_outcome": "rss.ValidateCommittee error (ErrCommittee) — never a wall key",
+      "code_ref": "mithril_rss.go:134 (ValidateCommittee gate); rss.ValidateCommittee per-(N,T) norm bound",
+      "test_ref": "TestMithrilRSSRejectsBadCommittee mithril_rss_test.go:177 ({1,2},{3,2},{12,16})",
+      "property": "keygen viability (per-(N,T) norm bound; admits n=8,t=7 48x margin and n=16,t=14 2.4x; rejects n=16,t=12)"
+    },
+    {
+      "id": "sign/hyperball-sub-threshold",
+      "layer": "sign",
+      "scenario": "Hyperball sign with a below/above-threshold or malformed active set (too few, too many, unsorted, duplicate, out-of-range id).",
+      "expected": "reject (fail-closed, before any signing)",
+      "expected_outcome": "ErrHyperballActive (nil signature)",
+      "code_ref": "mithril_rss_hyperball.go:1054 (validateActive), :87 (ErrHyperballActive)",
+      "test_ref": "TestHyperballSubThresholdFailsClosed mithril_rss_hyperball_test.go:298",
+      "property": "robustness (threshold-distinctness, fail-closed)"
+    },
+    {
+      "id": "sign/hyperball-biased-partial",
+      "layer": "sign",
+      "scenario": "A malicious member biases its partial z_{j,k} on every accepted slot (keeps Accepted=true to look live).",
+      "expected": "reject (no signature) + blame",
+      "expected_outcome": "no slot yields a stock-verifiable signature (FindHint + fail-closed VerifyCtx release gate); blameSlot pinpoints the culprit WITHOUT forming Sum_j T_j = t - s2 (leak-free)",
+      "code_ref": "mithril_rss_hyperball.go:518 (finalize release gate), :638 (blameSlot leak-free), :633-637 (documented attribution residual)",
+      "test_ref": "TestHyperballBiasedPartialCaughtAndBlamed mithril_rss_hyperball_test.go:329",
+      "property": "robustness (fail-closed release gate + leak-free identifiable abort)"
+    },
+    {
+      "id": "sign/hyperball-equivocation",
+      "layer": "sign",
+      "scenario": "A rushing party reveals a DIFFERENT w for a slot in Round 2 than it committed in Round 1.",
+      "expected": "reject",
+      "expected_outcome": "aggregateCommitments returns a w-commitment mismatch (equivocation) error",
+      "code_ref": "mithril_rss_hyperball.go:466 (binding check: revealed w must match CommitW)",
+      "test_ref": "TestHyperballEquivocationCaught mithril_rss_hyperball_test.go:404",
+      "property": "binding (anti-equivocation)"
+    },
+    {
+      "id": "sign/hyperball-mask-on-wire",
+      "layer": "sign",
+      "scenario": "Assert the secret mask y_j (and the share s1_(j)) bytes never appear in the Round-2/Round-3 wire data.",
+      "expected": "reject (leak would fail the assertion)",
+      "expected_outcome": "wire carries only w_{j,k}=A*y_{j,k} (recovering y is Module-SIS) and the public z_{j,k}; no mask, no share",
+      "code_ref": "mithril_rss_hyperball.go:732 (publicBytes), :214 (HyperballRound2 W), :222 (HyperballRound3 Z)",
+      "test_ref": "TestHyperballMaskNeverOnWire mithril_rss_hyperball_test.go:529 (commit 0faa086)",
+      "property": "secrecy (mask never serialised)"
+    },
+    {
+      "id": "sign/nonce-reuse",
+      "layer": "sign",
+      "scenario": "BCC path: the same joint nonce (same w1) is consumed for a second partial, even relabeled under a fresh nonceID or across two committees sharing the victim.",
+      "expected": "reject",
+      "expected_outcome": "ErrNonceReused (no second z-partial emitted; (c_A-c_B)*s1 system never assembled)",
+      "code_ref": "nonce_ledger.go:80 (ErrNonceReused), nonceMaterialKey nonce_ledger.go:393-401",
+      "test_ref": "TestRED_NonceReuse_RecoversS1, TestRED_PoC_DefaultLedger_NonceReuse_Refused, TestRED_LOW_CrossCommittee_SameNonce_Deduped (VERSIONS.md); hyperball analogue TestHyperballNonceReuseFatal mithril_rss_hyperball_test.go:419",
+      "property": "unforgeability (nonce single-use)"
+    },
+    {
+      "id": "sign/session-mismatch",
+      "layer": "sign",
+      "scenario": "A partial's SessionID/NonceID does not match the round.",
+      "expected": "reject",
+      "expected_outcome": "PartialBlame{Reason: BlameSessionMismatch}",
+      "code_ref": "blame.go:38; AggregateBCCWithBlame distributed_bcc.go:875",
+      "property": "robustness (identifiable abort)"
+    },
+    {
+      "id": "sign/duplicate-partyid",
+      "layer": "sign",
+      "scenario": "A second partial carrying an already-seen PartyID (sub-threshold-via-duplicates vector).",
+      "expected": "reject",
+      "expected_outcome": "PartialBlame{Reason: BlameDuplicatePartyID}",
+      "code_ref": "blame.go:34; distributed_bcc.go:875",
+      "property": "robustness (threshold-distinctness)"
+    },
+    {
+      "id": "sign/unknown-party",
+      "layer": "sign",
+      "scenario": "A partial's PartyID is outside the signing quorum's eval-point range.",
+      "expected": "reject",
+      "expected_outcome": "PartialBlame{Reason: BlameUnknownParty}",
+      "code_ref": "blame.go:36; distributed_bcc.go:875",
+      "property": "robustness (identifiable abort)"
+    },
+    {
+      "id": "sign/malformed-partial",
+      "layer": "sign",
+      "scenario": "A partial's ZShare/Proof does not parse for the mode (unpackPolyVecChecked fails, no panic).",
+      "expected": "reject",
+      "expected_outcome": "PartialBlame{Reason: BlameMalformed}",
+      "code_ref": "blame.go:32; distributed_bcc.go:875",
+      "property": "robustness (identifiable abort)"
+    },
+    {
+      "id": "sign/invalid-proof",
+      "layer": "sign",
+      "scenario": "A partial's linear-sigma proof fails verification (bound to session,nonce,party,c,lambda).",
+      "expected": "reject",
+      "expected_outcome": "PartialBlame{Reason: BlameProofInvalid}",
+      "code_ref": "blame.go:40; AggregateBCCWithBlame distributed_bcc.go:875",
+      "property": "robustness (identifiable abort)"
+    },
+    {
+      "id": "sign/forged-victim-slot",
+      "layer": "sign",
+      "scenario": "An attacker stamps a victim's PartyID on a forged partial to get the victim blamed or front-run-excluded.",
+      "expected": "reject",
+      "expected_outcome": "dropped pre-attribution; NO blame against the slot's honest owner; nil verifier itself REFUSED fail-closed (ErrOriginAuthRequired)",
+      "code_ref": "distributed_bcc.go:883 (auth gate before attribution); ErrOriginAuthRequired :813; UnauthenticatedAggregation opt-out :836",
+      "test_ref": "TestRED_PoC_MEDIUM_CannotFrameOrExcludeHonestVictim (VERSIONS.md)",
+      "property": "robustness (authenticated origin, safe-by-default)"
+    },
+    {
+      "id": "sign/valid-sigma-wrong-z",
+      "layer": "sign",
+      "scenario": "A malicious member submits a VALID-sigma but WRONG-z partial (BCC), or an equivocated-at-keygen-but-self-consistent share (hyperball).",
+      "expected": "liveness-fault (NOT yet attributable)",
+      "expected_outcome": "wrong aggregate fails FIPS-204 verify (no forgery, no leak); attribution requires BDLOP dealt-share binding -> ErrIdentifiableAbortResidual",
+      "code_ref": "share_commit.go:73 (ErrIdentifiableAbortResidual); shareCommitmentsFor returns nil today share_commit.go:94-96; hyperball analogue mithril_rss_hyperball.go:633-637",
+      "property": "robustness residual (BDLOP plug point) — flagged honestly, fail-closed-pending-review"
+    },
+    {
+      "id": "keygen/naive-additive-byte-fips",
+      "layer": "keygen",
+      "scenario": "Attempt a naive additive (Pedersen/Gennaro) dealerless byte-FIPS-204 ML-DSA DKG for any committee of parties>=2 (the additive lift, NOT RSS).",
+      "expected": "reject (fail-closed, never fakes a key, never silently falls back to dealer/TEE)",
+      "expected_outcome": "ErrDealerlessByteFIPSUnreachable; computed obstruction JointS2Linf=N*eta, JointCS2Linf=N*beta > beta",
+      "code_ref": "naive_additive_seta_obstruction.go:152 (err), :196 (assessDealerlessFIPS), :242 (DealerlessMLDSADKG)",
+      "property": "keygen obstruction (parameter-derived; RSS ia.cr/2026/013 is the NAMED ESCAPE — small s2=Sum chi_eta, not an N-way additive blow-up; Corona additionally carries dealerless safety)"
+    }
+  ],
+  "cross_version_kats": {
+    "note": "Committed wire KATs replayed every CI run; drift from runtime output is a gate failure. These prove OLD WIRE COMPATIBILITY across versions. The v0.6.1/v0.6.2 mlwe de-dup (transcript/Shamir/SHAKE-samplers/ring routed onto luxfi/mlwe) was BYTE-PRESERVING — these KATs replay identically after the refactor.",
+    "runner": "ref/go/pkg/pulsar/kat_test.go",
+    "files": [
+      {"file": "vectors/keygen.json", "entries": 9, "pins": "seed -> public_key, private_key", "test": "TestKAT_Keygen_Replay kat_test.go:50", "claim": "A"},
+      {"file": "vectors/sign.json", "entries": 9, "pins": "seed,message,context -> signature", "test": "TestKAT_Sign_Replay kat_test.go:91", "claim": "A"},
+      {"file": "vectors/verify.json", "entries": 6, "pins": "public_key,message,signature -> accept", "test": "TestKAT_Verify_Replay kat_test.go:127", "claim": "A"},
+      {"file": "vectors/threshold-sign.json", "entries": 4, "pins": "n,t,message,public_key -> signature (Class N1 interchangeability)", "test": "TestKAT_ThresholdSign_Replay kat_test.go:159", "claim": "A"},
+      {"file": "vectors/dkg.json", "entries": 3, "pins": "DKG replay", "test": "TestKAT_DKG_Replay kat_test.go:197", "claim": "B"}
+    ],
+    "cross_implementation": {
+      "test": "TestDKGVSS_RingMLDSA65_ExpandABinding_KAT dkg_vss_kat_test.go:104",
+      "proves": "shared luxfi/dkg ring reproduces pulsar's FIPS-204 t1 byte-identical to circl; A-matrix round-trips with no spurious Montgomery factor",
+      "honest_note": "the vss no-reconstruct group key T=A*s1+B*u (large s2=B*u) is NOT directly BCC-signable (dkg_vss_kat_test.go:30-35) — which is exactly why RSS (small s2=Sum chi_eta), not vss, is the dealerless keygen that beats the wall"
+    }
+  },
+  "proof_checklist_summary": {
+    "note": "Full 18-row table in DKG-PROOF-BOUNDARY.md §7. Assurance tags per PROOF-CLAIMS.md vocabulary.",
+    "rows": [
+      {"property": "verifier-compat/no-reconstruct-BCC", "test": "bcc_sign_test.go:86", "claim": "A", "assurance": "interop-tested"},
+      {"property": "verifier-compat/dealerless-RSS-key", "test": "mithril_rss_test.go:38; mithril_rss_n8_test.go:16", "claim": "A", "assurance": "interop-tested"},
+      {"property": "verifier-compat/no-reconstruct-hyperball", "test": "mithril_rss_hyperball_test.go:41", "claim": "A", "assurance": "interop-tested"},
+      {"property": "dealerless-keygen-structural", "test": "mithril_rss_test.go:91", "claim": "B", "assurance": "test-proven"},
+      {"property": "secrecy/no-reconstruct-hyperball", "test": "mithril_rss_hyperball_test.go:100; :529", "claim": "B", "assurance": "test-proven (AST+transcript oracle)"},
+      {"property": "secrecy/no-reconstruct-BCC", "test": "bcc_sign_test.go:217; gate2_reachability_test.go; Lean NoLeakAggregate", "claim": "B", "assurance": "machine-checked(core)+test-proven; reduction sound-by-reduction (M-LWE/M-SIS)"},
+      {"property": "any-quorum-consistency", "test": "mithril_rss_test.go:122", "claim": "B", "assurance": "test-proven"},
+      {"property": "binding/domain-separation", "test": "transcript.go:40-66 + RSS/hyperball prefixes + KAT-pinned", "claim": "B", "assurance": "test-proven"},
+      {"property": "binding/equivocation", "test": "mithril_rss_hyperball_test.go:404; protocol_auth.go:101; dkg_test.go:111", "claim": "B", "assurance": "test-proven"},
+      {"property": "robustness/identifiable-abort+fail-closed", "test": "mithril_rss_hyperball_test.go:298,:329; distributed_bcc.go:875; blame_gate_test.go", "claim": "B", "assurance": "test-proven (semi-honest)"},
+      {"property": "robustness/valid-sigma-wrong-z+equivocated-keygen-share", "test": "share_commit.go:73; mithril_rss_hyperball.go:633", "claim": "B", "assurance": "fail-closed-pending-review (BDLOP residual)"},
+      {"property": "unforgeability/nonce-single-use", "test": "nonce_ledger.go:80; mithril_rss_hyperball_test.go:419", "claim": "B", "assurance": "test-proven"},
+      {"property": "unforgeability/base-EUF-CMA", "test": "output bytes = FIPS-204", "claim": "A->B", "assurance": "sound-by-reduction (inherited)"},
+      {"property": "authenticated-origin", "test": "distributed_bcc.go:883; ErrOriginAuthRequired :813", "claim": "B", "assurance": "test-proven"},
+      {"property": "cross-version-wire-compat (incl. post-mlwe-dedup)", "test": "kat_test.go vs vectors/*.json", "claim": "A", "assurance": "interop-tested"},
+      {"property": "cross-impl-arithmetic", "test": "dkg_vss_kat_test.go:104", "claim": "A", "assurance": "interop-tested"},
+      {"property": "keygen/naive-additive-byte-fips-obstruction (fail-closed)", "test": "naive_additive_seta_obstruction.go:196,:242", "claim": "B", "assurance": "sound-by-reduction (parameter-derived)"},
+      {"property": "keygen/KeyGen-distribution-equivalence (RSS)", "test": "NOT PROVEN (structural facts + stock-circl-verifiability only, rows 2,4)", "claim": "B", "assurance": "open-research"}
+    ]
+  }
+}
