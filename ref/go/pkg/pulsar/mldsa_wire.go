@@ -41,7 +41,9 @@ func packPolyVec(v polyVec) []byte {
 }
 
 // unpackPolyVec is the inverse of packPolyVec for an n-polynomial
-// vector. Returns a fresh polyVec.
+// vector. Returns a fresh polyVec. The caller MUST have validated the
+// length (4·N·n) — use unpackPolyVecChecked for UNTRUSTED input (a short
+// buffer panics here).
 func unpackPolyVec(buf []byte, n int) polyVec {
 	v := make(polyVec, n)
 	off := 0
@@ -52,6 +54,17 @@ func unpackPolyVec(buf []byte, n int) polyVec {
 		}
 	}
 	return v
+}
+
+// unpackPolyVecChecked is the length-validating unpack for UNTRUSTED bytes
+// (e.g. an attacker-supplied Partial.ZShare). It returns ErrWireLengthMismatch
+// instead of panicking on a truncated/oversized buffer — closing a malformed-
+// share DoS in the aggregation path.
+func unpackPolyVecChecked(buf []byte, n int) (polyVec, error) {
+	if len(buf) != 4*mldsaN*n {
+		return nil, ErrWireLengthMismatch
+	}
+	return unpackPolyVec(buf, n), nil
 }
 
 // packW1Vec packs the high-bits vector for the FIPS 204 challenge hash.
