@@ -31,6 +31,8 @@ package pulsar
 import (
 	"encoding/binary"
 	"errors"
+
+	"github.com/luxfi/mlwe/share"
 )
 
 // shamirPrimeQ is the FIPS 204 prime q = 2^23 - 2^13 + 1.
@@ -155,56 +157,26 @@ func shamirReconstructGFQ(shares []shamirShareQ) ([SeedSize]uint32, error) {
 		seen[s.X] = struct{}{}
 	}
 
-	t := len(shares)
-	lambdas := make([]uint32, t)
-	for i := 0; i < t; i++ {
-		num := uint64(1)
-		den := uint64(1)
-		for j := 0; j < t; j++ {
-			if i == j {
-				continue
-			}
-			// num *= (-x_j) mod q
-			negXj := (shamirPrimeQ - uint64(shares[j].X)) % shamirPrimeQ
-			num = (num * negXj) % shamirPrimeQ
-			// den *= (x_i - x_j) mod q
-			diff := (shamirPrimeQ + uint64(shares[i].X) - uint64(shares[j].X)) % shamirPrimeQ
-			den = (den * diff) % shamirPrimeQ
+	// Lagrange interpolation to X=0 over GF(q) is single-sourced in
+	// mlwe/share (share.MLDSAField is GF(8380417) = shamirPrimeQ). Lift
+	// the per-byte share vector into share.Share form, reconstruct, and
+	// narrow back to uint32 lanes.
+	in := make([]share.Share, len(shares))
+	for i, s := range shares {
+		y := make([]uint64, SeedSize)
+		for b := 0; b < SeedSize; b++ {
+			y[b] = uint64(s.Y[b])
 		}
-		denInv := modInvQ(den)
-		lambdas[i] = uint32((num * denInv) % shamirPrimeQ)
+		in[i] = share.Share{X: uint64(s.X), Y: y}
 	}
-
+	rec, err := share.Reconstruct(in, share.MLDSAField)
+	if err != nil {
+		return out, err
+	}
 	for b := 0; b < SeedSize; b++ {
-		var acc uint64
-		for i := 0; i < t; i++ {
-			acc = (acc + uint64(lambdas[i])*uint64(shares[i].Y[b])) % shamirPrimeQ
-		}
-		out[b] = uint32(acc)
+		out[b] = uint32(rec[b])
 	}
 	return out, nil
-}
-
-// modInvQ computes a^-1 mod q via Fermat's little theorem (q is prime).
-// Constant-time in the bit pattern of a but not in q-2; q is a fixed
-// compile-time constant so this is acceptable. Used only on
-// non-secret Lagrange denominators.
-func modInvQ(a uint64) uint64 {
-	return modPowQ(a, shamirPrimeQ-2)
-}
-
-// modPowQ computes base^exp mod q via square-and-multiply.
-func modPowQ(base, exp uint64) uint64 {
-	result := uint64(1)
-	b := base % shamirPrimeQ
-	for exp > 0 {
-		if exp&1 == 1 {
-			result = (result * b) % shamirPrimeQ
-		}
-		b = (b * b) % shamirPrimeQ
-		exp >>= 1
-	}
-	return result
 }
 
 // shareToBytesQ serialises a shamirShareQ's Y component to wire form
@@ -254,5 +226,5 @@ func LagrangeAtZeroQ(myX uint32, allEvals []uint32) uint32 {
 		diff := (shamirPrimeQ + uint64(myX) - uint64(xj)) % shamirPrimeQ
 		den = (den * diff) % shamirPrimeQ
 	}
-	return uint32((num * modInvQ(den)) % shamirPrimeQ)
+	return uint32((num * share.MLDSAField.Inv(den)) % shamirPrimeQ)
 }

@@ -21,12 +21,32 @@ package pulsar
 // All arithmetic is constant-time mod p via the small-prime modular
 // inverse table seeded at package init.
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/luxfi/mlwe/share"
+)
 
 // shamirPrime is the small prime used for per-byte Shamir sharing.
 // 257 is the smallest prime > 255 so it admits every byte value as a
 // distinct field element.
 const shamirPrime uint32 = 257
+
+// fieldGF257 is the GF(257) prime field, single-sourced from
+// mlwe/share. The byte-wise Shamir layer interpolates over it; the
+// field arithmetic and the Lagrange/inverse machinery live exactly
+// once, in mlwe/share, not duplicated here.
+var fieldGF257 = mustPrimeField(uint64(shamirPrime))
+
+// mustPrimeField builds a GF(p) field or panics — p is a fixed
+// compile-time prime, so an error here is a programmer error.
+func mustPrimeField(p uint64) share.Field {
+	f, err := share.NewPrimeField(p)
+	if err != nil {
+		panic(err)
+	}
+	return f
+}
 
 // shamirShare contains one party's per-byte Shamir share of a
 // 32-byte secret. Each element is a value in [0, 257) stored in a
@@ -173,38 +193,26 @@ func shamirReconstructGF(shares []shamirShare) ([SeedSize]uint16, error) {
 		seen[s.X] = struct{}{}
 	}
 
-	t := len(shares)
-	// Lagrange basis values at x=0 over GF(p).
-	// λ_i = Π_{j≠i} (-x_j) / (x_i - x_j) mod p
-	lambdas := make([]uint16, t)
-	for i := 0; i < t; i++ {
-		num := uint32(1)
-		den := uint32(1)
-		for j := 0; j < t; j++ {
-			if i == j {
-				continue
-			}
-			// num *= (-x_j) mod p
-			negXj := shamirPrime - (shares[j].X % shamirPrime)
-			num = (num * negXj) % shamirPrime
-			// den *= (x_i - x_j) mod p
-			diff := (shamirPrime + shares[i].X - shares[j].X) % shamirPrime
-			den = (den * diff) % shamirPrime
+	// Lagrange interpolation to X=0 over GF(257) is single-sourced in
+	// mlwe/share. Lift the per-byte share vector into share.Share form,
+	// reconstruct, and narrow back. The result for each slot is in
+	// [0, 257): for a SUM of single-secret Shamir shares the constant
+	// term may take the value 256, so callers wanting a byte form use
+	// shamirReconstruct (which reduces mod 256).
+	in := make([]share.Share, len(shares))
+	for i, s := range shares {
+		y := make([]uint64, SeedSize)
+		for b := 0; b < SeedSize; b++ {
+			y[b] = uint64(s.Y[b])
 		}
-		denInv := modInvSmall(den, shamirPrime)
-		lambdas[i] = uint16((num * denInv) % shamirPrime)
+		in[i] = share.Share{X: uint64(s.X), Y: y}
 	}
-
+	rec, err := share.Reconstruct(in, fieldGF257)
+	if err != nil {
+		return out, err
+	}
 	for b := 0; b < SeedSize; b++ {
-		var acc uint32
-		for i := 0; i < t; i++ {
-			acc = (acc + uint32(lambdas[i])*uint32(shares[i].Y[b])) % shamirPrime
-		}
-		// acc ∈ [0, 257). For a SUM of single-secret Shamir shares
-		// the constant term may take the value 256; return as GF(257).
-		// Callers that want a byte representation use shamirReconstruct
-		// which reduces mod 256.
-		out[b] = uint16(acc)
+		out[b] = uint16(rec[b])
 	}
 	return out, nil
 }
@@ -213,28 +221,6 @@ func shamirReconstructGF(shares []shamirShare) ([SeedSize]uint16, error) {
 // interpolated constant term overflows byte range, indicating either
 // share tampering or that the original secret was not byte-valued.
 var ErrInvalidShare = errors.New("pulsar: reconstructed value out of byte range — share tampering suspected")
-
-// modInvSmall computes the modular inverse of a mod p where p is a
-// small prime. Uses the extended Euclidean algorithm; constant-time
-// in the bit pattern of a, not data-dependent in p. p must be prime
-// and a must be in [1, p).
-func modInvSmall(a, p uint32) uint32 {
-	return modPowSmall(a, p-2, p)
-}
-
-// modPowSmall computes (base^exp) mod p via square-and-multiply.
-func modPowSmall(base, exp, p uint32) uint32 {
-	result := uint32(1)
-	b := base % p
-	for exp > 0 {
-		if exp&1 == 1 {
-			result = (result * b) % p
-		}
-		b = (b * b) % p
-		exp >>= 1
-	}
-	return result
-}
 
 // shareToBytes serialises a shamirShare's Y component to wire form
 // (big-endian uint16 per byte position).
