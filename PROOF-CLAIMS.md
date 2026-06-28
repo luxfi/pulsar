@@ -10,6 +10,38 @@
 > `docs/proof-axiom-inventory.md` (deep dives). This root file is the one
 > the high-assurance gate reads (`claims-vs-reality.sh`).
 
+## §0 FINAL SCOPED CLAIM (canonical, user-approved)
+
+> **Dealerless committee key/nonce gen + CEF/CSCP no-reconstruct signing +
+> standard-ML-DSA-verifier output, semi-honest / no-leak today; malicious-CSCP +
+> networked-MPC are gated residuals.**
+
+This is the single sentence the project stands behind. Its honest decomposition:
+
+- **No-reconstruct signing (CEF/CSCP)** — production v0.4 path; no process forms
+  `s1`/seed/`sk`/`c·s2`/`c·t0`/`r0`/full `w`. **interop-tested** byte-equal under
+  CIRCL + pq-crystals; Lean-machine-checked no-leak aggregate core.
+- **Standard-ML-DSA-verifier output** — the committee signature verifies under the
+  unmodified `mldsa{65,87}.Verify`. **interop-tested** (GATE-1).
+- **Dealerless committee key/nonce gen** — the **target track**. Today's runnable
+  keygen is a **trusted-dealer bootstrap quarantined to `_test.go`**; the
+  dealerless line is the `feat/v02-pedersen-vss-no-reconstruct` exploration; the
+  leak-free **NonceMPC** is a residual (the `DealNonceMPCDebug` stand-in exposes
+  `w` to the **test harness only**, PULSAR-V13-W-LEAK). Permissionless safety is
+  carried by the dealerless **Corona** leg.
+- **semi-honest / no-leak today** — the leak-free property is proven **semi-honest**
+  in an in-process simulation; a malicious deviation is bounded by `FindHint` +
+  release-gate to a **liveness fault, never a forge/leak**.
+- **malicious-CSCP + networked-MPC are gated residuals** — UNBUILT, fail-closed,
+  tracked (Residual A). The `harden/malicious-security` branch advances this:
+  nonce single-use, identifiable-abort plumbing, reachability GATE-2; the **sound
+  valid-sigma wrong-`z` blame** (needs BDLOP lattice commitments) remains residual.
+  See `ref/go/pkg/pulsar/VERSIONS.md`.
+
+**NEVER claim:** FIPS/NIST-certified threshold ML-DSA · fully-malicious-secure-proven
+· global-1000-validator DKG. (Any artifact asserting these is wrong — fix the
+artifact, not this file.)
+
 ## Assurance vocabulary (canonical)
 
 | Tag | Meaning |
