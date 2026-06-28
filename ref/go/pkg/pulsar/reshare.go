@@ -608,6 +608,6 @@ func lagrangeAtZero(myX uint32, allEvals []uint32) uint16 {
 		diff := (shamirPrime + myX - xj) % shamirPrime
 		den = (den * diff) % shamirPrime
 	}
-	denInv := modInvSmall(den, shamirPrime)
+	denInv := uint32(fieldGF257.Inv(uint64(den)))
 	return uint16((num * denInv) % shamirPrime)
 }

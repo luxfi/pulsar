@@ -158,14 +158,9 @@ func TestShamir_AllMaxSecret(t *testing.T) {
 	}
 }
 
-func TestModInv_Correctness(t *testing.T) {
-	for a := uint32(1); a < shamirPrime; a++ {
-		inv := modInvSmall(a, shamirPrime)
-		if (a*inv)%shamirPrime != 1 {
-			t.Fatalf("modInv wrong for a=%d", a)
-		}
-	}
-}
+// Field-inverse correctness (Fermat over GF(257)) is now owned and
+// exhaustively tested by github.com/luxfi/mlwe/share; Pulsar no longer
+// carries its own modInvSmall.
 
 func TestEvalPointFromID_NonZero(t *testing.T) {
 	id := NodeID{1, 2, 3}

@@ -228,14 +228,9 @@ func TestShamirQ_ShareWireRoundTrip(t *testing.T) {
 	}
 }
 
-func TestModInvQ_Correctness(t *testing.T) {
-	for _, a := range []uint64{1, 2, 3, 7, 257, 1024, 8_380_415, 8_380_416} {
-		inv := modInvQ(a)
-		if (a*inv)%shamirPrimeQ != 1 {
-			t.Fatalf("modInvQ wrong for a=%d (inv=%d, product=%d)", a, inv, (a*inv)%shamirPrimeQ)
-		}
-	}
-}
+// Field-inverse correctness (Fermat over GF(q)) is now owned and
+// tested by github.com/luxfi/mlwe/share; Pulsar no longer carries its
+// own modInvQ.
 
 func TestLagrangeAtZeroQ_AgreesWithReconstruction(t *testing.T) {
 	const thresh = 3
