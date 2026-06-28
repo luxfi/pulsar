@@ -24,6 +24,8 @@ package pulsar
 import (
 	"encoding/binary"
 	"errors"
+
+	"github.com/luxfi/mlwe/transcript"
 )
 
 // Errors returned by threshold signing. Shared across the v0.3
@@ -58,9 +60,9 @@ func transcriptTau1Bytes(sid [16]byte, attempt uint32, quorum []NodeID, sender N
 	}
 	parts = append(parts, message)
 	// SP 800-185 encode_string framing so commit boundaries are unambiguous.
-	out := append([]byte{}, leftEncode(uint64(len(parts)))...)
+	out := append([]byte{}, transcript.LeftEncode(uint64(len(parts)))...)
 	for _, p := range parts {
-		out = append(out, encodeString(p)...)
+		out = append(out, transcript.EncodeString(p)...)
 	}
 	return out
 }
