@@ -437,3 +437,44 @@ func TestRED_PoC_DefaultLedger_NonceReuse_Refused(t *testing.T) {
 
 	t.Logf("RED PoC FLIPPED: on the BARE default path (no SetNonceLedger), two signer instances over the same share share ONE registry ledger; the second partial on the reused nonce is refused (ErrNonceReused), incl. relabel — the (c_A−c_B)·s1 system is never assembled, s1 is NOT recoverable")
 }
+
+// TestRED_LOW_CrossCommittee_SameNonce_Deduped closes the RED LOW: the dedup
+// key must NOT include committeeID. The SAME joint nonce (same w1) used in two
+// DIFFERENT committees that share a victim validator must collapse to ONE key in
+// the victim's per-share ledger — else the victim emits a partial in each
+// committee and the attacker collects two partials on one nonce. Keying on w1
+// alone (within the per-share ledger) refuses the second use regardless of
+// committee.
+func TestRED_LOW_CrossCommittee_SameNonce_Deduped(t *testing.T) {
+	// Two DIFFERENT committees (different joint-PK ids AND quorums) that share a
+	// victim validator v — distinct committeeIDs.
+	var pkA, pkB [32]byte
+	pkA[0], pkB[0] = 0x01, 0x02
+	var v, a, b NodeID
+	v[0], a[0], b[0] = 0x01, 0x02, 0x03 // v < a, v < b ⇒ {v,a} and {v,b} sorted
+	cid1 := deriveCommitteeID(pkA, []NodeID{v, a})
+	cid2 := deriveCommitteeID(pkB, []NodeID{v, b})
+	if cid1 == cid2 {
+		t.Fatal("committee ids must differ for this test to be meaningful")
+	}
+
+	// SAME joint nonce material (same w1) presented under both committees.
+	w1 := []byte("identical-joint-nonce-commitment-w1-AAAA")
+	bind := NonceBinding{Digest: sha3Sum32([]byte("victim signs in both committees"))}
+	tk1 := NewNonceTicket(cid1, w1, bind)
+	tk2 := NewNonceTicket(cid2, w1, bind)
+
+	// (1) the dedup keys must be EQUAL despite different committees (w1-keyed).
+	if tk1.MaterialKey() != tk2.MaterialKey() {
+		t.Fatalf("RED LOW FAILED: MaterialKey depends on committeeID — the same nonce across committees is NOT deduped (two-partials-on-one-nonce key recovery)")
+	}
+	// (2) one per-share ledger refuses the second committee's reuse of the nonce.
+	led := NewInMemoryNonceLedger()
+	if err := ReserveNonceTicket(led, tk1); err != nil {
+		t.Fatalf("first committee reserve must succeed: %v", err)
+	}
+	if err := ReserveNonceTicket(led, tk2); err != ErrNonceReused {
+		t.Fatalf("RED LOW FAILED: the same joint nonce in a second committee returned %v, want ErrNonceReused", err)
+	}
+	t.Logf("RED LOW PASS: nonce dedup keys on w1 ALONE; the same joint nonce reused across two committees sharing the victim is refused (ErrNonceReused)")
+}
