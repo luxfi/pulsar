@@ -31,6 +31,7 @@ package pulsar
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/luxfi/dkg/rss"
 	"golang.org/x/crypto/sha3"
@@ -256,4 +257,39 @@ func (mk *MithrilKey) ReconstructKeyMaterial(active []int) (*mldsaKeyMaterial, e
 	copy(km.t1, mk.t1)
 	km.a = mk.a
 	return km, nil
+}
+
+// Sign produces a byte-stock-FIPS-204 ML-DSA signature on (message, ctx) under
+// the dealerless RSS group key, from any T active parties. It reconstructs the
+// key material from the quorum's holdings (balanced partition), runs the BCC
+// signer — whose hint is recovered from the PUBLIC w' = A·z − c·t1·2^d, so it
+// emits NONE of c·s2 / c·t0 / r0 — and FAIL-CLOSED self-verifies the result
+// against the FIPS-204 verifier before returning. The returned *Signature
+// verifies under unmodified cloudflare/circl mldsa{65,87}.Verify.
+//
+// This is the threshold-gated SIGNING act: it requires a T-quorum and rebuilds
+// the secret at the signing coordinator. The dealerless KEYGEN never does this —
+// no party holds the full key at keygen. (A signing-time no-reconstruct variant
+// is the Mithril 3-round hyperball protocol, where each party emits only its
+// partial z_i = y_i + c·s_{1,I}; that is the signing-side hardening follow-up.)
+func (mk *MithrilKey) Sign(active []int, message, ctx []byte, rng io.Reader, maxAttempts int) (*Signature, error) {
+	km, err := mk.ReconstructKeyMaterial(active)
+	if err != nil {
+		return nil, err
+	}
+	sigBytes, _, err := bccSign(km, mk.Mode, message, ctx, rng, maxAttempts)
+	if err != nil {
+		return nil, fmt.Errorf("pulsar: mithril RSS sign: %w", err)
+	}
+	sig := &Signature{Mode: mk.Mode, Bytes: sigBytes}
+	// Fail-closed: never emit a signature the FIPS-204 verifier rejects.
+	params, err := ParamsFor(mk.Mode)
+	if err != nil {
+		return nil, err
+	}
+	pk := &PublicKey{Mode: mk.Mode, Bytes: mk.pub}
+	if err := VerifyCtx(params, pk, message, ctx, sig); err != nil {
+		return nil, fmt.Errorf("pulsar: mithril RSS sign self-verify failed (refusing to emit): %w", err)
+	}
+	return sig, nil
 }
