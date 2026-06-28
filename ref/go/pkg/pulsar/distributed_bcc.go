@@ -126,6 +126,15 @@ type AlgSetup struct {
 	tr   [64]byte
 	a    []polyVec // K×L public matrix, NTT domain (== circl pk.A)
 	t1   polyVec   // K, high bits in [0, 2^10)
+
+	// s1ShareCommit holds the per-party (keyed by GF(q) eval point) BDLOP
+	// commitment to the dealt s1-share, for identifiable-abort binding of the
+	// partial-z proof. nil today (the leak-free authoritative commitments are
+	// the BDLOP residual — see share_commit.go); when populated by a DKG that
+	// publishes Com_s_i, shareCommitmentsFor returns these and the extended
+	// sigma enforces the dealt-share opening (flips valid-sigma wrong-z into an
+	// attributable blame). Public, hiding (MLWE) — carries no secret.
+	s1ShareCommit map[uint32][]byte
 }
 
 // DealAlgShares (the Part-1 TRUSTED-DEALER s1-share keygen) has been RIPPED
@@ -588,6 +597,12 @@ func (d *DistributedBCCSigner) Round2(r1 SignRound1, in PartialInput) (Partial, 
 	// the proof certifies, so the partial and its proof are consistent.
 	z := partialLinearMap(d.lambda, &d.cHat, d.yShare, d.share.S1Share)
 
+	// Bind the AUTHORITATIVE per-party DKG/nonce commitments (not caller-
+	// supplied bytes) so the prover and the verifier (AggregateBCC) bind the
+	// SAME values — they both call shareCommitmentsFor, the single source of
+	// truth. nil today (BDLOP residual, share_commit.go); the in.* commitment
+	// fields are no longer trusted for the binding.
+	dkgCommit, nonceCommit := shareCommitmentsFor(d.setup, d.nonceID, d.share.EvalPoint)
 	st := &PartialStatement{
 		Mode:            d.params.Mode,
 		Lambda:          d.lambda,
@@ -596,8 +611,8 @@ func (d *DistributedBCCSigner) Round2(r1 SignRound1, in PartialInput) (Partial, 
 		SessionID:       d.sid,
 		NonceID:         d.nonceID,
 		PartyID:         d.partyIdx,
-		DKGCommitment:   in.DKGCommitment,
-		NonceCommitment: in.NonceCommitment,
+		DKGCommitment:   dkgCommit,
+		NonceCommitment: nonceCommit,
 	}
 	proof, err := ProvePartial(st, &PartialWitness{Y: d.yShare, S1: d.share.S1Share}, d.rng)
 	if err != nil {
@@ -619,62 +634,134 @@ func (d *DistributedBCCSigner) Round2(r1 SignRound1, in PartialInput) (Partial, 
 // consensus artifact. It holds NO share, sk, or seed — its only secret-free
 // inputs are the collected partials.
 func (d *DistributedBCCSigner) Finalize(r1 SignRound1, partials []Partial) (Aggregate, ConsensusCert, error) {
+	agg, cert, _, err := d.FinalizeWithBlame(r1, partials)
+	return agg, cert, err
+}
+
+// FinalizeWithBlame is Finalize with IDENTIFIABLE ABORT: it additionally
+// returns a signed-complaint-ready AbortEvidence for every attributable
+// sign-time deviation (malformed / duplicate-PartyID / unknown-party /
+// session-mismatch / invalid-proof). This node is the accuser; PartyIDs are
+// mapped to NodeIDs via the signing quorum. The AbortEvidence.Signature is left
+// empty for the caller's identity layer (TranscriptForComplaint gives the
+// to-be-signed bytes). A VALID-sigma WRONG-z is NOT attributed here (BDLOP
+// residual — share_commit.go); it remains a liveness fault, never a forgery.
+func (d *DistributedBCCSigner) FinalizeWithBlame(r1 SignRound1, partials []Partial) (Aggregate, ConsensusCert, []AbortEvidence, error) {
 	if !d.IsAggregator() {
-		return Aggregate{}, ConsensusCert{}, ErrAlgNotAggregator
+		return Aggregate{}, ConsensusCert{}, nil, ErrAlgNotAggregator
 	}
 	if !d.haveC {
-		return Aggregate{}, ConsensusCert{}, ErrAlgNoNonceShare
+		return Aggregate{}, ConsensusCert{}, nil, ErrAlgNoNonceShare
 	}
-	return AggregateBCC(d.params, d.setup, d.evalPoints, d.ctx, d.msg, d.c, &d.cHat, d.w1,
+	agg, cert, blames, err := AggregateBCCWithBlame(d.params, d.setup, d.evalPoints, d.ctx, d.msg, d.c, &d.cHat, d.w1,
 		d.sid, d.nonceID, len(d.quorum), partials)
+	return agg, cert, d.blamesToEvidence(blames), err
+}
+
+// blamesToEvidence maps PartyID-level PartialBlame to NodeID-level signed-
+// complaint-ready AbortEvidence using this signer's quorum, with this node as
+// the accuser. Out-of-range PartyIDs and self-accusation are dropped.
+func (d *DistributedBCCSigner) blamesToEvidence(blames []PartialBlame) []AbortEvidence {
+	if len(blames) == 0 {
+		return nil
+	}
+	out := make([]AbortEvidence, 0, len(blames))
+	for _, b := range blames {
+		if int(b.PartyID) >= len(d.quorum) {
+			continue
+		}
+		accused := d.quorum[b.PartyID]
+		if accused == d.NodeID() {
+			continue // never self-accuse
+		}
+		out = append(out, BadPartialEvidence(d.NodeID(), accused, d.epoch, b))
+	}
+	return out
 }
 
 // AggregateBCC is the free-function aggregation surface: ANY process
 // holding the public setup, the challenge c, the public target w1, and the
 // collected z-partials can produce the FIPS 204 signature WITHOUT any
 // share, sk, or seed. This is the load-bearing no-reconstruct boundary —
-// its parameter list carries no secret.
+// its parameter list carries no secret. It is the back-compat wrapper over
+// AggregateBCCWithBlame (drops the blame list).
 //
 // threshold is the reconstruction threshold; partials is the collected set
 // (at least threshold valid ones required). The result verifies under
 // unmodified FIPS 204 ML-DSA.Verify (VerifyBytes / mldsa{65,87}.Verify).
 func AggregateBCC(params *Params, setup *AlgSetup, evalPoints []uint32, ctx, msg []byte, c poly, cHat *poly, w1 polyVec, sid, nonceID [32]byte, threshold int, partials []Partial) (Aggregate, ConsensusCert, error) {
+	agg, cert, _, err := AggregateBCCWithBlame(params, setup, evalPoints, ctx, msg, c, cHat, w1, sid, nonceID, threshold, partials)
+	return agg, cert, err
+}
+
+// AggregateBCCWithBlame is the canonical no-reconstruct aggregation surface
+// with IDENTIFIABLE ABORT. It verifies every partial's sound linear-sigma proof
+// bound to (λ_p, c, z_p, session, nonce, party) and the per-party commitments
+// (shareCommitmentsFor — the single source of truth shared with Round2), and
+// ATTRIBUTES every detected deviation to its PartyID (PartialBlame) instead of
+// silently dropping it. Duplicate PartyIDs are rejected — CanonicalSignerSet
+// does not dedupe, so a duplicate could otherwise satisfy the threshold with
+// fewer than t DISTINCT signers. Malformed ZShares are rejected without
+// panicking (unpackPolyVecChecked). It holds NO share, sk, or seed.
+func AggregateBCCWithBlame(params *Params, setup *AlgSetup, evalPoints []uint32, ctx, msg []byte, c poly, cHat *poly, w1 polyVec, sid, nonceID [32]byte, threshold int, partials []Partial) (Aggregate, ConsensusCert, []PartialBlame, error) {
 	gamma2, beta, omega, ok := bccParams(params.Mode)
 	if !ok {
-		return Aggregate{}, ConsensusCert{}, ErrBCCParamSet
+		return Aggregate{}, ConsensusCert{}, nil, ErrBCCParamSet
 	}
 	K, L, _ := modeShape(params.Mode)
 	_, _, gamma1Bits, _ := modeTauOmega(params.Mode)
 	gamma1 := uint32(1) << gamma1Bits
 
-	// 1. Verify each partial's sound linear-sigma proof, binding it to the
-	// public (λ_p, c, z_p) and the session/nonce/party identifiers. Reject
-	// partials whose proof fails — this is the clean blame path
-	// (PULSAR-V13-PARTIAL-Z-PROOF).
+	// 1. Verify + ATTRIBUTE. A deviating partial is attributed to its PartyID
+	// (PartialBlame), never silently dropped. The FIRST partial per PartyID is
+	// authoritative; any later one carrying the same PartyID is rejected as a
+	// duplicate (DoS / sub-threshold-via-duplicates vector).
 	valid := make([]Partial, 0, len(partials))
 	zByParty := make(map[uint32]polyVec, len(partials))
+	seen := make(map[uint32]bool, len(partials))
+	var blames []PartialBlame
+	blame := func(party uint32, reason BlameReason) {
+		blames = append(blames, PartialBlame{PartyID: party, Reason: reason, SessionID: sid, NonceID: nonceID})
+	}
 	for i := range partials {
 		p := partials[i]
 		if p.SessionID != sid || p.NonceID != nonceID {
+			blame(p.PartyID, BlameSessionMismatch)
 			continue
 		}
 		if int(p.PartyID) >= len(evalPoints) {
+			blame(p.PartyID, BlameUnknownParty)
 			continue
 		}
-		z := unpackPolyVec(p.ZShare, L)
+		if seen[p.PartyID] {
+			blame(p.PartyID, BlameDuplicatePartyID)
+			continue
+		}
+		z, zerr := unpackPolyVecChecked(p.ZShare, L)
+		if zerr != nil {
+			seen[p.PartyID] = true
+			blame(p.PartyID, BlameMalformed)
+			continue
+		}
 		lambda := LagrangeAtZeroQ(evalPoints[p.PartyID], evalPoints)
+		dkgCommit, nonceCommit := shareCommitmentsFor(setup, nonceID, evalPoints[p.PartyID])
 		st := &PartialStatement{
-			Mode:      params.Mode,
-			Lambda:    lambda,
-			C:         c,
-			Z:         z,
-			SessionID: sid,
-			NonceID:   nonceID,
-			PartyID:   p.PartyID,
+			Mode:            params.Mode,
+			Lambda:          lambda,
+			C:               c,
+			Z:               z,
+			SessionID:       sid,
+			NonceID:         nonceID,
+			PartyID:         p.PartyID,
+			DKGCommitment:   dkgCommit,
+			NonceCommitment: nonceCommit,
 		}
 		if err := VerifyPartialProof(st, p.Proof); err != nil {
+			seen[p.PartyID] = true
+			blame(p.PartyID, BlameProofInvalid)
 			continue
 		}
+		seen[p.PartyID] = true
 		valid = append(valid, p)
 		zByParty[p.PartyID] = z
 	}
@@ -682,7 +769,7 @@ func AggregateBCC(params *Params, setup *AlgSetup, evalPoints []uint32, ctx, msg
 	// 2. Canonical (non-grindable) signer subset of exactly `threshold`.
 	chosen, bitmap, err := CanonicalSignerSet(valid, threshold)
 	if err != nil {
-		return Aggregate{}, ConsensusCert{}, err
+		return Aggregate{}, ConsensusCert{}, blames, err
 	}
 
 	// 3. z = Σ_chosen z_p  (Lagrange-linear; mod q). The per-party z_p are
@@ -696,7 +783,7 @@ func AggregateBCC(params *Params, setup *AlgSetup, evalPoints []uint32, ctx, msg
 
 	// 4. ‖z‖∞ < γ1 − β (the FIPS 204 reject bound on z).
 	if polyVecExceeds(z, gamma1-beta) {
-		return Aggregate{}, ConsensusCert{}, ErrBCCExhausted
+		return Aggregate{}, ConsensusCert{}, blames, ErrBCCExhausted
 	}
 
 	// 5. w' = A·z − c·t1·2^d (PUBLIC; mirror bcc_sign step 8).
@@ -729,7 +816,7 @@ func AggregateBCC(params *Params, setup *AlgSetup, evalPoints []uint32, ctx, msg
 	// retries with a fresh NonceMPC nonce.
 	hint, ok := FindHint(wPrime, w1, gamma2, omega)
 	if !ok {
-		return Aggregate{}, ConsensusCert{}, ErrNoFIPSHint
+		return Aggregate{}, ConsensusCert{}, blames, ErrNoFIPSHint
 	}
 
 	// 7. sigEncode(c̃, z, h) per FIPS 204 Algorithm 28. c̃ = H(μ, packW1(w1))
@@ -738,7 +825,7 @@ func AggregateBCC(params *Params, setup *AlgSetup, evalPoints []uint32, ctx, msg
 	cTilde := deriveCTilde(params.Mode, setup.tr, ctx, msg, w1, gamma2, K)
 	sigBytes, err := encodeBCCSignature(params, gamma1Bits, z, hint, cTilde)
 	if err != nil {
-		return Aggregate{}, ConsensusCert{}, err
+		return Aggregate{}, ConsensusCert{}, blames, err
 	}
 	sig := Signature{Mode: params.Mode, Bytes: sigBytes}
 
@@ -748,7 +835,7 @@ func AggregateBCC(params *Params, setup *AlgSetup, evalPoints []uint32, ctx, msg
 		SignerBitmap: bitmap,
 		Signature:    sig,
 	}
-	return agg, cert, nil
+	return agg, cert, blames, nil
 }
 
 // deriveCTilde is the single source of truth for c̃ = H(μ, packW1(w1)) with
