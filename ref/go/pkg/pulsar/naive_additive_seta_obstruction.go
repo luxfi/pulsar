@@ -3,13 +3,26 @@
 
 package pulsar
 
-// distributed_bcc_dkg.go — the dealerless-DKG obstruction for byte-FIPS-204
-// ML-DSA, DERIVED from the parameter arithmetic (not asserted). This is the
-// honest Part-2 deliverable of PULSAR-V12-PARALLEL-PQ: a genuinely
-// dealerless DKG that produces a key whose signatures verify byte-for-byte
-// under unmodified FIPS 204 is NOT achievable with known techniques, and
-// THIS FILE COMPUTES WHY rather than faking a key or falling back to a
-// dealer/TEE.
+// distributed_bcc_dkg.go — the obstruction to a NAIVE dealerless DKG for
+// byte-FIPS-204 ML-DSA, DERIVED from the parameter arithmetic (not asserted).
+// This is the honest Part-2 deliverable of PULSAR-V12-PARALLEL-PQ: a
+// Pedersen/Gennaro-style dealerless DKG that forms the joint secret as a SUM
+// of N≥2 independent S_η contributions does NOT produce a key whose
+// signatures verify byte-for-byte under unmodified FIPS 204, and THIS FILE
+// COMPUTES WHY rather than faking a key or falling back to a dealer/TEE.
+//
+// SCOPE — do not over-read this as a general impossibility. The obstruction
+// below is for (a) the NAIVE additive Pedersen/Gennaro lift and (b) noise-
+// flooding (Raccoon/Corona, which yields a non-FIPS-204 verifier). It is NOT
+// a proof that dealerless threshold ML-DSA cannot exist. Replicated secret
+// sharing with SHORT shares + local per-party rejection sampling (Mithril:
+// Celi–del Pino–Espitau–Niot–Prest, ia.cr/2026/013, USENIX Security 2026) is
+// a KNOWN, published technique that achieves a dealerless DKG AND a-posteriori
+// sharing of an existing key whose signatures verify under the STANDARD ML-DSA
+// verifier, for a small party count N (≲8; replicated-share cost grows with
+// (T,N)). Pulsar does not implement it yet — it is the candidate to adopt
+// (see CANDIDATE RESEARCH DIRECTIONS). What is genuinely barred is the naive
+// sum, not "dealerless ML-DSA" as a class.
 //
 // It mirrors rangeproof.go's pattern: the fail-closed decision is a
 // COMPUTED consequence of the FIPS 204 bounds (assessDealerlessFIPS), and a
@@ -69,7 +82,7 @@ package pulsar
 // THE CORONA / RACCOON NOISE-FLOODING ADAPTATION (assessed, honest verdict).
 //
 // Corona's keyera.BootstrapPedersen IS genuinely dealerless. It escapes the
-// wall above because corona is a NOISE-FLOODED Ring-LWE scheme, not ML-DSA:
+// wall above because corona is a NOISE-FLOODED Module-LWE scheme (Ringtail/Raccoon line), not ML-DSA:
 //
 //	β_j = A·(λ_j·s_j) + e_j'   with a fresh Gaussian e_j' ~ D(κ·σ_E·√n),
 //	b   = Σ_j β_j = A·s + e''   (the √n-grown flooding noise),
@@ -90,23 +103,36 @@ package pulsar
 // Raccoon", EUROCRYPT 2024) with DIFFERENT parameters and a DIFFERENT
 // verifier — its signatures do not verify under FIPS 204. This is precisely
 // why the Quasar finality cert is AND-mode dual-PQ: a genuinely dealerless
-// CORONA (Ring-LWE, noise-flooded) leg in parallel with a dealer/TEE-genesis
+// CORONA (Module-LWE, noise-flooded) leg in parallel with a dealer/TEE-genesis
 // PULSAR (FIPS-204 ML-DSA) leg. Permissionless safety rests on Corona; the
 // Pulsar leg is FIPS-204-standard defence-in-depth.
 //
 // ─────────────────────────────────────────────────────────────────────────
-// CANDIDATE RESEARCH DIRECTIONS (none ships byte-FIPS-204 dealerless today).
+// CANDIDATE RESEARCH DIRECTIONS — a byte-FIPS-204 dealerless DKG. This package
+// implements none yet; direction (1) is published and adoptable.
 //
-//  1. Threshold-friendly variant (NOT byte-ML-DSA): Threshold Raccoon /
-//     NIST MPTC. Accepts a non-FIPS verifier; this is what Corona already
-//     provides for the dealerless lane.
+//  1. SHORT replicated secret sharing + local per-party rejection (Mithril:
+//     Celi–del Pino–Espitau–Niot–Prest, ia.cr/2026/013, USENIX Security 2026).
+//     This is the byte-FIPS-204 dealerless path: it keeps shares SHORT by
+//     construction (replicated, not Shamir/Lagrange — naive Lagrange blows up
+//     coefficient norms and breaks ML-DSA's short-vector requirement), enables
+//     local rejection (no global-abort MPC), supports DKG AND a-posteriori
+//     sharing of an existing key, and emits STANDARD ML-DSA-verifiable sigs.
+//     Practical at small N (≲8; replicated-share cost grows with (T,N)). This
+//     is the recommended adoption target for a dealerless Pulsar (see
+//     PULSAR-M committee architecture). Contrast Threshold Raccoon
+//     (EUROCRYPT 2024 / NIST MPTC): noise-flooded, NON-FIPS verifier — that is
+//     Corona's dealerless lane, not byte-ML-DSA.
 //  2. Distributed-rejection DKG with an EXACT ℓ∞ lattice range proof: each
 //     party proves the joint secret ∈ S_η and the cohort resamples on
-//     failure. Blocked twice: the exact ℓ∞ range proof does not exist in
-//     this package (rangeproof.go: the available constructions certify ℓ2,
-//     not ℓ∞), and the sum-lands-in-S_η acceptance probability is negligible.
-//  3. Verifiable pseudorandom secret sharing whose reconstruction is in S_η
-//     by construction — open for ML-DSA's exact distribution.
+//     failure. Blocked twice in THIS package: the exact ℓ∞ range proof does
+//     not exist here (rangeproof.go: the available constructions certify ℓ2,
+//     not ℓ∞), and the naive sum-lands-in-S_η acceptance probability is
+//     negligible. (Mithril (1) sidesteps both via short replicated shares.)
+//  3. Masked Lagrange reconstruction for arbitrary threshold T while emitting
+//     standard FIPS-204 signatures — research branch for large T (ordinary
+//     Lagrange coefficients grow too large and fail ML-DSA rejection; masking
+//     is what tames them).
 //  4. MPC-with-abort genesis (e.g. garbled-circuit KeyGen) that never
 //     materialises the secret on one node — heavyweight, and sampling S_η
 //     uniformly inside the MPC is the hard part; not "dealerless" in the
@@ -114,19 +140,23 @@ package pulsar
 
 import "errors"
 
-// ErrDealerlessByteFIPSUnreachable is returned by DealerlessMLDSADKG. A
-// genuinely dealerless DKG producing byte-FIPS-204 ML-DSA keys is not
-// achievable with known techniques (see the file header). This entry point
-// fails closed — it NEVER fakes a key and NEVER silently falls back to a
-// trusted dealer or a TEE (those are the explicit, opt-in DealAlgShares /
-// mldsa-tee paths). Production dealerless genesis is Corona's job in the
-// AND-mode dual-PQ cert.
+// ErrDealerlessByteFIPSUnreachable is returned by DealerlessMLDSADKG: this
+// package does not implement a dealerless byte-FIPS-204 ML-DSA DKG. The NAIVE
+// additive (Pedersen/Gennaro) construction is barred by the computed S_η
+// obstruction below; this is NOT a general impossibility — a short-replicated-
+// share construction (Mithril) achieves it at small N and is the adoption
+// target (see the file header). This entry point fails closed — it NEVER fakes
+// a key and NEVER silently falls back to a trusted dealer or a TEE (those are
+// the explicit, opt-in DealAlgShares / mldsa-tee paths). Today's dealerless
+// genesis is Corona's job in the AND-mode dual-PQ cert.
 var ErrDealerlessByteFIPSUnreachable = errors.New(
-	"pulsar: dealerless byte-FIPS-204 ML-DSA DKG is not achievable — a " +
-		"dealerless joint secret is a sum of N≥2 contributions with ‖s2‖∞ ≤ Nη, " +
-		"violating the BCC boundary-clearance hypothesis ‖c·s2‖∞ ≤ β (and ML-DSA's " +
-		"S_η-calibrated EUF-CMA); use DealAlgShares (dealer/TEE genesis) for the " +
-		"Pulsar leg and rely on the dealerless Corona leg for permissionless safety")
+	"pulsar: naive additive (Pedersen/Gennaro) dealerless byte-FIPS-204 ML-DSA " +
+		"DKG is unsound — a summed joint secret has ‖s2‖∞ ≤ Nη, violating the BCC " +
+		"boundary-clearance hypothesis ‖c·s2‖∞ ≤ β (and ML-DSA's S_η-calibrated " +
+		"EUF-CMA). This is the naive lift only, NOT a general impossibility: short " +
+		"replicated-share constructions (Mithril, ia.cr/2026/013) achieve dealerless " +
+		"byte-FIPS-204 at small N. Until adopted, use DealAlgShares (dealer/TEE " +
+		"genesis) for the Pulsar leg and rely on the dealerless Corona leg")
 
 // DealerlessFIPSObstruction is the COMPUTED obstruction for a dealerless DKG
 // over `parties` contributors at a given parameter set. Every field is
