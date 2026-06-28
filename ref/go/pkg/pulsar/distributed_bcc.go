@@ -494,8 +494,14 @@ type IdentitySigner interface {
 // partial to its true producer; verifier authenticates OTHER nodes' partials
 // when this node aggregates, so a forged partial stamped with a victim's PartyID
 // is dropped (never blamed/excluded). Both must be set for authenticated blame;
-// production wires the validator's identity key + the validator-set verifier
-// here. Returns the signer for chaining.
+// production wires the validator's identity key + the validator-set verifier here.
+//
+// SAFE BY DEFAULT (RED MEDIUM). A signer that NEVER calls SetIdentity has
+// idVerify == nil, and FinalizeWithBlame then refuses to aggregate FAIL-CLOSED
+// (ErrOriginAuthRequired) — a forgotten verifier can no longer silently revert to
+// the unauthenticated exclude-honest-victim footgun. A trusted-channel ceremony
+// that deliberately wants the unauthenticated path opts OUT explicitly with
+// SetIdentity(nil, UnauthenticatedAggregation). Returns the signer for chaining.
 func (d *DistributedBCCSigner) SetIdentity(signer IdentitySigner, verifier AbortSignatureVerifier) *DistributedBCCSigner {
 	d.idSigner = signer
 	d.idVerify = verifier
@@ -698,6 +704,10 @@ func (d *DistributedBCCSigner) Finalize(r1 SignRound1, partials []Partial) (Aggr
 // empty for the caller's identity layer (TranscriptForComplaint gives the
 // to-be-signed bytes). A VALID-sigma WRONG-z is NOT attributed here (BDLOP
 // residual — share_commit.go); it remains a liveness fault, never a forgery.
+//
+// ORIGIN-AUTH SAFE-BY-DEFAULT (RED MEDIUM): it forwards this signer's idVerify,
+// so a signer with no SetIdentity (idVerify == nil) is refused FAIL-CLOSED with
+// ErrOriginAuthRequired (see AggregateBCCWithBlame / SetIdentity).
 func (d *DistributedBCCSigner) FinalizeWithBlame(r1 SignRound1, partials []Partial) (Aggregate, ConsensusCert, []AbortEvidence, error) {
 	if !d.IsAggregator() {
 		return Aggregate{}, ConsensusCert{}, nil, ErrAlgNotAggregator
@@ -793,6 +803,38 @@ func authenticatePartial(p Partial, expectedAuthor NodeID, epoch uint64, sid, no
 	return VerifySignedProtocolMessage(&m, v)
 }
 
+// ErrOriginAuthRequired is returned by AggregateBCC / AggregateBCCWithBlame when
+// no origin-authentication verifier is wired (auth == nil). It is the safe-by-
+// default refusal (RED MEDIUM): a caller that simply FORGOT to wire the verifier
+// must NOT silently fall back to unauthenticated aggregation (the exclude-honest-
+// victim footgun) — it fails CLOSED, matching the nonce ledger's no-fail-open
+// posture. A caller that genuinely wants the unauthenticated path opts OUT
+// explicitly with UnauthenticatedAggregation.
+var ErrOriginAuthRequired = errors.New("pulsar: aggregation requires an origin-authentication verifier — pass an AbortSignatureVerifier (DistributedBCCSigner.SetIdentity), or UnauthenticatedAggregation to explicitly opt out (trusted-channel / test only)")
+
+// unauthenticatedAggregation is the concrete type of the UnauthenticatedAggregation
+// opt-out sentinel. It is NEVER invoked as a verifier: AggregateBCCWithBlame
+// branches on identity equality (auth == UnauthenticatedAggregation) and takes
+// the no-origin-auth path WITHOUT calling any method on it. Its method therefore
+// PANICS — reaching it means the sentinel was mistaken for a real verifier, and a
+// security primitive must fail LOUD rather than silently accept or drop partials.
+// The type is unexported, so the ONLY way to obtain it is the exported var below.
+type unauthenticatedAggregation struct{}
+
+func (unauthenticatedAggregation) VerifyAbortSignature(NodeID, []byte, []byte) bool {
+	panic("pulsar: UnauthenticatedAggregation is an opt-out sentinel, not a usable verifier")
+}
+
+// UnauthenticatedAggregation is the EXPLICIT opt-OUT for the AggregateBCC /
+// AggregateBCCWithBlame origin-authentication gate. Pass it as auth to
+// ACKNOWLEDGE that partials are aggregated WITHOUT origin authentication — no
+// blame is produced and a forged partial stamped with a victim's slot cannot be
+// distinguished from the victim's own. It exists ONLY for trusted-channel test
+// ceremonies and the structural no-reconstruct proofs; PRODUCTION wires a real
+// AbortSignatureVerifier (via DistributedBCCSigner.SetIdentity). A bare nil auth
+// is refused FAIL-CLOSED (ErrOriginAuthRequired) — opting out must be deliberate.
+var UnauthenticatedAggregation AbortSignatureVerifier = unauthenticatedAggregation{}
+
 // AggregateBCC is the free-function aggregation surface: ANY process
 // holding the public setup, the challenge c, the public target w1, and the
 // collected z-partials can produce the FIPS 204 signature WITHOUT any
@@ -818,16 +860,30 @@ func AggregateBCC(params *Params, setup *AlgSetup, evalPoints []uint32, quorum [
 // fewer than t DISTINCT signers. Malformed ZShares are rejected without
 // panicking (unpackPolyVecChecked). It holds NO share, sk, or seed.
 //
-// ORIGIN AUTHENTICATION (RED MEDIUM). quorum maps PartyID → expected validator
-// NodeID; auth is the identity-layer verifier; epoch binds the round. When auth
-// is non-nil, a partial is ACCEPTED only if it carries a valid identity
-// signature whose author IS quorum[PartyID] — a forged partial stamped with a
-// victim's slot is dropped, so an attacker can neither blame nor front-run-
-// exclude an honest victim. Blame is emitted ONLY for authenticated partials;
-// it is NEVER produced off a raw unauthenticated PartyID (with auth == nil no
-// blame is produced at all — attribution fails closed). The networked transport
-// that authenticates DELIVERY remains a flagged residual.
+// ORIGIN AUTHENTICATION (RED MEDIUM), SAFE BY DEFAULT. quorum maps PartyID →
+// expected validator NodeID; auth is the identity-layer verifier; epoch binds the
+// round. auth == nil is REFUSED FAIL-CLOSED (ErrOriginAuthRequired): a caller
+// that forgot to wire the verifier must NOT silently revert to unauthenticated
+// aggregation. With a REAL verifier a partial is ACCEPTED only if it carries a
+// valid identity signature whose author IS quorum[PartyID] — a forged partial
+// stamped with a victim's slot is dropped, so an attacker can neither blame nor
+// front-run-exclude an honest victim, and blame is emitted ONLY for authenticated
+// partials. The unauthenticated path (no origin check, no blame) is reachable
+// ONLY by the EXPLICIT opt-out auth == UnauthenticatedAggregation (trusted-channel
+// / test). The networked transport that authenticates DELIVERY remains a flagged
+// residual.
 func AggregateBCCWithBlame(params *Params, setup *AlgSetup, evalPoints []uint32, quorum []NodeID, epoch uint64, auth AbortSignatureVerifier, ctx, msg []byte, c poly, cHat *poly, w1 polyVec, sid, nonceID [32]byte, threshold int, partials []Partial) (Aggregate, ConsensusCert, []PartialBlame, error) {
+	// ORIGIN-AUTH SAFE-BY-DEFAULT (RED MEDIUM). A nil verifier is a caller that
+	// FORGOT to wire origin authentication — refuse FAIL-CLOSED rather than
+	// silently revert to the unauthenticated exclude-honest-victim footgun (the
+	// same no-fail-open posture the nonce ledger has). A caller that genuinely
+	// wants the unauthenticated path (trusted-channel test ceremony / structural
+	// no-reconstruct proof) opts OUT explicitly with UnauthenticatedAggregation.
+	if auth == nil {
+		return Aggregate{}, ConsensusCert{}, nil, ErrOriginAuthRequired
+	}
+	authenticated := auth != UnauthenticatedAggregation
+
 	gamma2, beta, omega, ok := bccParams(params.Mode)
 	if !ok {
 		return Aggregate{}, ConsensusCert{}, nil, ErrBCCParamSet
@@ -844,9 +900,10 @@ func AggregateBCCWithBlame(params *Params, setup *AlgSetup, evalPoints []uint32,
 	// unauthenticated / wrong-slot / forged partial HERE, with NO blame against
 	// the slot's honest owner, BEFORE the first-per-PartyID and duplicate logic
 	// (so a forgery cannot occupy the victim's slot or evict the victim's real
-	// partial). With auth == nil the identity layer is not wired: the round still
-	// aggregates sigma-checked partials but produces NO blame (see below).
-	if auth != nil {
+	// partial). On the explicit UnauthenticatedAggregation opt-out the identity
+	// layer is intentionally not wired: the round still aggregates sigma-checked
+	// partials but produces NO blame (see below).
+	if authenticated {
 		authed := make([]Partial, 0, len(partials))
 		for i := range partials {
 			p := partials[i]
@@ -870,11 +927,11 @@ func AggregateBCCWithBlame(params *Params, setup *AlgSetup, evalPoints []uint32,
 	seen := make(map[uint32]bool, len(partials))
 	var blames []PartialBlame
 	blame := func(party uint32, reason BlameReason) {
-		// Never emit blame off an unauthenticated PartyID (RED MEDIUM): with no
-		// identity verifier wired, attribution is not sound, so produce none.
-		// With auth != nil only authenticated partials reach here, so the PartyID
-		// is the genuine slot owner and the blame is sound.
-		if auth == nil {
+		// Never emit blame off an unauthenticated PartyID (RED MEDIUM): on the
+		// UnauthenticatedAggregation opt-out attribution is not sound, so produce
+		// none. When authenticated, only origin-checked partials reach here, so the
+		// PartyID is the genuine slot owner and the blame is sound.
+		if !authenticated {
 			return
 		}
 		blames = append(blames, PartialBlame{PartyID: party, Reason: reason, SessionID: sid, NonceID: nonceID})
