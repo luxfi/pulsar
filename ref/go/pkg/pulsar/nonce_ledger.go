@@ -33,7 +33,12 @@ package pulsar
 //	derived from the nonce COMMITMENT w1 (not the nonceID label), so relabeling
 //	the same joint nonce under a fresh nonceID does not bypass the guard:
 //
-//	    key = SHAKE256("PULSAR/nonce-single-use/v1" ‖ committeeID ‖ w1)
+//	    key = SHAKE256("PULSAR/nonce-single-use/v1" ‖ w1)
+//
+//	The key is w1 ALONE — NOT committeeID (RED LOW): the ledger is already
+//	per-validator-share, so the SAME joint nonce reused across two committees
+//	that share the victim collapses to ONE key and is deduped (a committeeID in
+//	the key would split it and let the second use through).
 //
 //	One nonce ⇒ one signature, ever. Even ONE honest member refusing the
 //	second use starves the attacker of that member's z_B partial, so the
@@ -243,9 +248,10 @@ func shareIdentityKey(share *AlgShare) [32]byte {
 // NonceTicket is the public, auditable handle for one nonce's single use. The
 // TicketID is a UNIQUE label (it folds in the binding, so two tickets minted
 // for the same nonce material but different messages have DIFFERENT TicketIDs);
-// the SINGLE-USE dedup, however, keys on the nonce MATERIAL (committeeID‖W1) via
-// MaterialKey — NOT on TicketID — so a relabeled or different-message reuse of
-// the SAME joint nonce is still rejected. This separation is deliberate:
+// the SINGLE-USE dedup, however, keys on the nonce MATERIAL (W1 alone) via
+// MaterialKey — NOT on TicketID, NOT on committeeID — so a relabeled,
+// different-message, or different-committee reuse of the SAME joint nonce is
+// still rejected by the victim's per-share ledger. This separation is deliberate:
 // TicketID is for logs/correlation, MaterialKey is for security.
 type NonceTicket struct {
 	TicketID    [32]byte
@@ -283,9 +289,10 @@ func NewNonceTicket(committeeID [32]byte, w1 []byte, binding NonceBinding) Nonce
 	return NonceTicket{TicketID: id, CommitteeID: committeeID, W1: append([]byte(nil), w1...), Binding: binding}
 }
 
-// MaterialKey is the single-use dedup key for the ticket's nonce material.
+// MaterialKey is the single-use dedup key for the ticket's nonce material
+// (w1 alone; committee-independent — see nonceMaterialKey).
 func (tk NonceTicket) MaterialKey() [32]byte {
-	return nonceMaterialKey(tk.CommitteeID, tk.W1)
+	return nonceMaterialKey(tk.W1)
 }
 
 // ReserveNonceTicket is the ONE way a nonce is consumed: it reserves the
@@ -299,14 +306,21 @@ func ReserveNonceTicket(l NonceLedger, tk NonceTicket) error {
 	return l.Reserve(tk.MaterialKey(), tk.Binding)
 }
 
-// nonceMaterialKey derives the single-use dedup key from the committee identity
-// and the nonce commitment w1 (the packed HighBits(w) carried on the public
-// NonceCert). Keying on w1 — NOT on the nonceID label — defeats the relabel
-// bypass: the same joint nonce ȳ has the same w1 under any nonceID.
-func nonceMaterialKey(committeeID [32]byte, w1Packed []byte) [32]byte {
+// nonceMaterialKey derives the single-use dedup key from the nonce commitment
+// w1 ALONE (the packed HighBits(w) carried on the public NonceCert).
+//
+// w1 ONLY — NOT the nonceID label, NOT committeeID:
+//   - dropping the nonceID label defeats the relabel bypass: the same joint
+//     nonce ȳ has the same w1 under any nonceID.
+//   - dropping committeeID closes the RED LOW cross-committee gap. The ledger is
+//     already per-VALIDATOR-share (resolved by shareIdentityKey), so within a
+//     victim's one ledger the SAME joint nonce reused across two committees
+//     collapses to ONE key and is deduped. With committeeID in the key, the same
+//     w1 in two committees sharing the victim split into two keys and slipped
+//     through, handing the attacker two partials on one nonce.
+func nonceMaterialKey(w1Packed []byte) [32]byte {
 	h := sha3.NewShake256()
 	_, _ = h.Write([]byte("PULSAR/nonce-single-use/v1"))
-	_, _ = h.Write(committeeID[:])
 	_, _ = h.Write(w1Packed)
 	var out [32]byte
 	_, _ = h.Read(out[:])
