@@ -597,17 +597,19 @@ func (s *ReshareSession) orderRound1ByReshareQuorum(round1 []*DKGRound1Msg) ([]*
 // party at evaluation point myX in the quorum whose points are
 // allEvals. Computed in GF(257).
 func lagrangeAtZero(myX uint32, allEvals []uint32) uint16 {
-	num := uint32(1)
-	den := uint32(1)
+	// Single GF(257) Lagrange basis coefficient ℓ_myX(0), in O(n). Kept
+	// Pulsar-side for the same reason as LagrangeAtZeroQ (mlwe/share vends
+	// only the O(n²) all-coefficients Lagrange); the modular arithmetic
+	// routes through the shared GF(257) Field, so nothing is duplicated.
+	f := shamirFieldGF257
+	num := uint64(1)
+	den := uint64(1)
 	for _, xj := range allEvals {
 		if xj == myX {
 			continue
 		}
-		negXj := shamirPrime - (xj % shamirPrime)
-		num = (num * negXj) % shamirPrime
-		diff := (shamirPrime + myX - xj) % shamirPrime
-		den = (den * diff) % shamirPrime
+		num = f.Mul(num, f.Sub(0, uint64(xj)))
+		den = f.Mul(den, f.Sub(uint64(myX), uint64(xj)))
 	}
-	denInv := modInvSmall(den, shamirPrime)
-	return uint16((num * denInv) % shamirPrime)
+	return uint16(f.Mul(num, f.Inv(den)))
 }

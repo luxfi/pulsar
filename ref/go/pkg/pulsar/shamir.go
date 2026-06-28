@@ -21,12 +21,28 @@ package pulsar
 // All arithmetic is constant-time mod p via the small-prime modular
 // inverse table seeded at package init.
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/luxfi/mlwe/share"
+)
 
 // shamirPrime is the small prime used for per-byte Shamir sharing.
 // 257 is the smallest prime > 255 so it admits every byte value as a
 // distinct field element.
 const shamirPrime uint32 = 257
+
+// shamirFieldGF257 is GF(257) — the byte-wise Shamir field — instantiated
+// once from the shared mlwe/share prime-field constructor. Every GF(257)
+// Lagrange interpolation and modular operation in Pulsar routes through
+// this single Field, so the field arithmetic lives only in mlwe/share.
+var shamirFieldGF257 = func() share.Field {
+	f, err := share.NewPrimeField(uint64(shamirPrime))
+	if err != nil {
+		panic("pulsar: GF(257) Shamir field: " + err.Error())
+	}
+	return f
+}()
 
 // shamirShare contains one party's per-byte Shamir share of a
 // 32-byte secret. Each element is a value in [0, 257) stored in a
@@ -163,7 +179,8 @@ func shamirReconstructGF(shares []shamirShare) ([SeedSize]uint16, error) {
 		return out, ErrNotEnoughShares
 	}
 	seen := make(map[uint32]struct{}, len(shares))
-	for _, s := range shares {
+	xs := make([]uint64, len(shares))
+	for i, s := range shares {
 		if s.X == 0 {
 			return out, ErrZeroEvalPoint
 		}
@@ -171,34 +188,22 @@ func shamirReconstructGF(shares []shamirShare) ([SeedSize]uint16, error) {
 			return out, ErrDuplicateEvalPoint
 		}
 		seen[s.X] = struct{}{}
+		xs[i] = uint64(s.X)
 	}
 
-	t := len(shares)
-	// Lagrange basis values at x=0 over GF(p).
-	// λ_i = Π_{j≠i} (-x_j) / (x_i - x_j) mod p
-	lambdas := make([]uint16, t)
-	for i := 0; i < t; i++ {
-		num := uint32(1)
-		den := uint32(1)
-		for j := 0; j < t; j++ {
-			if i == j {
-				continue
-			}
-			// num *= (-x_j) mod p
-			negXj := shamirPrime - (shares[j].X % shamirPrime)
-			num = (num * negXj) % shamirPrime
-			// den *= (x_i - x_j) mod p
-			diff := (shamirPrime + shares[i].X - shares[j].X) % shamirPrime
-			den = (den * diff) % shamirPrime
-		}
-		denInv := modInvSmall(den, shamirPrime)
-		lambdas[i] = uint16((num * denInv) % shamirPrime)
+	// Lagrange basis values at x=0 over GF(257): λ_i = Π_{j≠i} (-x_j)/(x_i-x_j).
+	// Interpolation and field arithmetic are the shared mlwe/share primitive;
+	// eval points are in [1, 257) so they need no pre-reduction. The zero/dup
+	// preconditions are already enforced above with Pulsar's error identity.
+	lambda, err := share.Lagrange(xs, 0, shamirFieldGF257)
+	if err != nil {
+		return out, err
 	}
 
 	for b := 0; b < SeedSize; b++ {
-		var acc uint32
-		for i := 0; i < t; i++ {
-			acc = (acc + uint32(lambdas[i])*uint32(shares[i].Y[b])) % shamirPrime
+		var acc uint64
+		for i := range shares {
+			acc = (acc + lambda[i]*uint64(shares[i].Y[b])) % uint64(shamirPrime)
 		}
 		// acc ∈ [0, 257). For a SUM of single-secret Shamir shares
 		// the constant term may take the value 256; return as GF(257).
@@ -213,28 +218,6 @@ func shamirReconstructGF(shares []shamirShare) ([SeedSize]uint16, error) {
 // interpolated constant term overflows byte range, indicating either
 // share tampering or that the original secret was not byte-valued.
 var ErrInvalidShare = errors.New("pulsar: reconstructed value out of byte range — share tampering suspected")
-
-// modInvSmall computes the modular inverse of a mod p where p is a
-// small prime. Uses the extended Euclidean algorithm; constant-time
-// in the bit pattern of a, not data-dependent in p. p must be prime
-// and a must be in [1, p).
-func modInvSmall(a, p uint32) uint32 {
-	return modPowSmall(a, p-2, p)
-}
-
-// modPowSmall computes (base^exp) mod p via square-and-multiply.
-func modPowSmall(base, exp, p uint32) uint32 {
-	result := uint32(1)
-	b := base % p
-	for exp > 0 {
-		if exp&1 == 1 {
-			result = (result * b) % p
-		}
-		b = (b * b) % p
-		exp >>= 1
-	}
-	return result
-}
 
 // shareToBytes serialises a shamirShare's Y component to wire form
 // (big-endian uint16 per byte position).
