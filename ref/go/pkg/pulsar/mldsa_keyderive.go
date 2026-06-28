@@ -95,14 +95,8 @@ func deriveKeyMaterial(mode Mode, seed *[SeedSize]byte) (*mldsaKeyMaterial, erro
 		return nil, ErrUnknownMode
 	}
 	var km mldsaKeyMaterial
-	km.s1 = make(polyVec, L)
-	km.s2 = make(polyVec, K)
 	km.t0 = make(polyVec, K)
 	km.t1 = make(polyVec, K)
-	km.a = make([]polyVec, K)
-	for i := range km.a {
-		km.a[i] = make(polyVec, L)
-	}
 
 	// FIPS 204: SHAKE-256(seed || K_byte || L_byte) → eSeed[128].
 	var eSeed [128]byte
@@ -116,20 +110,10 @@ func deriveKeyMaterial(mode Mode, seed *[SeedSize]byte) (*mldsaKeyMaterial, erro
 	copy(sSeed[:], eSeed[32:96])
 	copy(km.key[:], eSeed[96:128])
 
-	// Derive A from ρ: K × L block of polynomials.
-	for i := 0; i < K; i++ {
-		for j := 0; j < L; j++ {
-			polyDeriveUniform(&km.a[i][j], &km.rho, uint16(i)<<8|uint16(j))
-		}
-	}
-
-	// Sample s1 (length L) and s2 (length K).
-	for i := 0; i < L; i++ {
-		polyDeriveUniformLeqEta(&km.s1[i], &sSeed, uint16(i), eta)
-	}
-	for i := 0; i < K; i++ {
-		polyDeriveUniformLeqEta(&km.s2[i], &sSeed, uint16(i+L), eta)
-	}
+	// A = ExpandA(ρ) (K×L, NTT domain) and the secret vectors
+	// s1, s2 = ExpandS(sSeed) — both via the canonical mlwe samplers.
+	km.a = expandAPulsar(km.rho, K, L)
+	km.s1, km.s2 = expandSPulsar(sSeed, K, L, int(eta))
 
 	// Compute t = A · s1 + s2 (NTT-domain mul, then InvNTT).
 	s1Hat := make(polyVec, L)

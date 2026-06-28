@@ -52,20 +52,6 @@ var ErrVSSDKGScope = errors.New(
 	"pulsar: dealerless VSS DKG is wired for ML-DSA-65 only (luxfi/dkg ships ring.MLDSA65(); " +
 		"ML-DSA-87 needs an MLDSA87 profile upstream)")
 
-// expandAPulsar derives pulsar's public matrix A = ExpandA(rho) (FIPS-204 §3.5),
-// K×L polynomials in pulsar's NTT-Montgomery domain — byte-identical to circl's
-// stored pk.A and to deriveKeyMaterial's km.a.
-func expandAPulsar(rho [32]byte, K, L int) []polyVec {
-	a := make([]polyVec, K)
-	for i := 0; i < K; i++ {
-		a[i] = make(polyVec, L)
-		for j := 0; j < L; j++ {
-			polyDeriveUniform(&a[i][j], &rho, uint16(i)<<8|uint16(j))
-		}
-	}
-	return a
-}
-
 // aCoeffFromPulsarA recovers A in convention-neutral STANDARD coefficient form by
 // the unit-vector multiply A·e_j through pulsar's own (circl-correct) pipeline —
 // the same extraction the pin-4 KAT validated. (A·e_j)[i] = A[i][j], so no
