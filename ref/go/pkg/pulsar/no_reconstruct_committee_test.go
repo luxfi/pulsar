@@ -13,10 +13,11 @@ package pulsar
 //
 // GATE 2 (no-reconstruct INVARIANT): the committee sign-combine NEVER
 // materialises the secret. Proven STRUCTURALLY (the production build contains
-// no KeyFromSeed call in any sign-combine file, and the reconstruct combiner
-// LargeCombine / large_threshold.go is not in the production build at all) AND
-// BEHAVIOURALLY (the combiner's inputs — Partial, AggregateBCC's parameters —
-// carry no share, sk, seed, or nonce; a sub-threshold coalition cannot sign).
+// no KeyFromSeed call in any sign-combine file; the reconstruct-at-sign combiner
+// LargeCombine has been DELETED from the package entirely —
+// ci_build_invariant_test.go guards that it never returns) AND BEHAVIOURALLY
+// (the combiner's inputs — Partial, AggregateBCC's parameters — carry no share,
+// sk, seed, or nonce; a sub-threshold coalition cannot sign).
 //
 // CLAIM DISCIPLINE. What these gates establish: "no-reconstruct committee
 // threshold signing whose output verifies under the standard ML-DSA verifier."
@@ -114,33 +115,23 @@ var keyFromSeedCall = regexp.MustCompile(`(^|[^A-Za-z0-9_])KeyFromSeed\(`)
 //   - keygen.go: defines KeyFromSeed and the single-key GenerateKey wrapper.
 //   - dkg.go: the small-committee DKG derives the GROUP PUBLIC KEY once at
 //     keygen by forming sk (a flagged keygen-side residual — NOT signing).
-//
-// large_threshold.go and large_dkg.go also call KeyFromSeed, but they are
-// quarantined behind //go:build legacy_trusted_dealer and so are absent from
-// the default build this test inspects.
 var keyFromSeedCallAllowlist = map[string]bool{
 	"keygen.go": true,
 	"dkg.go":    true,
 }
 
 func TestCommittee_NoReconstruct_Invariant_NoKeyFromSeedInProductionBuild(t *testing.T) {
-	// Enumerate the package's PRODUCTION (default-build, non-test) Go files,
-	// honouring build tags: legacy_trusted_dealer files are excluded exactly as
-	// they are from a production binary.
+	// Enumerate the package's PRODUCTION (default-build, non-test) Go files —
+	// the exact set a production binary links.
 	pkg, err := build.Default.ImportDir(".", 0)
 	if err != nil {
 		t.Fatalf("enumerate default-build package files: %v", err)
 	}
 
-	// (a) The reconstruct combiner MUST NOT be in the production build.
-	for _, f := range pkg.GoFiles {
-		if f == "large_threshold.go" {
-			t.Fatalf("GATE 2 FAILED: large_threshold.go (LargeCombine, reconstruct-at-sign) is in the PRODUCTION build")
-		}
-	}
-
-	// (b) No production file may CALL KeyFromSeed except the keygen allowlist;
-	//     and no production file may DECLARE LargeCombine.
+	// (a) No production file may CALL KeyFromSeed (the seed→sk reconstruct
+	//     primitive) except the keygen allowlist. The reconstruct-at-sign combiner
+	//     LargeCombine was DELETED from the package; ci_build_invariant_test.go is
+	//     the structural guard that it (and the trusted dealer) never reappear.
 	offenders := 0
 	for _, f := range pkg.GoFiles {
 		src, err := os.ReadFile(filepath.Join(pkg.Dir, f))
@@ -148,11 +139,6 @@ func TestCommittee_NoReconstruct_Invariant_NoKeyFromSeedInProductionBuild(t *tes
 			t.Fatalf("read %s: %v", f, err)
 		}
 		text := string(src)
-
-		if strings.Contains(text, "func LargeCombine(") {
-			t.Errorf("GATE 2 FAILED: %s declares LargeCombine (reconstruct combiner) in the production build", f)
-			offenders++
-		}
 		if keyFromSeedCall.MatchString(text) && !keyFromSeedCallAllowlist[f] {
 			t.Errorf("GATE 2 FAILED: %s calls KeyFromSeed (seed→sk reconstruct) but is not an allowlisted keygen file", f)
 			offenders++
@@ -162,7 +148,7 @@ func TestCommittee_NoReconstruct_Invariant_NoKeyFromSeedInProductionBuild(t *tes
 		t.Fatalf("GATE 2 FAILED: %d production file(s) reconstruct the secret key", offenders)
 	}
 
-	// (c) The load-bearing combiner file itself must be free of every
+	// (b) The load-bearing combiner file itself must be free of every
 	//     reconstruct vector: no KeyFromSeed, no key-material expansion, no
 	//     master-seed assembly, no GF(q) SEED reconstruction.
 	combine, err := os.ReadFile(filepath.Join(pkg.Dir, "distributed_bcc.go"))
@@ -175,7 +161,7 @@ func TestCommittee_NoReconstruct_Invariant_NoKeyFromSeedInProductionBuild(t *tes
 		}
 	}
 
-	t.Logf("GATE 2 (structural) PASS: %d production files scanned; KeyFromSeed only in %v; LargeCombine absent; AggregateBCC reconstruct-free",
+	t.Logf("GATE 2 (structural) PASS: %d production files scanned; KeyFromSeed only in %v; AggregateBCC reconstruct-free",
 		len(pkg.GoFiles), keysOf(keyFromSeedCallAllowlist))
 }
 

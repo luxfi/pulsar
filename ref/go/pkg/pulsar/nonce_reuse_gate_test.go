@@ -140,8 +140,8 @@ func TestRED_NonceReuse_RecoversS1(t *testing.T) {
 	K, L, _ := modeShape(mode)
 	tau, _, _, _ := modeTauOmega(mode)
 
-	// Deal a committee. We KEEP the seed so we can derive the reference s1 the
-	// attack must recover (the dealer wipes its own copy).
+	// Build the s1-share fixture. We KEEP the seed so we can derive the reference
+	// s1 the attack must recover (deriveKeyMaterial below re-expands it).
 	committee := make([]NodeID, n)
 	for i := range committee {
 		if _, err := rand.Read(committee[i][:]); err != nil {
@@ -152,9 +152,9 @@ func TestRED_NonceReuse_RecoversS1(t *testing.T) {
 	if _, err := rand.Read(seed[:]); err != nil {
 		t.Fatalf("seed entropy: %v", err)
 	}
-	setup, shares, err := DealAlgShares(params, committee, threshold, seed, rand.Reader)
+	setup, shares, err := buildAlgShareFixture(params, committee, threshold, seed)
 	if err != nil {
-		t.Fatalf("DealAlgShares: %v", err)
+		t.Fatalf("buildAlgShareFixture: %v", err)
 	}
 	sort.Slice(shares, func(i, j int) bool { return nodeIDLess(shares[i].NodeID, shares[j].NodeID) })
 

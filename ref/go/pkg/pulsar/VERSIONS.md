@@ -10,7 +10,7 @@
 |---|---|---|---|
 | **v0.3 — algebraic broadcast** | **REMOVED** | The `AlgebraicAggregate` path broadcast per-party `c·s2` / `c·t0` residual shares and reconstructed the leaking `MakeHint` residual at the aggregator. | Closed as **PULSAR-V13-HINT-LEAK** — broadcasting those shares leaks the long-term key. Ripped out (commit `b185533`); **no backward-compatible re-entry**. |
 | **v0.4 — BCC/CSCP no-reconstruct** | **CURRENT (production sign path)** | Boundary-Cleared Carry-elimination (BCC/CEF) + Comparison-Secure-Comparison-Protocol (CSCP). Each validator holds exactly one poly-vector Shamir share of `s1`; signing aggregates only masked `z`-partials; the hint is recovered from the **public** `w' = A·z − c·t1·2^d` and `w1`. No process forms `s1`, the seed, `sk`, `c·s2`, `c·t0`, `r0`, or full `w`. Output verifies under unmodified FIPS 204 ML-DSA (`mldsa{65,87}.Verify`). | Base `main` @ `v0.4.0` (commit `b652893`). The sole production path. |
-| **v0.5.0 — malicious-hardening** | **MERGED (`main` @ `53ed1c2`, RED-verified 0 crit/high)** | Hardens v0.4 from semi-honest/no-leak toward **malicious** security: nonce single-use **safe by construction** (per-share registry, default-path enforced; `w1`-only dedup closes cross-committee reuse), **authenticated-PartyID blame** (forged victim-slot partials dropped before attribution; blame gated on identity-signature validity — an attacker cannot frame/exclude an honest victim), identifiable-abort plumbing (duplicate-PartyID rejection, invalid/malformed blame, per-party commitment binding), GATE-2 reachability **+ indirection lint**, CI invariant against `legacy_trusted_dealer` in the prod build. | Merged off `harden/malicious-security`. Still **malicious-HARDENED, not fully-malicious-secure-PROVEN** (see scope). |
+| **v0.5.0 — malicious-hardening** | **MERGED (`main` @ `53ed1c2`, RED-verified 0 crit/high)** | Hardens v0.4 from semi-honest/no-leak toward **malicious** security: nonce single-use **safe by construction** (per-share registry, default-path enforced; `w1`-only dedup closes cross-committee reuse), **authenticated-PartyID blame** (forged victim-slot partials dropped before attribution; blame gated on identity-signature validity — an attacker cannot frame/exclude an honest victim), identifiable-abort plumbing (duplicate-PartyID rejection, invalid/malformed blame, per-party commitment binding), GATE-2 reachability **+ indirection lint**, CI invariant sealing the prod build against the reconstruct-at-sign quarantine. | Merged off `harden/malicious-security`. Still **malicious-HARDENED, not fully-malicious-secure-PROVEN** (see scope). |
 | **v0.5.1 — post-merge hardening** | **MERGED (`main`)** | Closes 3 RED post-merge nits (all liveness/availability, no forgery/leak): **(1) origin-auth SAFE-BY-DEFAULT** — `AggregateBCC{,WithBlame}` now REFUSE FAIL-CLOSED (`ErrOriginAuthRequired`) when no verifier is wired, instead of silently aggregating unauthenticated partials; the unauthenticated path is reachable ONLY via the explicit `UnauthenticatedAggregation` opt-out (trusted-channel/test). **(2) epoch-pruned nonce ledger** — `(*InMemoryNonceLedger).PruneBefore` + registry sweep `PruneShareLedgers` bound the single-use map to a sliding retained-epoch window, never reopening reuse inside the live window. **(3) CI no-asm/no-cgo assertion** — `TestCI_NoAssemblyOrCgoFiles` seals GATE-C's blind spot (the AST gates cannot model `.s`/`.c`/cgo) by proving the package is pure Go. | Same honest scope as v0.5.0 — no new "proven" claim. |
 | **v0.6.0 — dealerless RSS keygen** | **MERGED (`main`) — the dealer is dead at keygen** | Mithril short replicated-secret-sharing committee keygen (`mithril_rss.go`); see the keygen track below. Completes the dealerless story: SIGNING no-reconstruct (v0.4/v0.5) + KEYGEN dealerless (RSS). | Standard-verifier-compatible; distribution-equivalence is a labeled residual. |
 | **HYPERBALL — Mithril 3-round no-reconstruct signer** | **MERGED (`main`, gates 5/6)** | `mithril_rss_hyperball.go` `SignHyperball`: 3-round no-reconstruct threshold signer over the RSS key — `z_j = y_j + c·s1_(j)`, no party/coordinator forms `s1`/`s2`/`y`/`w0`/`sk`; the secret mask `y` is never serialised onto the wire. Verifies under stock circl (`TestHyperballStockCirclVerify`); structural no-reconstruct proven by AST (`TestHyperballNoReconstructStructural`); fail-closed (GATE-6). | The Mithril-native signer complementing the RSS keygen; same standard-verifier boundary. |
@@ -26,8 +26,6 @@ trusted dealer is dead at both ends. Nonce *generation* remains a distinct axis
 
 | Track | Status | Notes |
 |---|---|---|
-| **Trusted-dealer bootstrap** (`DealAlgShares`) | **TEST/BOOTSTRAP ONLY — quarantined** | Expands the seed once and Shamir-shares `s1`, then wipes. Confined to `bootstrap_dealer_test.go` (a `_test.go` file → **uncompilable into any production binary**). It seeds the no-reconstruct SIGNING tests; it is **not** a production keygen. |
-| **Legacy GF(q) seed-share committee** (`large_*.go`, `largeshamir.go`) | **QUARANTINED behind `//go:build legacy_trusted_dealer`** | `LargeCombine` reconstructs the master seed at sign time (the H-1 footgun). **Absent from the default build.** Item-4 CI invariant asserts the production build never ships this tag. |
 | **Dealerless RSS committee KEYGEN (Mithril)** | **CURRENT (`main` @ v0.6.0+) — the dealer is dead at keygen** | `mithril_rss.go` `MithrilRSSKeygen`: dealerless committee key generation via Mithril short replicated secret sharing (no dealer, no centralized reconstruction). Each committee's RSS-generated group key signs under **stock unmodified** `mldsa65.Verify` — gold-proof verified at (t=8,n=8), (t=16,n=16), and all small committees `T=2..N, N=2..6` via real per-party rejection sampling (`TestMithrilRSSStockCirclVerify`, `TestMithrilRSS_LargeN_StockCircl`). v0.6.3 `accumulateSubset` per-subset mod-q reduction unblocks large committees (n=16,t=14, C(16,3)=560 — the uint32 overflow at C≥512). **Scope:** standard-verifier-compatible (PROVEN). Full FIPS-204 KeyGen-distribution-equivalence (simulation/hiding-vs-<t/abort-bias) remains a labeled residual (R1). |
 | **NAIVE additive S_η dealerless keygen** | **UNSOUND (parameter obstruction — naive construction ONLY)** | `naive_additive_seta_obstruction.go` → `ErrDealerlessByteFIPSUnreachable`: a NAIVE Pedersen/Gennaro sum of `S_η` shares has `‖·‖∞ ≤ N·η > η`, breaking BCC and FIPS-204 byte equality. This is the naive lift ONLY — **NOT a class impossibility**: Mithril short-replicated-shares (above) is the published escape and is now the production dealerless keygen. The old `feat/v02-pedersen-vss-no-reconstruct` branch was the exploration; RSS superseded it. |
 | **NonceMPC (leak-free distributed nonce)** | **STAND-IN today** (`DealNonceMPCDebug`) | The production sign path consumes a `NonceCert` (only `w1` public). The stand-in dealer-models the nonce and exposes `DebugW` to the **test harness only** (never on the wire) — the **PULSAR-V13-W-LEAK** residual. The leak-free distributed nonce (HighBits-over-shares MPC / exact-ℓ∞ boundary ZK) is fail-closed behind the same wall as `rangeproof.go`. |
@@ -80,15 +78,16 @@ trusted dealer is dead at both ends. Nonce *generation* remains a distinct axis
   the commitments the sigma proof is bound to (non-transferability).
 - **GATE-2 → reachability + indirection lint** (`gate2_reachability_test.go`) — a
   stdlib AST name call-graph proves the reconstruct primitives (`KeyFromSeed`,
-  `deriveKeyMaterial`, `bccSign`, `shamirReconstruct*`, `LargeCombine`) are
+  `deriveKeyMaterial`, `bccSign`, `shamirReconstruct*`) are
   **unreachable from the committee sign entrypoints via direct calls** (GATE C
   catches a `deriveKeyMaterial`+`bccSign` bypass), **paired** with a companion lint
   that forbids taking any banned primitive as a non-call **value** or aliasing it
   via `//go:linkname`. The graph is complete for DIRECT calls; the lint closes
   function-value / closure / linkname indirection — the pair (not either half) is
   complete for the banned set.
-- **CI invariant** — the production (default-tag) build never carries
-  `legacy_trusted_dealer` (`TestCI_ProductionBuildExcludesLegacyTrustedDealer`),
+- **CI invariant** — the reconstruct-at-sign combiner, the trusted-dealer keygen,
+  and their quarantine tag are DELETED, and every `.go` file is scanned so they can
+  never reappear (`TestCI_ReconstructAndDealerRipIsComplete`),
   and (v0.5.1) the package is **pure Go** — no `.s` / `.c` / cgo unit
   (`TestCI_NoAssemblyOrCgoFiles`), sealing GATE-C's blind spot: the AST
   reachability + indirection gates cannot model assembly/C, so the no-reconstruct
@@ -114,9 +113,9 @@ trusted dealer is dead at both ends. Nonce *generation* remains a distinct axis
 
 ## The honest one-line scope (canonical)
 
-> Dealerless committee key/nonce gen **(target track; trusted-dealer bootstrap is
-> test-only, leak-free NonceMPC is a residual)** + CEF/CSCP **no-reconstruct
-> signing** + **standard-ML-DSA-verifier output**, **semi-honest / no-leak
-> today**; **malicious-CSCP + networked-MPC are gated residuals**.
+> Dealerless committee KEYGEN **(DONE — Mithril RSS; leak-free NonceMPC is the
+> remaining gen-side residual)** + CEF/CSCP **no-reconstruct signing** +
+> **standard-ML-DSA-verifier output**, **semi-honest / no-leak today**;
+> **malicious-CSCP + networked-MPC are gated residuals**.
 
 **NEVER claimed:** FIPS/NIST-certified threshold ML-DSA · fully-malicious-secure-proven · global-1000-validator DKG.
