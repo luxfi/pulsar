@@ -1,3 +1,5 @@
+<p align="center"><img src=".github/hero.svg" alt="pulsar" width="880"></p>
+
 # Pulsar — NIST MPTC submission package
 
 > **Threshold ML-DSA** — a two-round lattice kernel (TALUS adds one-round
