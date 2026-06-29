@@ -3,11 +3,28 @@
 
 package pulsar
 
-// ci_build_invariant_test.go — item 4: the PRODUCTION build must never ship the
-// reconstruct-at-sign quarantine. RED LOW: the structural GATE-2 inspects
-// build.Default (no tags), so CI must ALSO assert the production binary is never
-// compiled with `-tags legacy_trusted_dealer` (which would re-link LargeCombine,
-// the H-1 reconstruct footgun) and that the trusted-dealer keygen is test-only.
+// ci_build_invariant_test.go — the structural proof that the reconstruct-at-sign
+// + trusted-dealer rip is COMPLETE and PERMANENT.
+//
+// The legacy_trusted_dealer quarantine tag, the reconstruct-at-sign combiner
+// LargeCombine (was large_threshold.go), and the trusted-dealer keygen
+// DealAlgShares (was bootstrap_dealer_test.go) have all been DELETED. There is
+// no longer any reconstruct path to quarantine, so the old "the production build
+// excludes the tag" invariant is obsolete. This file replaces it with the
+// stronger, permanent guard: scan EVERY .go file in the package — production,
+// test, and any build-constrained — and FAIL if any ripped declaration or the
+// quarantine tag ever reappears.
+//
+// This is the single home (one and only one way) for the "these do not exist"
+// guard. The complementary "no reconstruct PRIMITIVE is reachable from the sign
+// path" invariant lives in GATE-2 (no_reconstruct_committee_test.go) and GATE-C
+// (gate2_reachability_test.go). As the sole holder of the forbidden strings (its
+// own scan targets), this file is the documented exception to the package-wide
+// no-`DealAlgShares`/`func LargeCombine`/`legacy_trusted_dealer` rule.
+//
+// It also keeps TestCI_NoAssemblyOrCgoFiles, which seals GATE-C's blind spot by
+// asserting the package is pure Go — no .s/.c/cgo unit can hide a reconstruct
+// primitive from the AST gates.
 
 import (
 	"go/build"
@@ -21,47 +38,23 @@ import (
 
 const legacyTrustedDealerTag = "legacy_trusted_dealer"
 
-func defaultBuildGoFiles(t *testing.T) (dir string, files map[string]bool) {
-	t.Helper()
-	pkg, err := build.Default.ImportDir(".", 0)
-	if err != nil {
-		t.Fatalf("enumerate default-build package: %v", err)
-	}
-	files = make(map[string]bool, len(pkg.GoFiles))
-	for _, f := range pkg.GoFiles {
-		files[f] = true
-	}
-	return pkg.Dir, files
+// rippedDeclarations are the exact source signatures the rip removed. The
+// reconstruct-at-sign combiner (LargeCombine, the H-1 footgun that materialised
+// the master key in the aggregator) and the trusted-dealer s1-share keygen
+// (DealAlgShares) must never reappear in any .go file in the package.
+var rippedDeclarations = []string{
+	"func LargeCombine(",  // reconstruct-at-sign combiner (was large_threshold.go)
+	"func DealAlgShares(", // trusted-dealer s1-share keygen (was bootstrap_dealer_test.go)
 }
 
-func taggedBuildGoFiles(t *testing.T, tag string) map[string]bool {
-	t.Helper()
-	ctx := build.Default
-	ctx.BuildTags = append(append([]string{}, ctx.BuildTags...), tag)
-	pkg, err := ctx.ImportDir(".", 0)
-	if err != nil {
-		t.Fatalf("enumerate %s-tagged package: %v", tag, err)
-	}
-	out := make(map[string]bool, len(pkg.GoFiles))
-	for _, f := range pkg.GoFiles {
-		out[f] = true
-	}
-	return out
-}
-
-// goBuildLine returns the `//go:build ...` constraint line of a file (or "").
-func goBuildLine(t *testing.T, path string) string {
-	t.Helper()
-	src, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	for _, line := range strings.Split(string(src), "\n") {
+// goBuildConstraint returns the `//go:build ...` constraint line of a Go source
+// (or ""). Build constraints must precede the package clause.
+func goBuildConstraint(src string) string {
+	for _, line := range strings.Split(src, "\n") {
 		l := strings.TrimSpace(line)
 		if strings.HasPrefix(l, "//go:build ") {
 			return l
 		}
-		// build constraints must precede the package clause.
 		if strings.HasPrefix(l, "package ") {
 			break
 		}
@@ -69,75 +62,65 @@ func goBuildLine(t *testing.T, path string) string {
 	return ""
 }
 
-// TestCI_ProductionBuildExcludesLegacyTrustedDealer asserts the default build
-// excludes every legacy_trusted_dealer file, that the tag actually gates real
-// reconstruct files, and that the reconstruct-at-sign combiner is never in prod.
-func TestCI_ProductionBuildExcludesLegacyTrustedDealer(t *testing.T) {
-	dir, defaultFiles := defaultBuildGoFiles(t)
-	taggedFiles := taggedBuildGoFiles(t, legacyTrustedDealerTag)
+// TestCI_ReconstructAndDealerRipIsComplete scans every .go file in the package
+// and fails if a ripped declaration or the legacy_trusted_dealer quarantine tag
+// reappears. Stronger than the old "production build excludes the tag" check: it
+// forbids the symbols and the tag EVERYWHERE — production, test, and any
+// build-constrained file — so the no-reconstruct property is now structural
+// (there is literally no reconstruct path left to quarantine).
+func TestCI_ReconstructAndDealerRipIsComplete(t *testing.T) {
+	pkg, err := build.Default.ImportDir(".", 0)
+	if err != nil {
+		t.Fatalf("enumerate default-build package: %v", err)
+	}
+	entries, err := os.ReadDir(pkg.Dir)
+	if err != nil {
+		t.Fatalf("read package dir: %v", err)
+	}
 
-	// Files the tag ADDS (present under -tags legacy_trusted_dealer, absent by
-	// default): these are the quarantined reconstruct files.
-	var legacyOnly []string
-	for f := range taggedFiles {
-		if !defaultFiles[f] {
-			legacyOnly = append(legacyOnly, f)
+	const self = "ci_build_invariant_test.go"
+	scanned := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
 		}
-	}
-	if len(legacyOnly) == 0 {
-		t.Fatalf("CI invariant MISCONFIGURED: the %q tag gates NO files — quarantine mechanism is inert", legacyTrustedDealerTag)
-	}
-
-	// Every tag-gated file must (a) be absent from the default/production build
-	// and (b) carry the legacy_trusted_dealer constraint (intentional gating).
-	for _, f := range legacyOnly {
-		if defaultFiles[f] {
-			t.Fatalf("CI FAILED: %s is in BOTH the default and tagged build", f)
+		// This guard file necessarily contains the forbidden strings (they ARE
+		// its scan targets) — it is the ONE legitimate holder of them.
+		if e.Name() == self {
+			scanned++
+			continue
 		}
-		line := goBuildLine(t, filepath.Join(dir, f))
-		if !strings.Contains(line, legacyTrustedDealerTag) {
-			t.Fatalf("CI FAILED: %s is tag-gated but its build line %q does not mention %q", f, line, legacyTrustedDealerTag)
-		}
-	}
-
-	// The reconstruct-at-sign combiner MUST be quarantined, never in prod.
-	if defaultFiles["large_threshold.go"] {
-		t.Fatalf("CI FAILED: large_threshold.go (LargeCombine, reconstruct-at-sign) is in the PRODUCTION build")
-	}
-	if !taggedFiles["large_threshold.go"] {
-		t.Fatalf("CI MISCONFIGURED: large_threshold.go not found even under the legacy tag")
-	}
-
-	// No default-build file may itself require the legacy tag (belt-and-suspenders
-	// against an accidental positive constraint that only builds under the tag).
-	for f := range defaultFiles {
-		if line := goBuildLine(t, filepath.Join(dir, f)); strings.Contains(line, legacyTrustedDealerTag) {
-			t.Fatalf("CI FAILED: default-build file %s carries a %q constraint", f, legacyTrustedDealerTag)
-		}
-	}
-
-	t.Logf("CI PASS: production build excludes %d legacy_trusted_dealer file(s) %v; LargeCombine quarantined", len(legacyOnly), legacyOnly)
-}
-
-// TestCI_TrustedDealerKeygenIsTestOnly asserts the trusted-dealer s1-share
-// keygen (DealAlgShares) is defined ONLY in _test.go (uncompilable into any
-// production binary) — the quarantine the no-reconstruct claim rests on.
-func TestCI_TrustedDealerKeygenIsTestOnly(t *testing.T) {
-	dir, defaultFiles := defaultBuildGoFiles(t)
-	for f := range defaultFiles {
-		src, err := os.ReadFile(filepath.Join(dir, f))
+		src, err := os.ReadFile(filepath.Join(pkg.Dir, e.Name()))
 		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
+			t.Fatalf("read %s: %v", e.Name(), err)
 		}
-		if strings.Contains(string(src), "func DealAlgShares(") {
-			t.Fatalf("CI FAILED: DealAlgShares (trusted-dealer keygen) defined in PRODUCTION file %s — must be _test.go only", f)
+		text := string(src)
+		for _, decl := range rippedDeclarations {
+			if strings.Contains(text, decl) {
+				t.Errorf("RIP INCOMPLETE: %s declares %q — the reconstruct-at-sign / trusted-dealer path was removed and must not return", e.Name(), decl)
+			}
+		}
+		if line := goBuildConstraint(text); strings.Contains(line, legacyTrustedDealerTag) {
+			t.Errorf("RIP INCOMPLETE: %s carries a %q build constraint — the quarantine tag was removed (there is no legacy to quarantine)", e.Name(), legacyTrustedDealerTag)
+		}
+		scanned++
+	}
+
+	// Belt-and-suspenders: the real production paths the rip is supposed to LEAVE
+	// IN must still be present (a rip that also deleted the live signer/keygen
+	// would pass a pure forbid-scan). The dealerless keygen and the
+	// no-reconstruct combiner are load-bearing.
+	for _, want := range []struct{ file, decl string }{
+		{"mithril_rss.go", "func MithrilRSSKeygen("},  // dealerless keygen (production)
+		{"distributed_bcc.go", "func AggregateBCC("},  // no-reconstruct sign-combine
+	} {
+		src, err := os.ReadFile(filepath.Join(pkg.Dir, want.file))
+		if err != nil || !strings.Contains(string(src), want.decl) {
+			t.Fatalf("RIP OVERREACHED: production path %q in %s is missing — the dealerless/no-reconstruct surface must remain", want.decl, want.file)
 		}
 	}
-	// Sanity: it IS defined somewhere in the test build (the bootstrap file).
-	if _, err := os.Stat(filepath.Join(dir, "bootstrap_dealer_test.go")); err != nil {
-		t.Fatalf("bootstrap_dealer_test.go missing — trusted-dealer keygen quarantine file gone: %v", err)
-	}
-	t.Logf("CI PASS: DealAlgShares is test-only (bootstrap_dealer_test.go); never in the production build")
+
+	t.Logf("CI PASS: rip complete — %d .go files scanned, none declares LargeCombine/DealAlgShares, none carries the %q tag; dealerless MithrilRSSKeygen + no-reconstruct AggregateBCC present", scanned, legacyTrustedDealerTag)
 }
 
 // TestCI_NoAssemblyOrCgoFiles seals GATE-C's blind spot (RED LOW/INFO). GATE-C's

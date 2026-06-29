@@ -3,11 +3,11 @@
 
 package pulsar
 
-// distributed_bcc_dkg_test.go — pins the dealerless-DKG obstruction
+// naive_additive_seta_obstruction_test.go — pins the dealerless-DKG obstruction
 // arithmetic. The fail-closed Part-2 verdict is DERIVED from the FIPS 204
-// bounds (distributed_bcc_dkg.go assessDealerlessFIPS), and these tests
-// reproduce every load-bearing number so the obstruction is computable, not
-// asserted. They also rule out the t0 red herring by computation.
+// bounds (naive_additive_seta_obstruction.go assessDealerlessFIPS), and these
+// tests reproduce every load-bearing number so the obstruction is computable,
+// not asserted. They also rule out the t0 red herring by computation.
 
 import (
 	"errors"

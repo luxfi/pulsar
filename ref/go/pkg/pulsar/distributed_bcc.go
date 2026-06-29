@@ -11,8 +11,8 @@ package pulsar
 //	The public KeyShare (types.go) is a GF(257) byte-share of the 32-byte
 //	ML-DSA SEED. ML-DSA's s1/s2 are a NON-LINEAR SHAKE expansion of the
 //	seed, so seed-shares admit ONLY Lagrange reconstruct-then-sign
-//	(Combine / LargeCombine — the H-1 footgun that materialises the master
-//	key in the aggregator). The new RoundSigner / Partial / FlatAggregateZ
+//	(Combine — the H-1 footgun that materialises the master key in the
+//	aggregator). The new RoundSigner / Partial / FlatAggregateZ
 //	model carried the interface and the z-sum aggregation primitive for a
 //	no-reconstruct signer, but NO concrete poly-vector share type or
 //	concrete RoundSigner implementor existed on the current line (the v0.3
@@ -54,11 +54,15 @@ package pulsar
 // summed, secret shares Lagrange-weighted), inheriting ML-DSA's EUF-CMA
 // under Module-LWE/Module-SIS.
 //
-// WHAT THIS FILE IS NOT — the two fences that remain open:
-//   - Part-1 KEYGEN here is a TRUSTED DEALER (DealAlgShares expands the
-//     seed once, shares s1, wipes). It is no-RECONSTRUCT at SIGN time, not
-//     dealerless at KEYGEN time. Dealerless ML-DSA DKG is the separate,
-//     research-blocked Part-2 problem (see distributed_bcc_dkg.go).
+// WHAT THIS FILE IS NOT — the fences that remain open:
+//   - This SIGN primitive consumes Shamir s1-shares (AlgShare). A dealerless
+//     KEYGEN that emits ML-DSA *Shamir* s1-shares is the research-blocked
+//     Part-2 problem (naive_additive_seta_obstruction.go computes the
+//     obstruction). The realized dealerless keygen is Mithril RSS
+//     (mithril_rss.go): its short replicated shares drive the sibling
+//     hyperball no-reconstruct signer (mithril_rss_hyperball.go). The
+//     trusted-dealer s1-share keygen has been REMOVED; this file is
+//     no-RECONSTRUCT at SIGN time regardless of how the shares were dealt.
 //   - The joint nonce ȳ is established by DealNonceMPCDebug, a stand-in
 //     for the validator NonceMPC. It reveals the joint commitment w to the
 //     harness — exactly the leak production must avoid (PULSAR-V13-W-LEAK).
@@ -136,18 +140,6 @@ type AlgSetup struct {
 	// attributable blame). Public, hiding (MLWE) — carries no secret.
 	s1ShareCommit map[uint32][]byte
 }
-
-// DealAlgShares (the Part-1 TRUSTED-DEALER s1-share keygen) has been RIPPED
-// OUT of the production surface. It expanded the seed and formed the master
-// key for the duration of one call — a centralized-trust genesis. It now
-// lives ONLY in the test/bootstrap file bootstrap_dealer_test.go (a
-// `_test.go` file, so it is uncompilable into any production binary) where
-// it seeds the no-reconstruct SIGNING tests. The production no-reconstruct
-// SIGN path (DistributedBCCSigner / AggregateBCC, below) never forms s1,
-// the seed, or sk. A genuinely DEALERLESS s1-share keygen is the
-// research-blocked Part-2 problem — see naive_additive_seta_obstruction.go
-// (DealerlessMLDSADKG, COMPUTED obstruction; Mithril short-replicated
-// shares ia.cr/2026/013 is the adoption target).
 
 // shamirSharePolyVecGFq shares each coefficient of secret (a length-L
 // poly-vector, coefficients already normalized to [0,q)) with a fresh
