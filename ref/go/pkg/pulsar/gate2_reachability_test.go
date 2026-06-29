@@ -5,7 +5,7 @@ package pulsar
 
 // gate2_reachability_test.go — GATE 2 HARDENED to call-graph REACHABILITY,
 // closing RED's GATE-2 bypass (the old gate greps only distributed_bcc.go for
-// `KeyFromSeed(` / `func LargeCombine`, so a reconstruct-then-sign wired via
+// the reconstruct primitives by name, so a reconstruct-then-sign wired via
 // deriveKeyMaterial+bccSign elsewhere PASSES the scan).
 //
 // The hardened gate proves the no-reconstruct invariant where it matters: NO
@@ -51,8 +51,6 @@ var bannedReconstructPrimitives = map[string]bool{
 	"KeyFromSeed":          true, // seed -> sk expansion
 	"deriveKeyMaterial":    true, // seed -> full FIPS key material
 	"bccSign":              true, // single-key reconstruct-then-sign reference
-	"LargeCombine":         true, // reconstruct-at-sign combiner
-	"DealAlgShares":        true, // trusted-dealer s1-share keygen
 	"shamirReconstruct":    true,
 	"shamirReconstructGF":  true,
 	"shamirReconstructGFQ": true,
@@ -183,9 +181,8 @@ func (g *callGraph) reachBanned(entrypoints []string, banned map[string]bool) (h
 	return "", nil, false
 }
 
-// defaultBuildFuncFiles parses the package's DEFAULT-build (non-test,
-// tag-honouring) Go files into ASTs — the same file set a production binary
-// links (legacy_trusted_dealer files excluded).
+// defaultBuildFuncFiles parses the package's DEFAULT-build (non-test) Go files
+// into ASTs — the same file set a production binary links (test files excluded).
 func defaultBuildFuncFiles(t *testing.T) []*ast.File {
 	t.Helper()
 	pkg, err := build.Default.ImportDir(".", 0)

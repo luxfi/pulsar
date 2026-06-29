@@ -93,6 +93,92 @@ type bccFixture struct {
 	idset     *testIdentitySet // per-validator identity layer (authenticated partials)
 }
 
+// buildAlgShareFixture is the no-reconstruct SIGNING ceremony's TEST FIXTURE: it
+// hands each committee member one Shamir GF(q) s1-share so the
+// DistributedBCCSigner / AggregateBCC tests have a key to sign with. It is NOT a
+// production keygen.
+//
+// The production dealerless keygen is Mithril RSS (mithril_rss.go); the
+// production SIGN path (DistributedBCCSigner / AggregateBCC) never forms s1, the
+// seed, or sk — GATE-1/GATE-2 prove that structurally. Testing a *threshold
+// signer* inherently requires the committee to already hold shares, so this
+// fixture samples one ordinary (small-norm, S_η) ML-DSA key in-process — the
+// god-view a _test.go file exists for — and Shamir-shares s1 over GF(q). The
+// no-reconstruct property under test is a property of SIGNING and is independent
+// of how the shares were dealt, so a normal ML-DSA key keeps the fixture
+// byte-faithful to a real signing key.
+//
+// seed is the fixture key's master seed; pass a fresh random seed per fixture
+// and wipe the caller's copy.
+func buildAlgShareFixture(params *Params, committee []NodeID, threshold int, seed [SeedSize]byte) (*AlgSetup, []*AlgShare, error) {
+	if err := params.Validate(); err != nil {
+		return nil, nil, err
+	}
+	if _, _, _, ok := bccParams(params.Mode); !ok {
+		// BCC/CEF (and therefore this no-reconstruct signer) is proven only for
+		// ML-DSA-65/87 (the ‖c·t0‖∞ < γ2 scope). Refuse other sets.
+		return nil, nil, ErrBCCParamSet
+	}
+	n := len(committee)
+	if threshold < 1 || n < threshold {
+		return nil, nil, ErrInvalidThreshold
+	}
+	K, L, _ := modeShape(params.Mode)
+
+	km, err := deriveKeyMaterial(params.Mode, &seed)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Public setup: the group public key, matrix A, t1, tr, rho. No secret.
+	setup := &AlgSetup{
+		Mode: params.Mode,
+		Pub:  &PublicKey{Mode: params.Mode, Bytes: append([]byte(nil), km.pub...)},
+		rho:  km.rho,
+		tr:   km.tr,
+		t1:   make(polyVec, K),
+		a:    make([]polyVec, K),
+	}
+	copy(setup.t1, km.t1)
+	for i := 0; i < K; i++ {
+		setup.a[i] = append(polyVec(nil), km.a[i]...)
+	}
+
+	// Deterministic, non-zero, distinct GF(q) eval points per party.
+	evalPoints := make([]uint32, n)
+	seen := make(map[uint32]struct{}, n)
+	for i, id := range committee {
+		x := EvalPointFromIDQ(id)
+		if _, dup := seen[x]; dup {
+			return nil, nil, ErrDuplicateEvalPoint
+		}
+		seen[x] = struct{}{}
+		evalPoints[i] = x
+	}
+
+	// Shamir-share s1 coefficient-wise over GF(q): Σ_p λ_p · share_p == s1.
+	s1Norm := make(polyVec, L)
+	for l := 0; l < L; l++ {
+		s1Norm[l] = km.s1[l]
+		s1Norm[l].normalize() // [q-η, q+η] → [0, q)
+	}
+	perParty, err := shamirSharePolyVecGFq(s1Norm, evalPoints, threshold, rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	shares := make([]*AlgShare, n)
+	for i := range committee {
+		shares[i] = &AlgShare{
+			NodeID:    committee[i],
+			EvalPoint: evalPoints[i],
+			S1Share:   perParty[i],
+			Mode:      params.Mode,
+		}
+	}
+	return setup, shares, nil
+}
+
 func newBCCFixture(t *testing.T, mode Mode, n, threshold int) *bccFixture {
 	t.Helper()
 	params := MustParamsFor(mode)
@@ -106,14 +192,14 @@ func newBCCFixture(t *testing.T, mode Mode, n, threshold int) *bccFixture {
 
 	var seed [SeedSize]byte
 	if _, err := rand.Read(seed[:]); err != nil {
-		t.Fatalf("master seed entropy: %v", err)
+		t.Fatalf("fixture seed entropy: %v", err)
 	}
-	setup, shares, err := DealAlgShares(params, committee, threshold, seed, rand.Reader)
-	for i := range seed { // wipe our copy of the master seed immediately
+	setup, shares, err := buildAlgShareFixture(params, committee, threshold, seed)
+	for i := range seed { // wipe our copy of the fixture seed immediately
 		seed[i] = 0
 	}
 	if err != nil {
-		t.Fatalf("DealAlgShares: %v", err)
+		t.Fatalf("buildAlgShareFixture: %v", err)
 	}
 
 	// Sort shares ascending by NodeID so quorum[0] (the aggregator) is
