@@ -21,7 +21,7 @@ import (
 
 	"github.com/luxfi/lattice/v7/ring"
 
-	"github.com/luxfi/pulsar/ref/go/pkg/pulsar/gpu"
+	"github.com/luxfi/pulsar/pkg/pulsar/gpu"
 )
 
 // TestUseAcceleratorIdempotent — opting in twice is harmless and leaves
