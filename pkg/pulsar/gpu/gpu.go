@@ -14,7 +14,7 @@
 // # IMPORT-PATH DISCIPLINE — NIST-CLEAN REFERENCE
 //
 // The pulsar NIST reference implementation lives at the parent import
-// path github.com/luxfi/pulsar/ref/go/pkg/pulsar. That package's
+// path github.com/luxfi/pulsar/pkg/pulsar. That package's
 // import graph carries ZERO dependency on luxfi/lattice/v7 — its
 // only external imports are encoding/binary, crypto/rand,
 // crypto/elliptic, golang.org/x/crypto/sha3, and the standard library.
@@ -22,7 +22,7 @@
 // GPU plumbing.
 //
 // This subpackage is a SEPARATE import path —
-// github.com/luxfi/pulsar/ref/go/pkg/pulsar/gpu — that consumers
+// github.com/luxfi/pulsar/pkg/pulsar/gpu — that consumers
 // reach for explicitly when they want to opt into the shared
 // dispatcher. Compiling the reference (go test ./ref/go/pkg/pulsar/)
 // does not transitively pull this subpackage.
