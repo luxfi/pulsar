@@ -48,13 +48,40 @@ type RoundSigner interface {
 
 var ErrInsufficientSigners = errors.New("pulsar: fewer valid partials than threshold")
 
+// ErrPartyIDOutOfRange means a Partial names a PartyID above MaxCanonicalPartyID,
+// i.e. one that would drive an absurd signer-bitmap allocation.
+var ErrPartyIDOutOfRange = errors.New("pulsar: partyID exceeds MaxCanonicalPartyID")
+
+// MaxCanonicalPartyID is a hard defensive ceiling on PartyID. The signer
+// bitmap is sized at (maxPartyID/8+1) bytes, so an unbounded uint32 PartyID
+// (up to ~512MiB from a single MaxUint32) is a memory-exhaustion DoS.
+//
+// This cap bounds the bitmap allocation to at most 128 KiB regardless of
+// input. It is deliberately far above any real validator set — Lux consensus
+// runs hundreds to low thousands of validators — so it never rejects
+// legitimate PartyIDs, while killing the DoS. It is NOT a substitute for the
+// consumer's own validator-set bound (consensus PulsarRoundSigner.Finalize
+// bounds PartyID by the exact ValidatorSetSize before calling here); this is
+// orthogonal library-level defense-in-depth that needs no external context
+// and keeps CanonicalSignerSet's signature stable for existing callers.
+const MaxCanonicalPartyID = 1 << 20 // 1,048,576 -> bitmap <= 128 KiB
+
 // CanonicalSignerSet picks the deterministic first-threshold valid partials
 // (sorted by PartyID) so an aggregator cannot grind the signer subset — hence
 // z, the hint, and the final signature bytes — by choosing among valid sets.
 // Returns the chosen partials and the signer bitmap.
+//
+// Every partial in valid is checked against MaxCanonicalPartyID BEFORE the
+// sort or the bitmap allocation, so a hostile out-of-range PartyID is
+// rejected up front and can never size an allocation.
 func CanonicalSignerSet(valid []Partial, threshold int) ([]Partial, []byte, error) {
 	if len(valid) < threshold {
 		return nil, nil, ErrInsufficientSigners
+	}
+	for _, p := range valid {
+		if p.PartyID >= MaxCanonicalPartyID {
+			return nil, nil, ErrPartyIDOutOfRange
+		}
 	}
 	cp := append([]Partial(nil), valid...)
 	sort.Slice(cp, func(i, j int) bool { return cp[i].PartyID < cp[j].PartyID })
