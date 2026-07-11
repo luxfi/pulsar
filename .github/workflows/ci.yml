@@ -13,7 +13,7 @@ permissions:
 jobs:
   go-test:
     name: Go reference impl + KAT + Class N1 interop
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -35,7 +35,7 @@ jobs:
 
   spec-pdf:
     name: spec PDF build
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -61,7 +61,7 @@ jobs:
 
   high-assurance:
     name: Jasmin type-check + EasyCrypt admit budget + EC compile
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -131,7 +131,7 @@ jobs:
     # every push. Regression → CI red.
     name: jasmin-ct on threshold layer (blocking)
     needs: high-assurance
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -173,7 +173,7 @@ jobs:
     # `continue-on-error: true` to flip this job to blocking.
     name: jasmin-ct on libjade ML-DSA-65 sign (tracked allowed-failure, #2)
     needs: high-assurance
-    runs-on: ubuntu-latest
+    runs-on: lux-build-amd64
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
