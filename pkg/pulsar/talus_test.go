@@ -5,7 +5,7 @@ package pulsar
 
 // talus_test.go — multi-node proof harness for the TALUS construction.
 //
-// Pulsar-MPC profile: separate per-node state + an in-memory message bus. The
+// PulsarPC profile: separate per-node state + an in-memory message bus. The
 // harness proves, end to end:
 //   - dealerless Shamir Nonce DKG: no node holds the joint nonce ȳ;
 //   - CEF distributed commitment: each node computes its own g_i = A·λ_i·y_i;
@@ -380,7 +380,7 @@ func TestTalus_SharedRandomBit(t *testing.T) {
 	}
 }
 
-// runTalusMPCCeremony drives the full Pulsar-MPC ceremony over a bus: dealerless
+// runTalusMPCCeremony drives the full PulsarPC ceremony over a bus: dealerless
 // nonce DKG → per-node CEF commitment shares → CEFComputeW1 → one z-broadcast
 // round → mandatory release gate. Retries with a FRESH dealerless nonce on a
 // non-boundary-clear (hint) rejection.
@@ -487,7 +487,7 @@ func runTalusMPCCeremony(t *testing.T, f *bccFixture, q int, sid [32]byte, ctx, 
 	return nil, errors.New("no acceptance within MaxRestart dealerless nonces")
 }
 
-// TestTalus_MPC_EndToEnd_StockVerify is the headline Pulsar-MPC proof: a full
+// TestTalus_MPC_EndToEnd_StockVerify is the headline PulsarPC proof: a full
 // dealerless ceremony whose aggregated signature verifies under the UNMODIFIED
 // stock FIPS 204 verifier, with single-share custody and no joint-nonce/no-w
 // reconstruction.

@@ -75,7 +75,7 @@ additive-nonce threshold ML-DSA is impossible (HighBits/r0/carry rounding is
 non-linear; no homomorphic nonce commitment exists); TALUS routes around it
 with the BCC (Boundary Clearance Condition) + CEF + dealerless nonce DKG.
 
-- **Two profiles.** **Pulsar-TEE** — a TEE-backed `w1` source. **Pulsar-MPC** —
+- **Two profiles.** **Pulsar-TEE** — a TEE-backed `w1` source. **PulsarPC** —
   TEE-free, honest-majority (N ≥ 2T−1); no node forms the joint nonce `ȳ` or
   the commitment `w`. The emitted signature is byte-identical across profiles.
 - **W-LEAK closed (semi-honest, simulation-proven).** The REAL CSCP

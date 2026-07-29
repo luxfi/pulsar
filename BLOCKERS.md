@@ -525,7 +525,7 @@ item 2 RESEARCH-BLOCKED with a computed obstruction):**
     holds ȳ, computes w1 directly, and CAN pre-filter BCC offline
     (`TalusTEEComputeW1`; TEE attestation binding is the OPTIONAL luxfi/tee
     extension via `attest.go AttestationContext`, never baked into core).
-    **Pulsar-MPC** = TEE-free, fully distributed, no node forms ȳ or w;
+    **PulsarPC** = TEE-free, fully distributed, no node forms ȳ or w;
     honest-majority N≥2T−1 for T≥3 (`TalusProfileAllows`). The online path
     and emitted signature are byte-identical across profiles.
 
@@ -541,7 +541,7 @@ item 2 RESEARCH-BLOCKED with a computed obstruction):**
     no suite string routes a Pulsar leg to the wrong verifier.
 
   - **Headline proof.** `TestTalus_MPC_EndToEnd_StockVerify` /
-    `_Mode87`: a full multi-node Pulsar-MPC ceremony over a message bus
+    `_Mode87`: a full multi-node PulsarPC ceremony over a message bus
     (dealerless DKG → per-node commitment shares → CEF w1 → one z-broadcast
     round → release gate) produces a signature that verifies under the
     UNMODIFIED stock `cloudflare/circl` `mldsa{65,87}.Verify`, with

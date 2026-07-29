@@ -65,7 +65,7 @@ var (
 // Class N1 manifesto: this function MUST remain a thin dispatch over
 // the FIPS 204 verifier. Adding logic here breaks output
 // interchangeability with single-party FIPS 204 — the whole point
-// of the Pulsar.M variant.
+// of the Pulsar variant.
 func Verify(params *Params, groupPubkey *PublicKey, message []byte, sig *Signature) error {
 	return VerifyCtx(params, groupPubkey, message, nil, sig)
 }

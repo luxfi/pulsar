@@ -25,7 +25,7 @@ shares); the *algorithm* never reconstructs `w`/`w0`, faithfully proven, but
 this is NOT yet a networked/deployed distributed MPC and the malicious-secure
 layer is unbuilt.
 
-- **Two profiles.** **Pulsar-TEE** (TEE-backed `w1` source) and **Pulsar-MPC**
+- **Two profiles.** **Pulsar-TEE** (TEE-backed `w1` source) and **PulsarPC**
   (honest-majority N ≥ 2T−1, enforced by `TalusMinPartiesMPC` / `newCSCPCtx` /
   `cscpSecureHighBitsVec` / `bgwMulShares`). The emitted signature is
   byte-identical across profiles.
