@@ -25,7 +25,7 @@ downstream system points here for the variant table.
 variant & repo (target) & lattice basis & hash family (canonical) &
   FIPS 204 verifier interchange? & NIST MPTC class & status \\
 \midrule
-\textbf{Pulsar} (was Pulsar.M / pulsar) &
+\textbf{Pulsar} (was Pulsar / pulsar) &
   \texttt{github.com/luxfi/pulsar} &
   Module-LWE ($\Rq^k$) &
   SHA-3 / cSHAKE256 (SP 800-185) &
@@ -54,7 +54,7 @@ variant & repo (target) & lattice basis & hash family (canonical) &
 family. The Lux fork was originally released under the code-name
 \texttt{Nasua}; the formal-paper name \texttt{Annulus} replaced it
 at the academic-archive cut. Annulus tracks the Corona primitive
-of Boschini et~al.~\cite{boschini2024corona}, which builds on
+of Boschini et~al.~\cite{boschini2024ringtail}, which builds on
 the Raccoon Fiat--Shamir-without-rejection template~\cite{raccoon2024}.
 Annulus is \emph{not enabled} in Lux production and the repository
 is archived (no further academic-level changes).
@@ -117,7 +117,7 @@ unmodified FIPS~204 ML-DSA.Verify. The latter is the single
 highest-value property of the family.
 \item \textbf{NIST submission posture} --- see Class column above.
 \item \textbf{Production maturity} --- Pulsar.R has a hardened
-reshare path, KAT suite, deployed code. Pulsar.M has a complete spec
+reshare path, KAT suite, deployed code. Pulsar has a complete spec
 (\texttt{spec/pulsar.tex} plus \texttt{parameters.tex},
 \texttt{system-model.tex}, \texttt{security-games.tex}), a working
 Go reference (single-party and threshold paths, both
@@ -142,7 +142,7 @@ shared \texttt{pulsar-test/} and \texttt{pulsar-spec-common/} set of
 artifacts both submissions reference.
 \item \textbf{Cross-validates the protocol skeleton.} A reviewer
 attacking the Pedersen DKG soundness in Pulsar.R is also attacking
-it in Pulsar.M. Soundness arguments compose; reviewers don't have to
+it in Pulsar. Soundness arguments compose; reviewers don't have to
 redo work.
 \item \textbf{Demonstrates orthogonality.} Both submissions running
 on the same 2-round structure with different lattice bases is itself
@@ -161,7 +161,7 @@ pre-paid.
 \small
 \begin{tabular}{p{4.0cm}p{2.5cm}p{3.5cm}p{3.5cm}}
 \toprule
-artifact & shared & Pulsar.R & Pulsar.M \\
+artifact & shared & Pulsar.R & Pulsar \\
 \midrule
 2-round protocol description & shared spec &
   parameterised for $\Rq$ & parameterised for $\Rq^k$ \\
@@ -215,11 +215,12 @@ lifecycle DKG expansions. Always capitalised. Identifier form:
 Naming rules:
 
 \begin{itemize}[leftmargin=*, itemsep=0pt]
-\item Do not write ``Pulsar.M'' or ``Pulsar'' in new prose; both
-are the pre-rebrand legacy names of the M-LWE threshold (now just
-``Pulsar'').
-\item Do not write ``Pulsar.R'' or ``Pulsar-R''; the R-LWE threshold
-is now ``Corona'' --- distinct name, distinct repo.
+\item \textbf{Ringtail} is the published Ring-LWE construction of
+Boschini, Kaviani, Lai, Malavolta, Takahashi and Tibouchi
+(\cite{boschini2024ringtail}). It is their name for their scheme and is
+used whenever the paper is meant. \textbf{Corona} is Lux's
+implementation of it; \textbf{Pulsar} retargets the same two-round
+structure to Module-LWE for FIPS~204.
 \item HashSuiteID byte (per HIP-0077 \S``Lux consensus PQ modes'')
 identifies the \textbf{hash family}, not the variant. Pulsar and
 Corona canonical profiles both use \texttt{HashSuiteSHA3 = 2}. A
@@ -238,7 +239,7 @@ would claim a new HashSuiteID without renaming the variant.
 |   |-- reshare/           <- proactive resharing
 |   |-- hash/              <- Pulsar-SHA3 + Pulsar-BLAKE3 (legacy)
 |   `-- ...
-|-- pulsar/              <- Pulsar.M (M-LWE, FIPS 204-compatible)
+|-- pulsar/              <- Pulsar (M-LWE, FIPS 204-compatible)
 |   |-- ref/go/
 |   |-- spec/              <- own MPTC technical spec PDF
 |   |-- docs/              <- family-architecture moved to spec/
@@ -264,7 +265,7 @@ Per CTO Decision 4 (recorded in this branch's HIP-0077 process
 notes):
 
 \begin{quote}
-Submit BOTH. Pulsar.M leads (Class N1+N4, FIPS~204
+Submit BOTH. Pulsar leads (Class N1+N4, FIPS~204
 verifier-interchangeable, highest strategic value). Pulsar.R parallel
 (Class S1+S4, established production code, demonstrates the family's
 R-LWE branch). Withdrawing either wastes existing work; submitting
@@ -288,13 +289,13 @@ F9 (constant-time reshare), F12 (LIGHT\_MNEMONIC guard)
 \item[$\square$] Pulsar.R MPTC spec doc finalised
 (\texttt{pulsar/spec/pulsar-r.pdf} to be added)
 \item[$\square$] Pulsar.R \texttt{mptc-preview-2026} tag
-\item[$\boxtimes$] Pulsar.M repo bootstrap (\texttt{pulsar/})
-\item[$\square$] Pulsar.M Module-LWE algorithm body in spec (in
+\item[$\boxtimes$] Pulsar repo bootstrap (\texttt{pulsar/})
+\item[$\square$] Pulsar Module-LWE algorithm body in spec (in
 flight via scientist agent)
-\item[$\square$] Pulsar.M reference implementation
-\item[$\square$] Pulsar.M FIPS~204 cross-validation (output
+\item[$\square$] Pulsar reference implementation
+\item[$\square$] Pulsar FIPS~204 cross-validation (output
 interchangeability proof)
-\item[$\square$] Pulsar.M \texttt{mptc-preview-2026} tag
+\item[$\square$] Pulsar \texttt{mptc-preview-2026} tag
 \item[$\square$] Family architecture cross-reference baked into
 HIP-0077
 \end{itemize}
@@ -307,7 +308,7 @@ HIP-0077
 --- defines the PQMode enum that selects which Pulsar variant the
 consensus layer asks for.
 \item HIP-0078 (in flight) --- Q-Chain PQ-rollup. Replaces Z-Chain
-Groth16/BN254 with a PQ-secure SNARK. Pulsar.M's per-validator
+Groth16/BN254 with a PQ-secure SNARK. Pulsar's per-validator
 ML-DSA-65 sigs are the rollup target.
 \item NIST IR 8214C --- \emph{First Call for Multi-Party Threshold
 Schemes} (January 2026, package deadline 2026-Nov-16).

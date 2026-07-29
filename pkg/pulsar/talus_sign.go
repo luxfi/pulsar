@@ -13,7 +13,7 @@ package pulsar
 //
 //	Pulsar-TEE: a trusted coordinator/TEE forms w (DealNonceMPCDebug) and
 //	            publishes w1 + the per-party y-shares. No honest-majority bound.
-//	Pulsar-MPC: the CEF computes w1 over secret-shared ȳ (CEFComputeW1) with no
+//	PulsarPC: the CEF computes w1 over secret-shared ȳ (CEFComputeW1) with no
 //	            node forming w; the y-shares come from the dealerless nonce DKG.
 //
 // This file adds (1) the fail-closed release gate that runs MANDATORY FIPS 204
@@ -88,7 +88,7 @@ type TalusNonceEntry struct {
 //
 // Profile discipline: in Pulsar-TEE only boundary-clear entries are admitted
 // (the TEE pre-filters BCC, ~31.7% yield, so every pooled nonce signs in one
-// online round). In Pulsar-MPC BCC cannot be pre-tested, so entries are admitted
+// online round). In PulsarPC BCC cannot be pre-tested, so entries are admitted
 // unconditionally and a non-clear nonce is consumed + retried when FindHint
 // fails at aggregation (the same ~3.15× preprocessing overhead, online instead
 // of offline).

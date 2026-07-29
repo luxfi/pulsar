@@ -1,17 +1,17 @@
-# Pulsar -- Agent Knowledge Base (formerly Pulsar-M)
+# Pulsar -- Agent Knowledge Base (formerly Pulsar)
 
 **Repository (current)**: github.com/luxfi/pulsar
 **Repository (target)**: github.com/luxfi/pulsar
 **Latest Tag**: v1.2.0
 **Status**: TALUS threshold ML-DSA BUILT; PULSAR-V13-W-LEAK CLOSED (semi-honest, simulation-proven). Not yet FIPS-validated; open residuals = the malicious-secure CSCP layer + a networked MPC deployment (Residual A) and dealerless-key impossibility ⇒ trusted-dealer keygen + Corona-carries-permissionless (Residual B). EasyCrypt + Lean machine-check on host (gate `ec-machine-check.sh`, 14/14); TALUS / no-leak BCC threshold path interop-verified byte-equal under CIRCL + pq-crystals.
 
-## Rename in progress: Pulsar-M → Pulsar
+## Rename in progress: Pulsar → Pulsar
 
 Per the Lux family rebrand, the three threshold libraries are:
 
 | Name | Lattice | Class | Source path going forward |
 |---|---|---|---|
-| **Pulsar** (this repo, was Pulsar-M) | Module-LWE | NIST MPTC N1+N4 | `~/work/lux/pulsar` |
+| **Pulsar** (this repo, was Pulsar) | Module-LWE | NIST MPTC N1+N4 | `~/work/lux/pulsar` |
 | **Corona** (was the prior R-LWE Pulsar) | Ring-LWE | NIST MPTC S1+S4 | `~/work/lux/corona` |
 | **Corona** (unchanged) | Ring-LWE | academic upstream + Lux lifecycle DKG expansions | `~/work/lux/corona` |
 
@@ -153,7 +153,7 @@ Threshold ML-DSA: a two-round lattice kernel + one-round online signing
 FIPS 204 ML-DSA verification**. Targeting NIST MPTC Class N1 (signing) + N4
 (ML keygen / DKG).
 
-Pulsar-M is the Module-LWE sibling of `luxfi/pulsar` (Ring-LWE). Pulsar's
+Pulsar is the Module-LWE sibling of `luxfi/pulsar` (Ring-LWE). Pulsar's
 two-round kernel is transplanted onto ML-DSA-65's polynomial-vector-over-`R_q`
 algebra so the aggregated signature is bit-identical to a single-party
 FIPS 204 signature on the same message + public key; TALUS (v1.2.0) adds
@@ -178,7 +178,7 @@ adding **one-round online signing**. Source: `ref/go/pkg/pulsar/talus*.go`.
   `TestCSCP_LeakFree_Structural` / `TestCSCP_MaskOpen_HidesW` — but in an
   in-process N-party SIMULATION (NOT a networked/deployed MPC, NOT
   malicious-secure). Always describe as **semi-honest, simulation-proven**.
-- **Two profiles.** **Pulsar-TEE** (TEE-backed `w1`) and **Pulsar-MPC**
+- **Two profiles.** **Pulsar-TEE** (TEE-backed `w1`) and **PulsarPC**
   (honest-majority N ≥ 2T−1, enforced by `TalusMinPartiesMPC` / `newCSCPCtx` /
   `cscpSecureHighBitsVec` / `bgwMulShares`). Signature byte-identical across both.
 - **Stock FIPS-204.** A TALUS signature verifies byte-equal under UNMODIFIED
@@ -231,13 +231,13 @@ adding **one-round online signing**. Source: `ref/go/pkg/pulsar/talus*.go`.
 
 - Repo: `v1.2.0` (current; TALUS threshold ML-DSA + PULSAR-V13-W-LEAK closed semi-honest).
 - Pinned by: `luxfi/consensus v1.23.5+` (finality verify path replaces
-  the placeholder Pulsar-M verifier).
+  the placeholder Pulsar verifier).
 
 ## Cross-repo dependencies
 
 - Depends on:
   - `golang.org/x/crypto/sha3` (cSHAKE / KMAC primitives)
-  - `luxfi/crypto/pq/mldsa/mldsa65` (FIPS 204 verifier — Pulsar-M outputs
+  - `luxfi/crypto/pq/mldsa/mldsa65` (FIPS 204 verifier — Pulsar outputs
     must round-trip through it byte-equal)
 - Consumed by:
   - `luxfi/consensus/protocol/quasar` (finality path) — F107/F109 closure.

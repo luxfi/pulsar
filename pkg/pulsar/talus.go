@@ -80,7 +80,7 @@ func (p TalusProfile) String() string {
 	case TalusTEE:
 		return "Pulsar-TEE"
 	case TalusMPC:
-		return "Pulsar-MPC"
+		return "PulsarPC"
 	default:
 		return "Pulsar-unspecified"
 	}

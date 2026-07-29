@@ -16,7 +16,7 @@ points here for the variant table.
 | variant   | repo                              | lattice basis | hash family (canonical)        | FIPS 204 verifier interchange? | NIST MPTC class | status                        |
 |-----------|-----------------------------------|---------------|--------------------------------|--------------------------------|-----------------|-------------------------------|
 | **Pulsar.R**  | `github.com/luxfi/pulsar`     | Ring-LWE (`R_q`)        | SHA-3 / cSHAKE256 (SP 800-185) | no — special threshold-friendly primitive    | Class S1 + S4 | shipping, hardened, MPTC-ready |
-| **Pulsar.M**  | `github.com/luxfi/pulsar`   | Module-LWE (`R_q^k`)    | SHA-3 / cSHAKE256 (SP 800-185) | yes — output is a single FIPS 204 ML-DSA σ   | Class N1 + N4 | bootstrap repo, spec in flight |
+| **Pulsar**  | `github.com/luxfi/pulsar`   | Module-LWE (`R_q^k`)    | SHA-3 / cSHAKE256 (SP 800-185) | yes — output is a single FIPS 204 ML-DSA σ   | Class N1 + N4 | bootstrap repo, spec in flight |
 | `Pulsar.W` (reserved slot) | reserved          | reserved      | reserved                       | reserved                       | reserved        | naming reservation; not specified |
 
 All variants share:
@@ -37,16 +37,16 @@ All variants share:
 
 What differs between variants:
 
-- **Algebra** — Ring-LWE for Pulsar.R, Module-LWE for Pulsar.M. The
+- **Algebra** — Ring-LWE for Pulsar.R, Module-LWE for Pulsar. The
   algebraic shape determines parameter sizes, signature sizes, and the
   structure of the Pedersen commitment scheme.
 - **Verification target** — Pulsar.R verifies under its own verifier
-  (a custom 2-round-aggregated check); Pulsar.M verifies under
+  (a custom 2-round-aggregated check); Pulsar verifies under
   unmodified FIPS 204 ML-DSA.Verify. The latter is the single highest-
   value property of the family.
 - **NIST submission posture** — see Class column above.
 - **Production maturity** — Pulsar.R has a hardened reshare path,
-  KAT suite, deployed code. Pulsar.M has a spec stub and skeleton repo.
+  KAT suite, deployed code. Pulsar has a spec stub and skeleton repo.
 
 ## Why one family
 
@@ -58,7 +58,7 @@ in either Class N or Class S. Submitting two as a coordinated **family**:
    patent disclosure, and IP review build to a shared `pulsar-test/` and
    `pulsar-spec-common/` set of artifacts both submissions reference.
 2. **Cross-validates the protocol skeleton.** A reviewer attacking the
-   Pedersen DKG soundness in Pulsar.R is also attacking it in Pulsar.M.
+   Pedersen DKG soundness in Pulsar.R is also attacking it in Pulsar.
    Soundness arguments compose; reviewers don't have to redo work.
 3. **Demonstrates orthogonality.** Both submissions running on the same
    2-round structure with different lattice bases is itself a security
@@ -71,7 +71,7 @@ in either Class N or Class S. Submitting two as a coordinated **family**:
 
 ## What goes where
 
-| artifact                          | shared       | Pulsar.R                          | Pulsar.M                            |
+| artifact                          | shared       | Pulsar.R                          | Pulsar                            |
 |-----------------------------------|--------------|-----------------------------------|-------------------------------------|
 | 2-round protocol description      | shared spec  | parameterised for `R_q`            | parameterised for `R_q^k`           |
 | Pedersen DKG (proper hiding)      | shared spec  | params for `R_q`                   | params for `R_q^k`                  |
@@ -92,7 +92,7 @@ algorithms in Round 3.
 
 - The umbrella name is **Pulsar**. Always capitalised, no hyphen.
 - A specific variant is **Pulsar.X** where X is one uppercase letter
-  identifying the lattice basis: `Pulsar.R` (Ring-LWE), `Pulsar.M`
+  identifying the lattice basis: `Pulsar.R` (Ring-LWE), `Pulsar`
   (Module-LWE). The dot is part of the name in prose; in identifiers
   the canonical machine form is `pulsar-r`, `pulsar` (lowercase,
   hyphen).
@@ -101,8 +101,8 @@ algorithms in Round 3.
   is a separate academic upstream (`luxfi/corona`) that Pulsar.R
   forks; Pulsar.R is not Corona.
 - HashSuiteID byte (per HIP-0077 §"Lux consensus PQ modes") identifies
-  the **hash family**, not the variant. Pulsar.R and Pulsar.M canonical
-  profiles both use `HashSuiteSHA3 = 2`. A future Pulsar.M with a
+  the **hash family**, not the variant. Pulsar.R and Pulsar canonical
+  profiles both use `HashSuiteSHA3 = 2`. A future Pulsar with a
   different hash family (e.g. SHAKE256 only) would claim a new
   HashSuiteID without renaming the variant.
 
@@ -117,7 +117,7 @@ algorithms in Round 3.
 │   ├── reshare/           ← proactive resharing
 │   ├── hash/              ← Pulsar-SHA3 + Pulsar-BLAKE3 (legacy)
 │   └── ...
-├── pulsar/              ← Pulsar.M (M-LWE, FIPS 204-compatible)
+├── pulsar/              ← Pulsar (M-LWE, FIPS 204-compatible)
 │   ├── ref/go/
 │   ├── spec/              ← own MPTC technical spec PDF
 │   ├── docs/              ← family-architecture.md = THIS file
@@ -140,7 +140,7 @@ which is exactly the orthogonality the family architecture claims.
 
 Per CTO Decision 4 (recorded in this branch's HIP-0077 process notes):
 
-> Submit BOTH. Pulsar.M leads (Class N1+N4, FIPS 204 verifier-interchangeable,
+> Submit BOTH. Pulsar leads (Class N1+N4, FIPS 204 verifier-interchangeable,
 > highest strategic value). Pulsar.R parallel (Class S1+S4, established
 > production code, demonstrates the family's R-LWE branch). Withdrawing
 > either wastes existing work; submitting both forces the team to factor
@@ -158,11 +158,11 @@ via amendments NIST permits in the public-analysis window.
 - [x] Pulsar.R hardening: F8 (no log of secret state), F9 (constant-time reshare), F12 (LIGHT_MNEMONIC guard)
 - [ ] Pulsar.R MPTC spec doc finalised (`pulsar/spec/pulsar-r.pdf` to be added)
 - [ ] Pulsar.R `mptc-preview-2026` tag
-- [x] Pulsar.M repo bootstrap (`pulsar/`)
-- [ ] Pulsar.M Module-LWE algorithm body in spec (in flight via scientist agent)
-- [ ] Pulsar.M reference implementation
-- [ ] Pulsar.M FIPS 204 cross-validation (output interchangeability proof)
-- [ ] Pulsar.M `mptc-preview-2026` tag
+- [x] Pulsar repo bootstrap (`pulsar/`)
+- [ ] Pulsar Module-LWE algorithm body in spec (in flight via scientist agent)
+- [ ] Pulsar reference implementation
+- [ ] Pulsar FIPS 204 cross-validation (output interchangeability proof)
+- [ ] Pulsar `mptc-preview-2026` tag
 - [ ] Family architecture cross-reference baked into HIP-0077
 
 ## See also
@@ -171,7 +171,7 @@ via amendments NIST permits in the public-analysis window.
   — defines the PQMode enum that selects which Pulsar variant the
   consensus layer asks for.
 - HIP-0078 (in flight) — Q-Chain PQ-rollup. Replaces Z-Chain Groth16/BN254
-  with a PQ-secure SNARK. Pulsar.M's per-validator ML-DSA-65 sigs are the
+  with a PQ-secure SNARK. Pulsar's per-validator ML-DSA-65 sigs are the
   rollup target.
 - NIST IR 8214C — *First Call for Multi-Party Threshold Schemes* (January
   2026, package deadline 2026-Nov-16).
