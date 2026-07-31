@@ -1,19 +1,39 @@
 name: CI
 
+# The Go reference implementation, the spec PDF and the high-assurance gate,
+# on the native runners (git.hanzo.ai → git-runner).
+#
+# This replaces .github/workflows/ci.yml. Every one of its five jobs named
+# `runs-on: lux-build-amd64`. No runner on this forge carries that label — the
+# pools are `lux-build-linux-<arch>` — and a job naming a label nothing carries
+# does not fail, it waits. Every push left five jobs queued permanently, and
+# these are among the longest jobs the fleet runs.
+#
+# Nothing else changes: the work here all earns its keep, so it moves across
+# intact onto a label the fleet actually carries.
+
 on:
   push:
     branches: [main]
     tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer commit makes the older run irrelevant. These jobs are expensive
+# enough that queueing them behind each other is how the pool saturates.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   go-test:
     name: Go reference impl + KAT + Class N1 interop
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -35,7 +55,8 @@ jobs:
 
   spec-pdf:
     name: spec PDF build
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -61,7 +82,8 @@ jobs:
 
   high-assurance:
     name: Jasmin type-check + EasyCrypt admit budget + EC compile
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -74,11 +96,11 @@ jobs:
 
       - name: Install system deps (OCaml + Why3 SMT)
         run: |
-          # Ubuntu 24.04 (noble) dropped `alt-ergo` from apt — install via opam
-          # below in the EasyCrypt step. apt only ships SMT solvers + opam base.
-          # libmpfr-dev + libppl-dev are required transitively for the jasmin
-          # opam package (apron → mlgmpidl). opam refuses to invoke apt
-          # interactively in CI, so we preinstall them here.
+          # Ubuntu 24.04 (noble) dropped `alt-ergo` from apt — it is installed
+          # via opam in the EasyCrypt step below. apt only ships SMT solvers and
+          # the opam base. libmpfr-dev + libppl-dev are required transitively by
+          # the jasmin opam package (apron → mlgmpidl), and opam refuses to
+          # invoke apt interactively in CI, so they are preinstalled here.
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             opam ocaml-nox m4 pkg-config libgmp-dev libpcre3-dev \
@@ -102,7 +124,6 @@ jobs:
       - name: Install EasyCrypt (source build)
         run: |
           eval $(opam env --switch=jasmin)
-          # Install alt-ergo via opam (Ubuntu 24.04 dropped the apt package).
           opam install alt-ergo --yes || true
           if ! command -v easycrypt >/dev/null 2>&1; then
             git clone --depth 1 https://github.com/EasyCrypt/easycrypt.git /tmp/easycrypt-src
@@ -123,15 +144,15 @@ jobs:
           bash scripts/check-high-assurance.sh
 
   jasmin-ct-threshold:
-    # BLOCKING. Threshold .jazz files (round1, round2, combine) carry
-    # explicit `#[ct = "..."]` security signatures + targeted
-    # `#declassify` pragmas at the protocol-level public-output
-    # boundaries (rejection bits, c_tilde, aggregates). They MUST
-    # pass `jasmin-ct` (without --infer, signature-checked mode) on
-    # every push. Regression → CI red.
+    # BLOCKING. The threshold .jazz files (round1, round2, combine) carry
+    # explicit `#[ct = "..."]` security signatures and targeted `#declassify`
+    # pragmas at the protocol-level public-output boundaries (rejection bits,
+    # c_tilde, aggregates). They MUST pass `jasmin-ct` in signature-checked
+    # mode (no --infer) on every push. A regression here is CI red.
     name: jasmin-ct on threshold layer (blocking)
     needs: high-assurance
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -157,23 +178,22 @@ jobs:
           done
 
   jasmin-ct-libjade:
-    # Tracked allowed-failure job for the libjade ML-DSA-65 sign
-    # source. Runs jasmin-ct --infer on libjade's sign.jazz; this
-    # currently fails at keygen_inner because libjade upstream does
-    # not yet have the public/secret annotations needed to bridge
-    # the secret seed `random_zeta` through the SHAKE-based PRF to
-    # the public PK components (rho, t1). Closing this requires
-    # libjade-internal CT analysis that we should NOT attempt blind
-    # — incorrect `#declassify` placement in libjade could create
-    # real CT vulnerabilities.
+    # Tracked allowed-failure for the libjade ML-DSA-65 sign source. Runs
+    # jasmin-ct --infer on libjade's sign.jazz; it currently fails at
+    # keygen_inner because libjade upstream lacks the public/secret annotations
+    # needed to bridge the secret seed `random_zeta` through the SHAKE-based PRF
+    # to the public PK components (rho, t1). Closing it requires libjade-internal
+    # CT analysis we should NOT attempt blind — a misplaced `#declassify` in
+    # libjade would create a real CT vulnerability.
     #
     # Tracking: https://github.com/luxfi/pulsar/issues/2
-    # When libjade upstream (or a carefully-audited vendor patch
-    # under jasmin/ml-dsa-65/overlays/) lands the annotations, remove
-    # `continue-on-error: true` to flip this job to blocking.
+    # When libjade upstream (or a carefully audited vendor patch under
+    # jasmin/ml-dsa-65/overlays/) lands the annotations, drop
+    # `continue-on-error` to flip this job to blocking.
     name: jasmin-ct on libjade ML-DSA-65 sign (tracked allowed-failure, #2)
     needs: high-assurance
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
+    timeout-minutes: 60
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
