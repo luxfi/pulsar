@@ -344,6 +344,12 @@ func TestRED_NonceReuse_RecoversS1(t *testing.T) {
 	nonceID2[0] = 0xB2 // different label …
 	relabeled := deal.Cert
 	relabeled.NonceID = nonceID2 // … same W1 (same joint nonce material)
+	// Re-attest the relabeled cert so its clearance QC covers the NEW payload.
+	// This is the strongest relabel — one that also carries a quorum-signed QC —
+	// so the QC guard passes and the single-use ledger is the only thing left to
+	// refuse the second partial. That refusal is exactly what GATE A asserts.
+	relabeled.ClearanceQC = QuorumCert{SignerBitmap: []byte{0xFF}, Signatures: debugSigs([]byte{0xFF})}
+	relabeled.ClearanceQC.PayloadRoot = nonceCertPayloadRoot(&relabeled)
 	signerC, err := NewDistributedBCCSigner(params, setup, qshares[0], quorum, evalPoints, sidB, nil, candidatesB[1], rand.Reader)
 	if err != nil {
 		t.Fatalf("signerC: %v", err)
@@ -431,6 +437,10 @@ func TestRED_PoC_DefaultLedger_NonceReuse_Refused(t *testing.T) {
 	nonceID2[0] = 0xD2
 	relabeled := deal.Cert
 	relabeled.NonceID = nonceID2
+	// Re-attest over the relabeled payload: the QC guard passes, so the per-share
+	// nonce ledger is the only thing that can refuse the second partial.
+	relabeled.ClearanceQC = QuorumCert{SignerBitmap: []byte{0xFF}, Signatures: debugSigs([]byte{0xFF})}
+	relabeled.ClearanceQC.PayloadRoot = nonceCertPayloadRoot(&relabeled)
 	if _, err := drive("poc-default-relabel", "relabel attack", nonceID2, relabeled); err != ErrNonceReused {
 		t.Fatalf("RED PoC NOT FLIPPED (relabel): default-path reuse of the same w1 under a new nonceID returned %v, want ErrNonceReused", err)
 	}
