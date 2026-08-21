@@ -72,6 +72,7 @@ package pulsar
 //     of how the nonce was established and is the load-bearing deliverable.
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -556,12 +557,59 @@ func (d *DistributedBCCSigner) Round1(sessionID, nonceID [32]byte, cert NonceCer
 	if !d.haveY || nonceID != d.nonceID {
 		return SignRound1{}, ErrAlgNoNonceShare
 	}
+	// The cert must be the cert for THIS nonce. Without this the caller may hand
+	// in any cert at all: the y-share is unchanged, so a second cert derives a
+	// second challenge over the SAME share and Round2 releases a second z-partial
+	// against it. Two partials over one share recover the master key.
+	//
+	// Keying the single-use ledger on w1 does not save us — it is what hides the
+	// hole. A different cert carries a different w1, so it reserves a FRESH ledger
+	// entry and the reuse guard never fires; the ledger faithfully records two
+	// first uses of two labels while one secret is spent twice. The guard has to
+	// be here, where the cert meets the share it will be spent against.
+	if cert.NonceID != nonceID {
+		return SignRound1{}, ErrAlgNonceMismatch
+	}
+	// ONE SHARE, ONE BINDING. A second Round1 for this session must present the
+	// SAME cert or none at all.
+	//
+	// The y-share is set once and Round1 does not touch it, so rebinding leaves
+	// the share intact while replacing the challenge derived over it. Round2 then
+	// releases a second z-partial against the same secret under a different c,
+	// and z_A − z_B = (c_A − c_B)·λ·s1_i hands out the share — from there the
+	// master key, and a stock FIPS 204 signature on a message no signer saw.
+	//
+	// The single-use ledger cannot catch this. It keys on the packed w1, so a
+	// swapped cert carries a different w1, reserves a FRESH entry, and the reuse
+	// guard never fires: the ledger records two first uses of two labels while one
+	// secret is spent twice. The guard belongs here, where a cert meets the share
+	// it will be spent against.
+	if d.haveC && !bytes.Equal(d.w1Packed, cert.W1) {
+		return SignRound1{}, ErrAlgNonceMismatch
+	}
 	if cert.Mode != d.params.Mode {
 		return SignRound1{}, ErrModeMismatch
 	}
 	if _, _, _, ok := bccParams(cert.Mode); !ok {
 		return SignRound1{}, ErrBCCParamSet
 	}
+	// A cert is a quorum's statement that this nonce cleared the boundary, and
+	// until now nothing checked the statement on the path that SPENDS the share:
+	// VerifyNonceCert is exported, complete, and called by nothing.
+	//
+	// What can be settled from here is settled here — a missing QC, and a QC that
+	// does not cover this cert's own payload. Both are self-contained: the cert
+	// carries everything needed to catch them.
+	if cert.ClearanceQC.IsEmpty() {
+		return SignRound1{}, ErrMissingClearanceQC
+	}
+	if cert.ClearanceQC.PayloadRoot != nonceCertPayloadRoot(&cert) {
+		return SignRound1{}, ErrBadClearanceQC
+	}
+	// NOT settled here: the QC's weight and whether its bitmap selects only
+	// validators. Both need the VALIDATOR SET SIZE, and a signer knows only its
+	// own signing quorum — inventing that number would reject honest certs. The
+	// caller that holds the set must run VerifyNonceCert before Round1.
 	K, _, _ := modeShape(d.params.Mode)
 	gamma2, _, _, _ := bccParams(d.params.Mode)
 	w1, err := unpackW1Vec(cert.W1, gamma2, K)
