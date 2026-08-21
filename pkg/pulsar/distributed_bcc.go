@@ -679,6 +679,17 @@ func (d *DistributedBCCSigner) Round2(r1 SignRound1, in PartialInput) (Partial, 
 	if err := ReserveNonceTicket(ledger, ticket); err != nil {
 		return Partial{}, err
 	}
+	// The ticket keys on the PUBLIC w1 — a label a caller can swap. The quantity
+	// this response actually spends is the SECRET share y_i: a cert minted over a
+	// different joint nonce carries a different w1, reserves a fresh w1 entry, and
+	// would let the SAME y_i be spent again under a fresh challenge, at which point
+	// z_i^A − z_i^B = (c_A − c_B)·λ_i·s1_i hands out the share and then the master
+	// key. Reserve the share itself in the same per-share ledger so one y_i yields
+	// one response whatever cert it is shown; the w1 entry still deduplicates a
+	// relabeled or cross-committee reuse of one joint nonce (nonceMaterialKey).
+	if err := ledger.Reserve(nonceShareKey(d.yShare), ticket.Binding); err != nil {
+		return Partial{}, err
+	}
 
 	// z_i = partialLinearMap(λ_i, ĉ, y_i, s1_i) — byte-identical to the image
 	// the proof certifies, so the partial and its proof are consistent.
