@@ -29,16 +29,25 @@ package pulsar
 //	A NonceLedger records, per VALIDATOR KEY-SHARE, the nonce material that has
 //	already been consumed. Before a signer emits its secret z-partial it
 //	RESERVES the nonce; a second reservation of the same material is rejected
-//	FAIL-CLOSED (ErrNonceReused) and NO partial is produced. The dedup key is
-//	derived from the nonce COMMITMENT w1 (not the nonceID label), so relabeling
-//	the same joint nonce under a fresh nonceID does not bypass the guard:
+//	FAIL-CLOSED (ErrNonceReused) and NO partial is produced. Two keys are
+//	reserved, one per way the same secret can be spent twice:
 //
-//	    key = SHAKE256("PULSAR/nonce-single-use/v1" ‖ w1)
+//	    w1 key    = SHAKE256("PULSAR/nonce-single-use/v1" ‖ w1)
+//	    share key = SHAKE256("PULSAR/nonce-share-single-use/v1" ‖ y_i)
 //
-//	The key is w1 ALONE — NOT committeeID (RED LOW): the ledger is already
-//	per-validator-share, so the SAME joint nonce reused across two committees
-//	that share the victim collapses to ONE key and is deduped (a committeeID in
-//	the key would split it and let the second use through).
+//	The w1 key is the nonce COMMITMENT (not the nonceID label), so relabeling the
+//	same joint nonce under a fresh nonceID does not bypass the guard. It is w1
+//	ALONE — NOT committeeID (RED LOW): the ledger is already per-validator-share,
+//	so the SAME joint nonce reused across two committees that share the victim
+//	collapses to ONE key and is deduped (a committeeID in the key would split it
+//	and let the second use through).
+//
+//	The share key is the SECRET nonce share y_i the response actually spends. w1
+//	is a public label a caller can swap: a cert minted over a different joint
+//	nonce carries a different w1 and reserves a fresh w1 entry, but the response
+//	z_i = λ_i·y_i + c·λ_i·s1_i is over the SAME y_i under a fresh challenge, and
+//	z_i^A − z_i^B = (c_A − c_B)·λ_i·s1_i reveals the share. The share key refuses
+//	that second spend where the w1 key cannot see it (see nonceShareKey).
 //
 //	One nonce ⇒ one signature, ever. Even ONE honest member refusing the
 //	second use starves the attacker of that member's z_B partial, so the
@@ -394,6 +403,38 @@ func nonceMaterialKey(w1Packed []byte) [32]byte {
 	h := sha3.NewShake256()
 	_, _ = h.Write([]byte("PULSAR/nonce-single-use/v1"))
 	_, _ = h.Write(w1Packed)
+	var out [32]byte
+	_, _ = h.Read(out[:])
+	return out
+}
+
+// nonceShareKey derives the single-use dedup key from the SECRET per-party nonce
+// share y_i a signer holds. It is the companion to nonceMaterialKey: w1 is the
+// public LABEL a response is issued under, y_i is the secret the response SPENDS
+// (z_i = λ_i·y_i + c·λ_i·s1_i). Two certs minted over different joint nonces carry
+// different w1 and reserve different w1 keys, yet a caller can present both to a
+// signer holding ONE y_i; the two responses over that one share under two
+// challenges give z_i^A − z_i^B = (c_A − c_B)·λ_i·s1_i and the share falls out —
+// then the master key. Keying a reservation on y_i itself refuses the second
+// spend: the share is identical across the swapped certs (they share it) and
+// distinct across legitimately different nonces (each is dealt its own share).
+//
+// Committee-INDEPENDENT for the same reason as nonceMaterialKey: the ledger is
+// already per-share, so a bare share hash keeps one share to ONE key across
+// committees. The two keys divide the labour — nonceMaterialKey dedups a
+// relabeled or cross-committee reuse of one joint nonce (same w1); nonceShareKey
+// dedups a swapped cert over one share (same y_i). The one-way SHAKE256 digest
+// leaks nothing about y_i.
+func nonceShareKey(yShare polyVec) [32]byte {
+	h := sha3.NewShake256()
+	_, _ = h.Write([]byte("PULSAR/nonce-share-single-use/v1"))
+	var u4 [4]byte
+	for l := range yShare {
+		for j := 0; j < mldsaN; j++ {
+			binary.BigEndian.PutUint32(u4[:], yShare[l][j])
+			_, _ = h.Write(u4[:])
+		}
+	}
 	var out [32]byte
 	_, _ = h.Read(out[:])
 	return out
