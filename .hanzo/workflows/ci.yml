@@ -32,7 +32,7 @@ concurrency:
 jobs:
   go-test:
     name: Go reference impl + KAT + Class N1 interop
-    runs-on: [lux-build-linux-amd64]
+    runs-on: [linux-amd64]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +55,7 @@ jobs:
 
   spec-pdf:
     name: spec PDF build
-    runs-on: [lux-build-linux-amd64]
+    runs-on: [linux-amd64]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
 
   high-assurance:
     name: Jasmin type-check + EasyCrypt admit budget + EC compile
-    runs-on: [lux-build-linux-amd64]
+    runs-on: [linux-amd64]
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -151,7 +151,7 @@ jobs:
     # mode (no --infer) on every push. A regression here is CI red.
     name: jasmin-ct on threshold layer (blocking)
     needs: high-assurance
-    runs-on: [lux-build-linux-amd64]
+    runs-on: [linux-amd64]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -192,7 +192,7 @@ jobs:
     # `continue-on-error` to flip this job to blocking.
     name: jasmin-ct on libjade ML-DSA-65 sign (tracked allowed-failure, #2)
     needs: high-assurance
-    runs-on: [lux-build-linux-amd64]
+    runs-on: [linux-amd64]
     timeout-minutes: 60
     continue-on-error: true
     steps:
