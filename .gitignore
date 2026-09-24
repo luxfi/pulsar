@@ -53,3 +53,8 @@ test/interoperability/pq_crystals/obj.*/
 test/interoperability/pq_crystals/libpqcrystals_*.a
 test/interoperability/pq_crystals/libpqcrystals_*.so
 test/interoperability/pq_crystals/libpqcrystals_*.dylib
+
+# Local symlinks to LLM.md
+CLAUDE.md
+AGENTS.md
+GEMINI.md
